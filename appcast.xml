@@ -7,6 +7,24 @@
         <language>en</language>
 
         <item>
+            <title>0.1.1</title>
+            <pubDate>Thu, 14 May 2026 20:44:50 +0200</pubDate>
+            <sparkle:version>2</sparkle:version>
+            <sparkle:shortVersionString>0.1.1</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[
+                <ul>
+                    <li>Quieter logs — no more "Please use SettingsLink" warnings on Preferences open.</li>
+                </ul>
+            ]]></description>
+            <enclosure
+                url="https://github.com/pernielsentikaer/swiitch/releases/download/v0.1.1/Swiitch-v0.1.1.zip"
+                length="1863761"
+                type="application/octet-stream"
+                sparkle:edSignature="zA1XXqZ+wHtBbXeOTjZTWmnE5ULltJ7bxaz8AD1LrLAEWN19iF/6SGxqZARUUGKFoGTIcKProyTXWeiFKBHxCg==" />
+        </item>
+
+        <item>
             <title>0.1.0</title>
             <pubDate>Thu, 14 May 2026 20:15:38 +0200</pubDate>
             <sparkle:version>1</sparkle:version>
