@@ -11,14 +11,13 @@ struct SwiitchApp: App {
             systemImage: "rectangle.stack",
             isInserted: $showMenuBarIcon
         ) {
-            // SettingsLink is the macOS 14+ SwiftUI way to open the Settings scene.
-            // The older `NSApp.sendAction(Selector(("showSettingsWindow:")))` selector
-            // is deprecated and prints "Please use SettingsLink for opening the
-            // Settings scene." every time it's called.
-            SettingsLink {
-                Text("Preferences…")
-            }
-            .keyboardShortcut(",", modifiers: .command)
+            // Route Preferences through our own NSWindow-hosted controller. The
+            // SwiftUI `Settings` scene + `showSettingsWindow:` selector both log
+            // "Please use SettingsLink for opening the Settings scene." even when
+            // invoked from a SettingsLink itself in some scenarios. Owning the
+            // window outright sidesteps the warning entirely.
+            Button("Preferences…") { PreferencesWindowController.shared.show() }
+                .keyboardShortcut(",", modifiers: .command)
 
             Button("Check for Updates…") { UpdateController.shared.checkForUpdates() }
             Button("Show Welcome…") { WelcomeWindowController.shared.show() }
@@ -27,21 +26,5 @@ struct SwiitchApp: App {
                 .keyboardShortcut("q", modifiers: .command)
         }
         .menuBarExtraStyle(.menu)
-
-        Settings {
-            PreferencesView()
-        }
-    }
-
-    static func openPreferences() {
-        if NSApp.activationPolicy() == .prohibited {
-            NSApp.setActivationPolicy(.accessory)
-        }
-        NSApp.activate(ignoringOtherApps: true)
-        if #available(macOS 14, *) {
-            NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
-        } else {
-            NSApp.sendAction(Selector(("showPreferencesWindow:")), to: nil, from: nil)
-        }
     }
 }

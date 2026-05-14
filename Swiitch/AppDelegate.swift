@@ -55,7 +55,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Dock click / Finder double-click / `open` while we're already running.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         if !flag {
-            SwiitchApp.openPreferences()
+            PreferencesWindowController.shared.show()
         }
         return true
     }
