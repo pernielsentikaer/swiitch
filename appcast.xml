@@ -8,8 +8,8 @@
 
         <item>
             <title>0.1.2</title>
-            <pubDate>Thu, 14 May 2026 21:05:00 +0200</pubDate>
-            <sparkle:version>3</sparkle:version>
+            <pubDate>Thu, 14 May 2026 21:06:57 +0200</pubDate>
+            <sparkle:version>6</sparkle:version>
             <sparkle:shortVersionString>0.1.2</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
             <description><![CDATA[
@@ -18,13 +18,14 @@
                     <li>Accessibility permission is now monitored continuously. If you revoke it while Swiitch is running, the Welcome window auto-opens with a one-click path back to System Settings; re-granting reinstalls the hotkey without restart.</li>
                     <li>Default shortcut for "current app's windows" changed from ⌥+\` to ⌥+Tab.</li>
                     <li>Preferences → About now has a Check for Updates button.</li>
+                    <li>Build numbers now derive from git commit count so Sparkle stops offering "0.1.2 → 0.1.2" updates after every install.</li>
                 </ul>
             ]]></description>
             <enclosure
                 url="https://github.com/pernielsentikaer/swiitch/releases/download/v0.1.2/Swiitch-v0.1.2.zip"
-                length="1865025"
+                length="1865019"
                 type="application/octet-stream"
-                sparkle:edSignature="BC0DZdfS4cp6wcMlR8/pdogrgM+08qaUBoCbZ8rKVEPUI/KWsK+sjeLumb776tptvu+Oc4CUyx0DjWAB7qkaAQ==" />
+                sparkle:edSignature="qNDTNBfp0KhtgY0Q8yLaoHH5pDzHmlb76h5vQUI2cy1LmJs5bDwHf9zHUWReBOV3uSYkB7FavYi8d2/BliQlBw==" />
         </item>
 
         <item>

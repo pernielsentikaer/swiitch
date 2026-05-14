@@ -30,6 +30,13 @@ ZIP_NAME="Swiitch-v${VERSION}.zip"
 
 cd "$REPO_ROOT"
 
+# Build number = total git commit count. Monotonically increases with every commit
+# so each release gets a unique, larger CFBundleVersion than the last. Without this,
+# Sparkle compares appcast `sparkle:version` against installed `CFBundleVersion` and
+# misclassifies the installed binary as "older" forever, causing an update loop.
+BUILD_NUMBER="$(git rev-list --count HEAD)"
+echo "==> Build number (git commit count): $BUILD_NUMBER"
+
 echo "==> Regenerating project"
 xcodegen generate >/dev/null
 
@@ -40,6 +47,8 @@ xcodebuild \
     -configuration Release \
     -derivedDataPath "$BUILD_DIR/DerivedData" \
     SYMROOT="$BUILD_DIR" \
+    CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
+    MARKETING_VERSION="$VERSION" \
     build | tail -5
 
 APP_PATH="$RELEASE_DIR/Swiitch.app"
@@ -91,7 +100,7 @@ cat <<EOF
         <item>
             <title>$VERSION</title>
             <pubDate>$PUB_DATE</pubDate>
-            <sparkle:version>1</sparkle:version>
+            <sparkle:version>$BUILD_NUMBER</sparkle:version>
             <sparkle:shortVersionString>$VERSION</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
             <description><![CDATA[Release $VERSION]]></description>
