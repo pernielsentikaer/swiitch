@@ -61,7 +61,7 @@ private struct GeneralTab: View {
                     ShortcutRecorder(
                         keyCodeKey: Preferences.Key.currentAppHotkeyKeyCode,
                         modifierFlagsKey: Preferences.Key.currentAppHotkeyModifierFlags,
-                        defaultKeyCode: 50, // Grave (`)
+                        defaultKeyCode: 48, // Tab
                         defaultModifiers: .maskAlternate
                     )
                     .disabled(!currentAppHotkeyEnabled)
@@ -376,8 +376,11 @@ private struct AboutTab: View {
             Text(versionText)
                 .font(.callout)
                 .foregroundStyle(.secondary)
+
+            Button("Check for Updates…") { UpdateController.shared.checkForUpdates() }
+                .padding(.top, 10)
+
             Spacer()
-            Button("Show Welcome…") { WelcomeWindowController.shared.show() }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(28)

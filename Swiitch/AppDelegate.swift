@@ -6,7 +6,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var model: SwitcherModel!
     private var hotkey: HotkeyManager!
     private var focusTracker: FocusTracker!
-    private var axPollTimer: Timer?
+    private var axMonitorTimer: Timer?
+    private var lastAXTrusted: Bool = false
     private var defaultsObserver: NSObjectProtocol?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -16,6 +17,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Touch the Sparkle updater singleton so its background-check schedule arms.
         // The Info.plist flags `SUEnableAutomaticChecks` + `SUFeedURL` drive behavior.
         _ = UpdateController.shared
+
+        // Sparkle's default scheduled-check cadence is conservative (24h) and the first
+        // tick has its own startup delay. For an app users launch and leave running,
+        // explicitly kick off a silent background check ~5s after launch so updates are
+        // surfaced on the same session they shipped. Silent if nothing's new; pops the
+        // standard Sparkle "An update is available" dialog if there is.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
+            UpdateController.shared.updaterController.updater.checkForUpdatesInBackground()
+        }
 
         applyDockIconPreference()
         observeDefaults()
@@ -30,22 +40,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         hotkey = HotkeyManager(model: model)
 
+        WelcomeWindowController.shared.onFinish = { [weak self] in
+            self?.applyDockIconPreference()
+        }
+
+        // Always-on Accessibility monitor handles three cases with one mechanism:
+        //  - Initial first-launch grant flow (no AX yet → Welcome opens, polling waits)
+        //  - Mid-session revocation (user removes us from Privacy & Security → hotkey
+        //    silently breaks, this catches it and re-opens Welcome)
+        //  - Re-grant after either of the above
+        startAXMonitor()
+
         let needsOnboarding = !UserDefaults.standard.bool(forKey: Preferences.Key.hasCompletedOnboarding)
         if needsOnboarding || !AXIsProcessTrusted() {
-            WelcomeWindowController.shared.onFinish = { [weak self] in
-                self?.applyDockIconPreference()
-                self?.installHotkeyIfPossible()
-            }
             DispatchQueue.main.async {
                 WelcomeWindowController.shared.show()
             }
-        } else {
-            installHotkeyIfPossible()
         }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        axPollTimer?.invalidate()
+        axMonitorTimer?.invalidate()
         hotkey?.uninstall()
         if let defaultsObserver {
             NotificationCenter.default.removeObserver(defaultsObserver)
@@ -105,24 +120,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    // MARK: - Hotkey gating
+    // MARK: - Accessibility monitor
 
-    private func installHotkeyIfPossible() {
-        if AXIsProcessTrusted() {
+    /// Polls `AXIsProcessTrusted()` and reacts to transitions. Cheap call (TCC client
+    /// caches the answer), and 2s is fast enough that a revocation while the user is
+    /// actively using Swiitch is noticed before they retry ⌘+Tab a few times in vain.
+    private func startAXMonitor() {
+        lastAXTrusted = AXIsProcessTrusted()
+        if lastAXTrusted {
             hotkey.install()
-        } else {
-            startAXPolling()
+        }
+        axMonitorTimer?.invalidate()
+        axMonitorTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
+            self?.checkAXTrustTransition()
         }
     }
 
-    private func startAXPolling() {
-        axPollTimer?.invalidate()
-        axPollTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] timer in
-            guard let self else { timer.invalidate(); return }
-            if AXIsProcessTrusted() {
-                timer.invalidate()
-                self.axPollTimer = nil
-                self.hotkey.install()
+    private func checkAXTrustTransition() {
+        let now = AXIsProcessTrusted()
+        guard now != lastAXTrusted else { return }
+        lastAXTrusted = now
+
+        if now {
+            // Re-granted (or granted for the first time). Install the hotkey if it
+            // wasn't already running. Safe to call repeatedly — HotkeyManager.install
+            // is idempotent (no-ops if already installed).
+            hotkey.install()
+        } else {
+            // Revoked mid-session. The event tap is now dead — ⌘+Tab events won't
+            // reach us. Tear it down, cancel any in-progress switcher state, and
+            // re-open Welcome so the user has a one-click path back to System Settings.
+            hotkey.uninstall()
+            model.cancel()
+            // WelcomeWindowController.show() is @MainActor-isolated; the Timer body
+            // runs on the main run loop but Swift's isolation checker needs an
+            // explicit hop.
+            Task { @MainActor in
+                WelcomeWindowController.shared.show()
             }
         }
     }

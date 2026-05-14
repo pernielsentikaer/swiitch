@@ -275,8 +275,8 @@ enum Preferences {
             Key.peekDelayMs: 500,
             Key.screenScope: ScreenScope.mousePointer.rawValue,
             Key.currentAppHotkeyEnabled: false,
-            // Defaults to ⌥+` (kVK_ANSI_Grave = 50, Option = 0x80000)
-            Key.currentAppHotkeyKeyCode: 50,
+            // Defaults to ⌥+Tab (kVK_Tab = 48, Option = 0x80000)
+            Key.currentAppHotkeyKeyCode: 48,
             Key.currentAppHotkeyModifierFlags: Int(CGEventFlags.maskAlternate.rawValue)
         ])
     }
