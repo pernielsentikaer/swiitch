@@ -1,0 +1,29 @@
+# macOS
+.DS_Store
+
+# Xcode + our Scripts/build_release.sh output
+build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+*.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+*.xcodeproj/project.xcworkspace/xcuserdata/
+
+# Generated Xcode project (xcodegen)
+Swiitch.xcodeproj/
+
+# Local signing overrides — never commit your cert SHA1 / team ID
+Config/Signing.local.xcconfig
+
+# Conductor (multi-agent workspace) internal state — screenshots, todos, etc.
+.context/
+
+# Swift Package Manager
+.build/
+.swiftpm/
+Packages/
+Package.resolved
+
+# Logs
+*.log

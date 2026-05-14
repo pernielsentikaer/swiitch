@@ -1,0 +1,23 @@
+<?xml version="1.0" standalone="yes"?>
+<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/" version="2.0">
+    <channel>
+        <title>Swiitch</title>
+        <link>https://raw.githubusercontent.com/pernielsentikaer/swiitch/main/appcast.xml</link>
+        <description>Most recent Swiitch updates</description>
+        <language>en</language>
+
+        <item>
+            <title>0.1.0</title>
+            <pubDate>Thu, 14 May 2026 18:31:15 +0200</pubDate>
+            <sparkle:version>1</sparkle:version>
+            <sparkle:shortVersionString>0.1.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[Initial public release.]]></description>
+            <enclosure
+                url="https://github.com/pernielsentikaer/swiitch/releases/download/v0.1.0/Swiitch-v0.1.0.zip"
+                length="1861623"
+                type="application/octet-stream"
+                sparkle:edSignature="eg8vk6XXFYszBcKQCcGba9N3BPZ+6U0Ix2+TxVILdRjXZLEduzsUxeUfhRfXy7CBgPpWYBzU1Mk1oFrCfmmIBQ==" />
+        </item>
+    </channel>
+</rss>

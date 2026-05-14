@@ -1,0 +1,41 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Show toolchain
+        run: |
+          sw_vers
+          xcodebuild -version
+          swift --version
+
+      - name: Install xcodegen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      # CI builds with ad-hoc signing — no Apple Developer credentials needed.
+      # Contributors who want stable TCC on their own machine override via
+      # Config/Signing.local.xcconfig (gitignored).
+      - name: Build (Debug)
+        run: |
+          xcodebuild \
+            -project Swiitch.xcodeproj \
+            -scheme Swiitch \
+            -configuration Debug \
+            CODE_SIGN_IDENTITY=- \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            DEVELOPMENT_TEAM= \
+            CODE_SIGN_STYLE=Automatic \
+            build | xcpretty || (set -o pipefail; xcodebuild -project Swiitch.xcodeproj -scheme Swiitch -configuration Debug build)

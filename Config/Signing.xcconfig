@@ -1,0 +1,20 @@
+// Swiitch signing configuration.
+//
+// Defaults to ad-hoc signing so anyone can clone & build without setting up an
+// Apple Developer account. The trade-off is that macOS TCC (Accessibility / Screen
+// Recording) treats every rebuilt binary as a "new app" and re-prompts for the
+// grant every time. That's acceptable for casual development.
+//
+// For stable TCC across rebuilds — recommended once you start hacking on the app
+// regularly — create a sibling file at `Config/Signing.local.xcconfig` and fill in
+// your own values. See `Config/Signing.local.xcconfig.example` for the template.
+// The local file is gitignored.
+
+CODE_SIGN_STYLE = Automatic
+CODE_SIGN_IDENTITY = -
+DEVELOPMENT_TEAM =
+PROVISIONING_PROFILE_SPECIFIER =
+
+// `#include?` includes the file if it exists and is silent if it doesn't.
+// Settings in the local file override anything above.
+#include? "Signing.local.xcconfig"

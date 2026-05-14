@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>$(DEVELOPMENT_LANGUAGE)</string>
+    <key>CFBundleExecutable</key>
+    <string>$(EXECUTABLE_NAME)</string>
+    <key>CFBundleIdentifier</key>
+    <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundleName</key>
+    <string>$(PRODUCT_NAME)</string>
+    <key>CFBundleDisplayName</key>
+    <string>Swiitch</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>$(MARKETING_VERSION)</string>
+    <key>CFBundleVersion</key>
+    <string>$(CURRENT_PROJECT_VERSION)</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>$(MACOSX_DEPLOYMENT_TARGET)</string>
+    <key>LSUIElement</key>
+    <true/>
+    <key>NSHumanReadableCopyright</key>
+    <string>Copyright © 2026. All rights reserved.</string>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>Swiitch uses Apple Events to coordinate window switching.</string>
+    <key>NSAccessibilityUsageDescription</key>
+    <string>Swiitch needs Accessibility access to switch windows across all running apps.</string>
+    <key>NSScreenCaptureUsageDescription</key>
+    <string>Swiitch captures window thumbnails so you can see what you're switching to.</string>
+    <key>CFBundleIconName</key>
+    <string>AppIcon</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
+    <!-- Sparkle auto-update configuration. SUPublicEDKey must be filled in with the
+         output of `generate_keys` from the Sparkle SPM checkout — see CONTRIBUTING. -->
+    <key>SUFeedURL</key>
+    <string>https://raw.githubusercontent.com/pernielsentikaer/swiitch/main/appcast.xml</string>
+    <key>SUPublicEDKey</key>
+    <string>7TU3J5/wl3/7E1hA2ANB0OzdLkLti0U/KGkqXhu2cIE=</string>
+    <key>SUEnableAutomaticChecks</key>
+    <true/>
+    <key>SUEnableInstallerLauncherService</key>
+    <false/>
+    <key>SUAutomaticallyUpdate</key>
+    <false/>
+</dict>
+</plist>

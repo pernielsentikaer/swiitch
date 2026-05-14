@@ -1,0 +1,19 @@
+// Copy this file to `Config/Signing.local.xcconfig` (gitignored) and fill in your own
+// values to get stable TCC permission grants across rebuilds.
+//
+// Find your code signing identity SHA1 + team:
+//   security find-identity -v -p codesigning
+//
+// Personal Teams (free Apple ID): the cert is "Apple Development: <your-email> (TEAMID)".
+// The "Team ID" you put in DEVELOPMENT_TEAM is the OU field of the certificate, NOT the
+// parenthetical in the CN. To find it:
+//   security find-certificate -c "Apple Development: <your-email>" -p \
+//     | openssl x509 -noout -subject
+// The OU=XXXXXXXXXX value is your DEVELOPMENT_TEAM.
+//
+// For paid Developer Program accounts, the parenthetical in the CN and the OU match.
+
+CODE_SIGN_STYLE = Manual
+CODE_SIGN_IDENTITY = YOUR_CERT_SHA1_HERE
+DEVELOPMENT_TEAM = YOUR_TEAM_ID_HERE
+PROVISIONING_PROFILE_SPECIFIER =
