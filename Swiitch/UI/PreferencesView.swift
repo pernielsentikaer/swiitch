@@ -27,17 +27,26 @@ private struct GeneralTab: View {
 
     var body: some View {
         Form {
-            Section("Permissions") {
-                PermissionRow(
-                    title: "Accessibility",
-                    granted: permissions.accessibilityGranted,
-                    action: permissions.requestAccessibility
-                )
-                PermissionRow(
-                    title: "Screen Recording",
-                    granted: permissions.screenCaptureGranted,
-                    action: permissions.requestScreenCapture
-                )
+            // Only surface Permissions when something actually needs attention.
+            // When both are granted there's nothing actionable to show; the row
+            // dominated the top of the tab and added visual noise.
+            if !permissions.accessibilityGranted || !permissions.screenCaptureGranted {
+                Section("Permissions") {
+                    if !permissions.accessibilityGranted {
+                        PermissionRow(
+                            title: "Accessibility",
+                            granted: false,
+                            action: permissions.requestAccessibility
+                        )
+                    }
+                    if !permissions.screenCaptureGranted {
+                        PermissionRow(
+                            title: "Screen Recording",
+                            granted: false,
+                            action: permissions.requestScreenCapture
+                        )
+                    }
+                }
             }
 
             Section("Startup") {
@@ -243,6 +252,7 @@ private struct AppearanceTab: View {
     @AppStorage(Preferences.Key.panelMaterial) private var panelMaterial: String = Preferences.PanelMaterial.translucentLight.rawValue
     @AppStorage(Preferences.Key.panelCornerRadius) private var panelCornerRadius: Int = 16
     @AppStorage(Preferences.Key.overlayPosition) private var overlayPosition: String = Preferences.OverlayPosition.bottomLeading.rawValue
+    @AppStorage(Preferences.Key.thumbnailOverlay) private var thumbnailOverlay: String = Preferences.ThumbnailOverlay.none.rawValue
     @AppStorage(Preferences.Key.themePreset) private var themePreset: String = Preferences.ThemePreset.classic.rawValue
 
     private var accentColorBinding: Binding<Color> {
@@ -342,6 +352,13 @@ private struct AppearanceTab: View {
                     }
                 }
                 .onChange(of: overlayPosition) { _, _ in markCustom() }
+
+                Picker("Thumbnail effect", selection: $thumbnailOverlay) {
+                    ForEach(Preferences.ThumbnailOverlay.allCases) { overlay in
+                        Text(overlay.label).tag(overlay.rawValue)
+                    }
+                }
+                .onChange(of: thumbnailOverlay) { _, _ in markCustom() }
             }
         }
         .formStyle(.grouped)

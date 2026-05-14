@@ -8,6 +8,7 @@ struct SwitcherView: View {
     @AppStorage(Preferences.Key.panelMaterial) private var panelMaterialRaw: String = Preferences.PanelMaterial.translucentLight.rawValue
     @AppStorage(Preferences.Key.panelCornerRadius) private var panelCornerRadius: Int = 16
     @AppStorage(Preferences.Key.overlayPosition) private var overlayPositionRaw: String = Preferences.OverlayPosition.bottomLeading.rawValue
+    @AppStorage(Preferences.Key.thumbnailOverlay) private var thumbnailOverlayRaw: String = Preferences.ThumbnailOverlay.none.rawValue
 
     private var tint: Color {
         Color(hex: accentColorHex) ?? .accentColor
@@ -23,6 +24,10 @@ struct SwitcherView: View {
 
     private var overlayPosition: Preferences.OverlayPosition {
         Preferences.OverlayPosition(rawValue: overlayPositionRaw) ?? .bottomLeading
+    }
+
+    private var thumbnailOverlay: Preferences.ThumbnailOverlay {
+        Preferences.ThumbnailOverlay(rawValue: thumbnailOverlayRaw) ?? .none
     }
 
     var body: some View {
@@ -53,7 +58,8 @@ struct SwitcherView: View {
                                 app: app,
                                 maxWidth: model.effectiveMaxWidth,
                                 thumbnailSize: thumbnailSize,
-                                overlayPosition: overlayPosition
+                                overlayPosition: overlayPosition,
+                                thumbnailOverlay: thumbnailOverlay
                             )
                             .padding(20)
                         }
@@ -63,7 +69,8 @@ struct SwitcherView: View {
                         model: model,
                         maxWidth: model.effectiveMaxWidth,
                         thumbnailSize: thumbnailSize,
-                        overlayPosition: overlayPosition
+                        overlayPosition: overlayPosition,
+                        thumbnailOverlay: thumbnailOverlay
                     )
                     .padding(20)
                 }
@@ -266,6 +273,7 @@ private struct WindowGridView: View {
     let maxWidth: CGFloat
     let thumbnailSize: Preferences.ThumbnailSize
     let overlayPosition: Preferences.OverlayPosition
+    let thumbnailOverlay: Preferences.ThumbnailOverlay
 
     private let cellSpacing: CGFloat = 12
 
@@ -281,6 +289,7 @@ private struct WindowGridView: View {
                     thumbnail: model.thumbnails[window.id],
                     appIcon: app.icon,
                     overlayPosition: overlayPosition,
+                    thumbnailOverlay: thumbnailOverlay,
                     isSelected: index == model.selectedWindowIndex,
                     thumbHeight: thumbnailSize.thumbHeight,
                     isOnScreen: window.isOnScreen
@@ -314,6 +323,7 @@ private struct FlatWindowGridView: View {
     let maxWidth: CGFloat
     let thumbnailSize: Preferences.ThumbnailSize
     let overlayPosition: Preferences.OverlayPosition
+    let thumbnailOverlay: Preferences.ThumbnailOverlay
 
     private let cellSpacing: CGFloat = 12
 
@@ -340,6 +350,7 @@ private struct FlatWindowGridView: View {
                     thumbnail: model.thumbnails[entry.id],
                     appIcon: entry.appIcon,
                     overlayPosition: overlayPosition,
+                    thumbnailOverlay: thumbnailOverlay,
                     secondaryLabel: entry.appName,
                     isSelected: absoluteIndex == model.selectedFlatIndex,
                     thumbHeight: thumbnailSize.thumbHeight,
@@ -374,6 +385,7 @@ private struct WindowCell: View {
     let thumbnail: NSImage?
     let appIcon: NSImage?
     let overlayPosition: Preferences.OverlayPosition
+    var thumbnailOverlay: Preferences.ThumbnailOverlay = .none
     var secondaryLabel: String? = nil
     let isSelected: Bool
     let thumbHeight: CGFloat
@@ -401,6 +413,7 @@ private struct WindowCell: View {
                         .aspectRatio(contentMode: .fit)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
                         .padding(4)
+                        .overlay(thumbnailOverlayLayer)
                         .transition(.opacity)
                 } else {
                     Text(title)
@@ -456,6 +469,52 @@ private struct WindowCell: View {
                 }
             }
             .frame(maxWidth: .infinity)
+        }
+    }
+
+    /// Decorative layer rendered on top of the captured thumbnail. Clipped to the inner
+    /// rounded shape so it never spills outside the cell border.
+    @ViewBuilder
+    private var thumbnailOverlayLayer: some View {
+        switch thumbnailOverlay {
+        case .none:
+            EmptyView()
+        case .gradientEdges:
+            // Two accent-colored gradients hugging the top and bottom edges. Subtle on
+            // light themes, punchy on dark — exactly what the Synthwave preset wants.
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        stops: [
+                            .init(color: accent.opacity(0.55), location: 0.0),
+                            .init(color: accent.opacity(0.0),  location: 0.18),
+                            .init(color: accent.opacity(0.0),  location: 0.82),
+                            .init(color: accent.opacity(0.55), location: 1.0)
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+                .blendMode(.plusLighter)
+                .allowsHitTesting(false)
+        case .scanlines:
+            // 2-pixel-tall horizontal lines every 4 pixels — CRT-style.
+            Canvas { ctx, size in
+                let path = Path { p in
+                    var y: CGFloat = 0
+                    while y < size.height {
+                        p.addRect(CGRect(x: 0, y: y, width: size.width, height: 1))
+                        y += 3
+                    }
+                }
+                ctx.fill(path, with: .color(.black.opacity(0.25)))
+            }
+            .allowsHitTesting(false)
+        case .tint:
+            // Soft accent multiply across the whole thumbnail.
+            accent.opacity(0.22)
+                .blendMode(.multiply)
+                .allowsHitTesting(false)
         }
     }
 }

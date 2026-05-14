@@ -27,6 +27,7 @@ enum Preferences {
         static let panelCornerRadius = "panelCornerRadius"    // Int, 0-24
         static let overlayPosition = "overlayPosition"        // OverlayPosition.rawValue
         static let themePreset = "themePreset"                // ThemePreset.rawValue
+        static let thumbnailOverlay = "thumbnailOverlay"      // ThumbnailOverlay.rawValue
         static let shiftCyclesBackwards = "shiftCyclesBackwards"  // Bool
         static let pinnedBundleIDs = "pinnedBundleIDs"            // [String]
         static let hotkeyKeyCode = "hotkeyKeyCode"                // Int (kVK_Tab default = 48)
@@ -181,6 +182,23 @@ enum Preferences {
         }
     }
 
+    /// Accent-driven decorations applied on top of each window thumbnail.
+    enum ThumbnailOverlay: String, CaseIterable, Identifiable {
+        case none           // no overlay
+        case gradientEdges  // subtle accent-colored gradients on the top + bottom edges
+        case scanlines      // CRT-style horizontal scanline overlay
+        case tint           // light accent multiply across the whole thumbnail
+        var id: String { rawValue }
+        var label: String {
+            switch self {
+            case .none:           return "None"
+            case .gradientEdges:  return "Gradient edges"
+            case .scanlines:      return "Scanlines"
+            case .tint:           return "Color tint"
+            }
+        }
+    }
+
     /// Named theme bundles that bulk-apply several appearance prefs at once.
     enum ThemePreset: String, CaseIterable, Identifiable {
         case custom    // sentinel — applied when user has tweaked any value individually
@@ -189,6 +207,7 @@ enum Preferences {
         case raycast   // dark, sharper, prominent
         case frosted   // very translucent, large thumbs
         case spotlight // light, sober
+        case synthwave // wild — solid dark + magenta + gradient-edged thumbnails
 
         var id: String { rawValue }
         var label: String {
@@ -199,6 +218,7 @@ enum Preferences {
             case .raycast:   return "Raycast-style"
             case .frosted:   return "Frosted"
             case .spotlight: return "Spotlight-style"
+            case .synthwave: return "Synthwave"
             }
         }
 
@@ -216,6 +236,7 @@ enum Preferences {
                 d.set(ThumbnailSize.medium.rawValue, forKey: Key.thumbnailSize)
                 d.set(OverlayPosition.bottomLeading.rawValue, forKey: Key.overlayPosition)
                 d.set("", forKey: Key.accentColorHex)
+                d.set(ThumbnailOverlay.none.rawValue, forKey: Key.thumbnailOverlay)
 
             case .minimal:
                 d.set(PanelMaterial.solidLight.rawValue, forKey: Key.panelMaterial)
@@ -223,6 +244,7 @@ enum Preferences {
                 d.set(ThumbnailSize.small.rawValue, forKey: Key.thumbnailSize)
                 d.set(OverlayPosition.hidden.rawValue, forKey: Key.overlayPosition)
                 d.set("", forKey: Key.accentColorHex)
+                d.set(ThumbnailOverlay.none.rawValue, forKey: Key.thumbnailOverlay)
 
             case .raycast:
                 d.set(PanelMaterial.solidDark.rawValue, forKey: Key.panelMaterial)
@@ -230,6 +252,7 @@ enum Preferences {
                 d.set(ThumbnailSize.medium.rawValue, forKey: Key.thumbnailSize)
                 d.set(OverlayPosition.topLeading.rawValue, forKey: Key.overlayPosition)
                 d.set("#FF5C5C", forKey: Key.accentColorHex)
+                d.set(ThumbnailOverlay.none.rawValue, forKey: Key.thumbnailOverlay)
 
             case .frosted:
                 d.set(PanelMaterial.frosted.rawValue, forKey: Key.panelMaterial)
@@ -237,6 +260,7 @@ enum Preferences {
                 d.set(ThumbnailSize.large.rawValue, forKey: Key.thumbnailSize)
                 d.set(OverlayPosition.bottomLeading.rawValue, forKey: Key.overlayPosition)
                 d.set("", forKey: Key.accentColorHex)
+                d.set(ThumbnailOverlay.none.rawValue, forKey: Key.thumbnailOverlay)
 
             case .spotlight:
                 d.set(PanelMaterial.solidLight.rawValue, forKey: Key.panelMaterial)
@@ -244,6 +268,15 @@ enum Preferences {
                 d.set(ThumbnailSize.medium.rawValue, forKey: Key.thumbnailSize)
                 d.set(OverlayPosition.bottomLeading.rawValue, forKey: Key.overlayPosition)
                 d.set("", forKey: Key.accentColorHex)
+                d.set(ThumbnailOverlay.none.rawValue, forKey: Key.thumbnailOverlay)
+
+            case .synthwave:
+                d.set(PanelMaterial.solidDark.rawValue, forKey: Key.panelMaterial)
+                d.set(20, forKey: Key.panelCornerRadius)
+                d.set(ThumbnailSize.large.rawValue, forKey: Key.thumbnailSize)
+                d.set(OverlayPosition.bottomLeading.rawValue, forKey: Key.overlayPosition)
+                d.set("#FF2D95", forKey: Key.accentColorHex)
+                d.set(ThumbnailOverlay.gradientEdges.rawValue, forKey: Key.thumbnailOverlay)
             }
         }
     }
@@ -266,6 +299,7 @@ enum Preferences {
             Key.panelMaterial: PanelMaterial.translucentLight.rawValue,
             Key.panelCornerRadius: 16,
             Key.overlayPosition: OverlayPosition.bottomLeading.rawValue,
+            Key.thumbnailOverlay: ThumbnailOverlay.none.rawValue,
             Key.themePreset: ThemePreset.classic.rawValue,
             Key.shiftCyclesBackwards: true,
             // kVK_Tab = 48; CGEventFlags.maskCommand.rawValue = 0x100000 (1048576)
