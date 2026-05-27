@@ -290,7 +290,7 @@ enum Preferences {
             Key.showMenuBarIcon: true,
             Key.showDockIcon: false,
             Key.switcherShowDelayMs: 150,
-            Key.displayMode: DisplayMode.apps.rawValue,
+            Key.displayMode: DisplayMode.windows.rawValue,
             Key.maxPanelWidthPercent: 60,
             Key.restrictToActiveScreen: true,
             Key.appearance: Appearance.system.rawValue,

@@ -254,6 +254,7 @@ private struct AppearanceTab: View {
     @AppStorage(Preferences.Key.overlayPosition) private var overlayPosition: String = Preferences.OverlayPosition.bottomLeading.rawValue
     @AppStorage(Preferences.Key.thumbnailOverlay) private var thumbnailOverlay: String = Preferences.ThumbnailOverlay.none.rawValue
     @AppStorage(Preferences.Key.themePreset) private var themePreset: String = Preferences.ThemePreset.classic.rawValue
+    @AppStorage(Preferences.Key.displayMode) private var displayMode: String = Preferences.DisplayMode.windows.rawValue
 
     private var accentColorBinding: Binding<Color> {
         Binding(
@@ -282,6 +283,15 @@ private struct AppearanceTab: View {
                 Text("Presets bulk-apply background, radius, thumbnail size, overlay, and accent. Tweaking any value below switches to Custom.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                SwitcherPreviewCard(
+                    isWindowsMode: displayMode == Preferences.DisplayMode.windows.rawValue,
+                    panelMaterial: Preferences.PanelMaterial(rawValue: panelMaterial) ?? .translucentLight,
+                    cornerRadius: CGFloat(panelCornerRadius),
+                    overlayPosition: Preferences.OverlayPosition(rawValue: overlayPosition) ?? .bottomLeading,
+                    thumbnailOverlay: Preferences.ThumbnailOverlay(rawValue: thumbnailOverlay) ?? .none,
+                    accent: Color(hex: accentColorHex) ?? .accentColor
+                )
+                .padding(.vertical, 4)
             } header: {
                 Text("Theme")
             }
@@ -373,7 +383,149 @@ private struct AppearanceTab: View {
     }
 }
 
-// MARK: - About
+// MARK: - Switcher preview card (live preview in Appearance tab)
+
+private struct SwitcherPreviewCard: View {
+    let isWindowsMode: Bool
+    let panelMaterial: Preferences.PanelMaterial
+    let cornerRadius: CGFloat
+    let overlayPosition: Preferences.OverlayPosition
+    let thumbnailOverlay: Preferences.ThumbnailOverlay
+    let accent: Color
+
+    private static let windowTitles   = ["main.swift — MyApp", "README.md — Editor", "GitHub — Safari"]
+    private static let windowAppNames = ["Xcode", "VS Code", "Safari"]
+    private static let windowColors: [Color] = [.blue.opacity(0.2), .indigo.opacity(0.2), .teal.opacity(0.2)]
+
+    private static let appNames:  [String] = ["Safari", "Xcode", "Finder", "Notes", "Mail"]
+    private static let appColors: [Color]  = [.blue, .orange, .green, .purple, .red]
+
+    var body: some View {
+        HStack(spacing: 10) {
+            if isWindowsMode {
+                ForEach(0..<3, id: \.self) { i in
+                    previewWindowCell(index: i)
+                }
+            } else {
+                ForEach(0..<5, id: \.self) { i in
+                    previewAppCell(index: i)
+                }
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity)
+        .background(Theme.panelBackground(material: panelMaterial, cornerRadius: cornerRadius))
+        .environment(\.swiitchAccent, accent)
+        .allowsHitTesting(false)
+    }
+
+    @ViewBuilder
+    private func previewWindowCell(index: Int) -> some View {
+        let isSelected = index == 0
+        let bgColor = Self.windowColors[index]
+        VStack(spacing: 4) {
+            ZStack(alignment: overlayPosition == .hidden ? .center : overlayPosition.swiftAlignment) {
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .fill(isSelected ? accent.opacity(0.15) : Color.primary.opacity(0.06))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 7, style: .continuous)
+                            .strokeBorder(
+                                isSelected ? accent : Color.primary.opacity(0.1),
+                                lineWidth: isSelected ? 1.5 : 1
+                            )
+                    )
+                // Fake thumbnail
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    .fill(bgColor)
+                    .padding(4)
+                    .overlay(previewThumbnailOverlay)
+                // App icon badge
+                if overlayPosition != .hidden {
+                    Circle()
+                        .fill(Color.white.opacity(0.85))
+                        .frame(width: 14, height: 14)
+                        .padding(5)
+                }
+            }
+            .frame(height: 64)
+            VStack(spacing: 1) {
+                Text(Self.windowTitles[index])
+                    .font(.system(size: 8.5))
+                    .lineLimit(1)
+                    .foregroundStyle(isSelected ? Color.primary : Color.secondary)
+                Text(Self.windowAppNames[index])
+                    .font(.system(size: 7.5))
+                    .lineLimit(1)
+                    .foregroundStyle(.tertiary)
+            }
+            .frame(maxWidth: .infinity)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    @ViewBuilder
+    private func previewAppCell(index: Int) -> some View {
+        let isSelected = index == 0
+        let color = Self.appColors[index]
+        VStack(spacing: 4) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(isSelected ? accent.opacity(0.35) : Color.clear)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .strokeBorder(isSelected ? accent : Color.clear, lineWidth: 1.5)
+                    )
+                    .frame(width: 48, height: 48)
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(color)
+                    .frame(width: 32, height: 32)
+            }
+            Text(Self.appNames[index])
+                .font(.system(size: 8.5))
+                .lineLimit(1)
+                .foregroundStyle(isSelected ? Color.primary : Color.secondary)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    @ViewBuilder
+    private var previewThumbnailOverlay: some View {
+        switch thumbnailOverlay {
+        case .none:
+            EmptyView()
+        case .gradientEdges:
+            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        stops: [
+                            .init(color: accent.opacity(0.55), location: 0.0),
+                            .init(color: accent.opacity(0.0),  location: 0.25),
+                            .init(color: accent.opacity(0.0),  location: 0.75),
+                            .init(color: accent.opacity(0.55), location: 1.0)
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+                .blendMode(.plusLighter)
+        case .scanlines:
+            Canvas { ctx, size in
+                let path = Path { p in
+                    var y: CGFloat = 0
+                    while y < size.height {
+                        p.addRect(CGRect(x: 0, y: y, width: size.width, height: 1))
+                        y += 3
+                    }
+                }
+                ctx.fill(path, with: .color(.black.opacity(0.25)))
+            }
+        case .tint:
+            accent.opacity(0.22)
+                .blendMode(.multiply)
+        }
+    }
+}
+
 
 private struct AboutTab: View {
     private var versionText: String {
