@@ -5,10 +5,6 @@ struct WelcomeView: View {
     let onFinish: () -> Void
 
     @AppStorage(Preferences.Key.hasCompletedOnboarding) private var hasCompletedOnboarding: Bool = false
-    @AppStorage(Preferences.Key.showWindowPreviews) private var showWindowPreviews: Bool = true
-    @AppStorage(Preferences.Key.includeOtherSpaces) private var includeOtherSpaces: Bool = true
-    @AppStorage(Preferences.Key.showMenuBarIcon) private var showMenuBarIcon: Bool = true
-    @AppStorage(Preferences.Key.showDockIcon) private var showDockIcon: Bool = false
     @AppStorage(Preferences.Key.launchAtLogin) private var launchAtLogin: Bool = false
 
     var body: some View {
@@ -46,7 +42,6 @@ struct WelcomeView: View {
             VStack(alignment: .leading, spacing: 20) {
                 permissionsSection
                 preferencesSection
-                shortcutsSection
             }
             .padding(.horizontal, 28)
             .padding(.vertical, 22)
@@ -100,35 +95,7 @@ struct WelcomeView: View {
 
     private var preferencesSection: some View {
         SectionCard(title: "Preferences") {
-            VStack(alignment: .leading, spacing: 12) {
-                Toggle("Launch Swiitch at login", isOn: $launchAtLogin)
-                Toggle("Show window list for apps with multiple windows", isOn: $showWindowPreviews)
-                Toggle("Include windows from other Spaces", isOn: $includeOtherSpaces)
-                Divider()
-                Toggle("Show menu bar icon", isOn: $showMenuBarIcon)
-                Toggle("Show Dock icon", isOn: $showDockIcon)
-                if !showMenuBarIcon && !showDockIcon {
-                    Label(
-                        "With both icons hidden, open Swiitch from Finder or Spotlight to reach preferences.",
-                        systemImage: "info.circle"
-                    )
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                }
-            }
-        }
-    }
-
-    private var shortcutsSection: some View {
-        SectionCard(title: "Shortcuts") {
-            VStack(alignment: .leading, spacing: 8) {
-                ShortcutRow(keys: "⌘ Tab", description: "Open the switcher / next app")
-                ShortcutRow(keys: "⌘ ⇧ Tab", description: "Previous app")
-                ShortcutRow(keys: "↓ or `", description: "Show windows of the selected app")
-                ShortcutRow(keys: "↑", description: "Back to apps")
-                ShortcutRow(keys: "Release ⌘", description: "Switch")
-                ShortcutRow(keys: "Esc", description: "Cancel")
-            }
+            Toggle("Launch Swiitch at login", isOn: $launchAtLogin)
         }
     }
 
@@ -168,25 +135,3 @@ private struct SectionCard<Content: View>: View {
     }
 }
 
-private struct ShortcutRow: View {
-    let keys: String
-    let description: String
-
-    var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 12) {
-            Text(keys)
-                .font(.system(.callout, design: .monospaced).weight(.medium))
-                .padding(.horizontal, 8)
-                .padding(.vertical, 3)
-                .background(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .fill(Color.primary.opacity(0.08))
-                )
-                .frame(minWidth: 92, alignment: .leading)
-            Text(description)
-                .font(.callout)
-                .foregroundStyle(.primary)
-            Spacer()
-        }
-    }
-}
