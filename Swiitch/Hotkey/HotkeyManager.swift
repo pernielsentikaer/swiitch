@@ -222,11 +222,19 @@ final class HotkeyManager {
         case kVK_Escape:
             DispatchQueue.main.async { [weak self] in self?.model.cancel() }
             return true
-        case kVK_DownArrow, kVK_ANSI_Grave:
-            DispatchQueue.main.async { [weak self] in self?.model.enterWindowMode() }
+        case kVK_Tab:
+            // Tab cycles forward in the current view (mirrors the configured hotkey but
+            // works regardless of which modifier the user is holding).
+            DispatchQueue.main.async { [weak self] in self?.model.advance(reverse: false) }
+            return true
+        case kVK_DownArrow:
+            DispatchQueue.main.async { [weak self] in self?.model.advanceRow(reverse: false) }
             return true
         case kVK_UpArrow:
-            DispatchQueue.main.async { [weak self] in self?.model.exitWindowMode() }
+            DispatchQueue.main.async { [weak self] in self?.model.advanceRow(reverse: true) }
+            return true
+        case kVK_ANSI_Grave:
+            DispatchQueue.main.async { [weak self] in self?.model.enterWindowMode() }
             return true
         case kVK_LeftArrow:
             DispatchQueue.main.async { [weak self] in self?.model.advance(reverse: true) }

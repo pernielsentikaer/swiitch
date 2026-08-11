@@ -5,23 +5,26 @@ import Sparkle
 /// the menu bar "Check for Updates…" item can trigger a check without threading the
 /// controller through SwiftUI bindings.
 @MainActor
-final class UpdateController {
+final class UpdateController: NSObject, SPUStandardUserDriverDelegate {
     static let shared = UpdateController()
 
-    let updaterController: SPUStandardUpdaterController
-
-    private init() {
+    /// `lazy` so we can pass `self` as the user-driver delegate. (Sparkle's init takes
+    /// the delegate at construction time, and `self` isn't available before super.init.)
+    lazy var updaterController: SPUStandardUpdaterController = {
         // `startingUpdater: true` arms Sparkle on construction so background checks
         // (configured via Info.plist `SUEnableAutomaticChecks`) start scheduling.
-        // We don't supply custom delegates — Sparkle's defaults handle the standard
-        // "show update dialog, download, restart" flow without intervention. Add an
-        // SPUUpdaterDelegate later only if we need to customize behavior (e.g.
-        // signed-update channel selection, pre-flight conditions).
-        self.updaterController = SPUStandardUpdaterController(
+        SPUStandardUpdaterController(
             startingUpdater: true,
             updaterDelegate: nil,
-            userDriverDelegate: nil
+            userDriverDelegate: self
         )
+    }()
+
+    /// Force eager construction. Call this once at app launch so the updater + its
+    /// scheduled-check timer actually arms; otherwise Sparkle stays dormant until
+    /// someone touches `updaterController`.
+    func arm() {
+        _ = updaterController
     }
 
     func checkForUpdates() {
@@ -32,4 +35,13 @@ final class UpdateController {
         get { updaterController.updater.automaticallyChecksForUpdates }
         set { updaterController.updater.automaticallyChecksForUpdates = newValue }
     }
+
+    // MARK: - SPUStandardUserDriverDelegate
+
+    /// Tell Sparkle we're aware of background-presentation considerations. For a
+    /// menu-bar utility, the standard "An update is available" window IS a reasonable
+    /// gentle reminder — it pops as a regular `NSWindow` that the user notices when
+    /// they're at their Mac. Returning true silences the
+    /// "does not implement gentle reminders" warning Sparkle logs on startup.
+    nonisolated var supportsGentleScheduledUpdateReminders: Bool { true }
 }

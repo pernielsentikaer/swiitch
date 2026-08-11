@@ -42,7 +42,11 @@ enum WindowEnumerator {
         let all = copyWindows(option: allListOption)
         let onScreenIDs = Set(onScreen.compactMap { $0[kCGWindowNumber as String] as? CGWindowID })
 
-        let regularApps = NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular }
+        let excludedBundleIDs = Set(Preferences.excludedBundleIDs)
+        let regularApps = NSWorkspace.shared.runningApplications.filter { app in
+            app.activationPolicy == .regular
+                && !excludedBundleIDs.contains(app.bundleIdentifier ?? "")
+        }
         let regularPIDs = Set(regularApps.map { $0.processIdentifier })
 
         let activeScreenCG: CGRect? = options.restrictToActiveScreen ? activeScreenCGFrame() : nil
@@ -74,11 +78,25 @@ enum WindowEnumerator {
             byPID[pidNum, default: []].append(info)
         }
 
-        // Drop ghost windows using AX: intersect with the windows AX actually reports for the pid.
+        // Drop ghost windows using AX: intersect with the windows AX actually reports for
+        // the pid.
+        //
+        // Special case for Chromium-based apps (Chrome, Arc, Dia, Brave…): they use a
+        // lazy-initialized AX layer that often returns AX windows whose internal
+        // CGWindowIDs don't match what CGWindowList reports for the same NSWindow,
+        // until AX "warms up." If we strictly intersect, those apps disappear from the
+        // picker entirely. So: if AX reports windows but NONE of them match any
+        // CGWindowList ID, treat AX as unreliable for that pid and trust CGWindowList.
         for (pid, windows) in byPID {
             let real = axWindowIDs(forPID: pid)
             guard !real.isEmpty else { continue }
-            byPID[pid] = windows.filter { real.contains($0.id) }
+            let filtered = windows.filter { real.contains($0.id) }
+            if filtered.isEmpty && !windows.isEmpty {
+                // AX returned windows but none agree with CGWindowList — almost
+                // always a Chromium-style mismatched-id state. Skip the filter.
+                continue
+            }
+            byPID[pid] = filtered
         }
 
         // Build entries.

@@ -30,6 +30,7 @@ enum Preferences {
         static let thumbnailOverlay = "thumbnailOverlay"      // ThumbnailOverlay.rawValue
         static let shiftCyclesBackwards = "shiftCyclesBackwards"  // Bool
         static let pinnedBundleIDs = "pinnedBundleIDs"            // [String]
+        static let excludedBundleIDs = "excludedBundleIDs"        // [String]
         static let hotkeyKeyCode = "hotkeyKeyCode"                // Int (kVK_Tab default = 48)
         static let hotkeyModifierFlags = "hotkeyModifierFlags"    // Int — raw CGEventFlags value
         static let peekOnHover = "peekOnHover"                    // Bool
@@ -40,6 +41,7 @@ enum Preferences {
         static let currentAppHotkeyEnabled = "currentAppHotkeyEnabled"     // Bool
         static let currentAppHotkeyKeyCode = "currentAppHotkeyKeyCode"     // Int
         static let currentAppHotkeyModifierFlags = "currentAppHotkeyModifierFlags" // Int
+        static let tileColumns = "tileColumns"                              // Int, 0 = auto, 2/3/4 = fixed fill
     }
 
     enum ScreenScope: String, CaseIterable, Identifiable {
@@ -63,6 +65,11 @@ enum Preferences {
         set { UserDefaults.standard.set(newValue, forKey: Key.pinnedBundleIDs) }
     }
 
+    static var excludedBundleIDs: [String] {
+        get { UserDefaults.standard.stringArray(forKey: Key.excludedBundleIDs) ?? [] }
+        set { UserDefaults.standard.set(newValue, forKey: Key.excludedBundleIDs) }
+    }
+
     static func togglePinned(_ bundleID: String) {
         var current = pinnedBundleIDs
         if let idx = current.firstIndex(of: bundleID) {
@@ -76,6 +83,22 @@ enum Preferences {
     static func isPinned(_ bundleID: String?) -> Bool {
         guard let bundleID else { return false }
         return pinnedBundleIDs.contains(bundleID)
+    }
+
+    static func excludeApp(_ bundleID: String) {
+        var current = excludedBundleIDs
+        guard !current.contains(bundleID) else { return }
+        current.append(bundleID)
+        excludedBundleIDs = current
+    }
+
+    static func includeApp(_ bundleID: String) {
+        excludedBundleIDs = excludedBundleIDs.filter { $0 != bundleID }
+    }
+
+    static func isExcluded(_ bundleID: String?) -> Bool {
+        guard let bundleID else { return false }
+        return excludedBundleIDs.contains(bundleID)
     }
 
     enum DisplayMode: String, CaseIterable, Identifiable {
@@ -236,7 +259,6 @@ enum Preferences {
                 d.set(ThumbnailSize.medium.rawValue, forKey: Key.thumbnailSize)
                 d.set(OverlayPosition.bottomLeading.rawValue, forKey: Key.overlayPosition)
                 d.set("", forKey: Key.accentColorHex)
-                d.set(ThumbnailOverlay.none.rawValue, forKey: Key.thumbnailOverlay)
 
             case .minimal:
                 d.set(PanelMaterial.solidLight.rawValue, forKey: Key.panelMaterial)
@@ -244,7 +266,6 @@ enum Preferences {
                 d.set(ThumbnailSize.small.rawValue, forKey: Key.thumbnailSize)
                 d.set(OverlayPosition.hidden.rawValue, forKey: Key.overlayPosition)
                 d.set("", forKey: Key.accentColorHex)
-                d.set(ThumbnailOverlay.none.rawValue, forKey: Key.thumbnailOverlay)
 
             case .raycast:
                 d.set(PanelMaterial.solidDark.rawValue, forKey: Key.panelMaterial)
@@ -252,7 +273,6 @@ enum Preferences {
                 d.set(ThumbnailSize.medium.rawValue, forKey: Key.thumbnailSize)
                 d.set(OverlayPosition.topLeading.rawValue, forKey: Key.overlayPosition)
                 d.set("#FF5C5C", forKey: Key.accentColorHex)
-                d.set(ThumbnailOverlay.none.rawValue, forKey: Key.thumbnailOverlay)
 
             case .frosted:
                 d.set(PanelMaterial.frosted.rawValue, forKey: Key.panelMaterial)
@@ -260,7 +280,6 @@ enum Preferences {
                 d.set(ThumbnailSize.large.rawValue, forKey: Key.thumbnailSize)
                 d.set(OverlayPosition.bottomLeading.rawValue, forKey: Key.overlayPosition)
                 d.set("", forKey: Key.accentColorHex)
-                d.set(ThumbnailOverlay.none.rawValue, forKey: Key.thumbnailOverlay)
 
             case .spotlight:
                 d.set(PanelMaterial.solidLight.rawValue, forKey: Key.panelMaterial)
@@ -268,7 +287,6 @@ enum Preferences {
                 d.set(ThumbnailSize.medium.rawValue, forKey: Key.thumbnailSize)
                 d.set(OverlayPosition.bottomLeading.rawValue, forKey: Key.overlayPosition)
                 d.set("", forKey: Key.accentColorHex)
-                d.set(ThumbnailOverlay.none.rawValue, forKey: Key.thumbnailOverlay)
 
             case .synthwave:
                 d.set(PanelMaterial.solidDark.rawValue, forKey: Key.panelMaterial)
@@ -276,7 +294,6 @@ enum Preferences {
                 d.set(ThumbnailSize.large.rawValue, forKey: Key.thumbnailSize)
                 d.set(OverlayPosition.bottomLeading.rawValue, forKey: Key.overlayPosition)
                 d.set("#FF2D95", forKey: Key.accentColorHex)
-                d.set(ThumbnailOverlay.gradientEdges.rawValue, forKey: Key.thumbnailOverlay)
             }
         }
     }
@@ -299,9 +316,10 @@ enum Preferences {
             Key.panelMaterial: PanelMaterial.translucentLight.rawValue,
             Key.panelCornerRadius: 16,
             Key.overlayPosition: OverlayPosition.bottomLeading.rawValue,
-            Key.thumbnailOverlay: ThumbnailOverlay.none.rawValue,
             Key.themePreset: ThemePreset.classic.rawValue,
+            Key.thumbnailOverlay: ThumbnailOverlay.none.rawValue,
             Key.shiftCyclesBackwards: true,
+            Key.excludedBundleIDs: [],
             // kVK_Tab = 48; CGEventFlags.maskCommand.rawValue = 0x100000 (1048576)
             Key.hotkeyKeyCode: 48,
             Key.hotkeyModifierFlags: Int(CGEventFlags.maskCommand.rawValue),
@@ -311,7 +329,8 @@ enum Preferences {
             Key.currentAppHotkeyEnabled: false,
             // Defaults to ⌥+Tab (kVK_Tab = 48, Option = 0x80000)
             Key.currentAppHotkeyKeyCode: 48,
-            Key.currentAppHotkeyModifierFlags: Int(CGEventFlags.maskAlternate.rawValue)
+            Key.currentAppHotkeyModifierFlags: Int(CGEventFlags.maskAlternate.rawValue),
+            Key.tileColumns: 0
         ])
     }
 

@@ -16,6 +16,13 @@ enum WindowFocuser {
         activate(app: runningApp)
     }
 
+    /// Activates an app by its pid alone — used to restore the pre-arm frontmost app
+    /// when Escape is pressed after peek has activated something else.
+    static func focus(pid: pid_t) {
+        guard let runningApp = NSRunningApplication(processIdentifier: pid) else { return }
+        activate(app: runningApp)
+    }
+
     /// Activates a specific window. Raise FIRST (AX), then activate the app — reversing
     /// this order is racy on macOS 14+ because accessory apps' cross-app activation can
     /// be denied intermittently.
@@ -64,9 +71,12 @@ enum WindowFocuser {
             let windows = value as? [AXUIElement]
         else { return }
 
-        guard let match = windows.first(where: { AXPrivate.windowID(for: $0) == windowID }) else {
-            return
-        }
+        // Try exact CGWindowID match first; if none (Chromium browsers commonly have
+        // mismatched AX windowIDs vs CGWindowList), fall back to the first AX window
+        // so we at least bring the app's frontmost window forward.
+        let target = windows.first(where: { AXPrivate.windowID(for: $0) == windowID })
+            ?? windows.first
+        guard let match = target else { return }
 
         // Unminiaturize if needed.
         var minimized: AnyObject?
@@ -81,17 +91,27 @@ enum WindowFocuser {
     }
 
     private static func activate(app: NSRunningApplication) {
-        // On macOS 14+, `NSRunningApplication.activate()` from an `.accessory` (LSUIElement)
-        // app is frequently denied for cross-process activation. Avoiding the workaround
-        // of toggling our own activation policy (which leaks phantom Dock icons under
-        // SwiftUI + `MenuBarExtra`), we use the Accessibility API instead: setting
-        // `kAXFrontmostAttribute = true` on the target app's AX element forces it frontmost
-        // when we hold Accessibility permission.
-        let axApp = AXUIElementCreateApplication(app.processIdentifier)
+        let pid = app.processIdentifier
+        let axApp = AXUIElementCreateApplication(pid)
+
+        // 1. Standard AX path: set frontmost. Works for most well-behaved apps.
         AXUIElementSetAttributeValue(axApp, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
 
-        // Belt-and-suspenders: also call `activate()`. On macOS pre-14 this is the only
-        // thing that works; on macOS 14+ it's a no-op when AX already brought us forward.
+        // 2. Some apps (notably Chromium browsers: Chrome, Arc, Dia, Brave) ignore the
+        //    `kAXFrontmostAttribute` write but DO honor a raise action on the app
+        //    element. Cheap to add and harmless for other apps.
+        AXUIElementPerformAction(axApp, kAXRaiseAction as CFString)
+
+        // 3. Window Server-level activation via private SPI. Bypasses AppKit's
+        //    activation-policy gating and Chromium's custom AX layer entirely — this
+        //    is the path AltTab uses for stubborn Chromium-based apps. If the AX
+        //    paths above already worked, this is a redundant no-op; if they didn't,
+        //    this is what gets Dia / Chrome forward.
+        AXPrivate.windowServerActivate(pid: pid)
+
+        // 4. Belt-and-suspenders: also call the standard activation API. On macOS
+        //    pre-14 this is the only thing that works; on macOS 14+ it's a no-op
+        //    when AX/SPI already brought us forward.
         if #available(macOS 14.0, *) {
             app.activate()
         } else {

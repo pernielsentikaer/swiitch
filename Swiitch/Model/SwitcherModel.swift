@@ -27,6 +27,7 @@ final class SwitcherModel: ObservableObject {
     /// Computed by the panel from `maxPanelWidthPercent` × active-screen width. SwiftUI
     /// reads this from the model so `LazyVGrid` knows where to wrap.
     @Published var effectiveMaxWidth: CGFloat = 1200
+    @Published var effectiveMaxHeight: CGFloat = 900
     /// True once the user has actually moved the mouse after the panel opened. Hover
     /// callbacks ignore selection changes until this flips, so a stationary cursor that
     /// happens to start inside the panel doesn't snap selection on its own.
@@ -46,6 +47,10 @@ final class SwitcherModel: ObservableObject {
     private var refreshTimer: Timer?
     private var hasArmedOnce = false
     private var peekWorkItem: DispatchWorkItem?
+    /// PID of the frontmost app at arm-time, captured so that a peek-then-cancel
+    /// flow can restore the user's original focus instead of leaving them stranded
+    /// in whichever app peek raised.
+    private var preArmFrontmostPID: pid_t?
 
     init(focusTracker: FocusTracker) {
         self.focusTracker = focusTracker
@@ -55,6 +60,17 @@ final class SwitcherModel: ObservableObject {
 
     func arm(reverse: Bool) {
         guard !isArmed else { return }
+
+        // Snapshot the user's current frontmost app so we can restore it if they
+        // cancel after peek has temporarily activated something else.
+        preArmFrontmostPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
+
+        // Defensive MRU refresh — guarantees the OS-reported frontmost is at the top
+        // of MRU before we sort, even if we missed its didActivate notification.
+        // (Chromium browsers like Dia/Chrome/Arc don't always fire the standard
+        // activation notification when raised via AX `kAXFrontmostAttribute`, so
+        // they'd otherwise stay stuck wherever the initial seed placed them.)
+        focusTracker.refreshFromFrontmost()
 
         let options = currentEnumerateOptions()
         apps = WindowEnumerator.enumerate(focusTracker: focusTracker, options: options)
@@ -110,6 +126,9 @@ final class SwitcherModel: ObservableObject {
     /// the window strip for the frontmost app. Triggered by the second configurable hotkey.
     func armForCurrentApp(reverse: Bool) {
         guard !isArmed else { return }
+
+        preArmFrontmostPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
+        focusTracker.refreshFromFrontmost()
 
         let options = currentEnumerateOptions()
         apps = WindowEnumerator.enumerate(focusTracker: focusTracker, options: options)
@@ -186,6 +205,11 @@ final class SwitcherModel: ObservableObject {
 
     func enterWindowMode() {
         guard isArmed, mode == .apps else { return }
+        // When window previews are disabled, activate the app directly instead of drilling in.
+        if !UserDefaults.standard.bool(forKey: Preferences.Key.showWindowPreviews) {
+            commit()
+            return
+        }
         guard let app = currentApp, app.windows.count > 1 else { return }
         mode = .windowsForApp
         selectedWindowIndex = 0
@@ -198,6 +222,80 @@ final class SwitcherModel: ObservableObject {
         guard isArmed, mode == .windowsForApp else { return }
         mode = .apps
         if panelShown { onUpdate?() }
+    }
+
+    /// Move selection up or down by one full grid row. Falls through to enter/exit
+    /// window mode at the boundaries of the apps grid.
+    func advanceRow(reverse: Bool) {
+        guard isArmed else { return }
+        let tileColumnsRaw = UserDefaults.standard.integer(forKey: Preferences.Key.tileColumns)
+
+        switch mode {
+        case .apps:
+            // ↓ always drills into the selected app's windows; ↑ is a no-op at this level
+            // (← / → already cycle apps, and there is nothing "above" the app strip).
+            guard !reverse else { return }
+            enterWindowMode()  // handles its own onUpdate / presentPanel
+            return
+
+        case .windowsForApp:
+            let windows = currentApp?.windows ?? []
+            guard !windows.isEmpty else { return }
+            let cols: Int
+            if tileColumnsRaw == -1 {
+                cols = Self.computeFillColumns(count: windows.count, maxWidth: effectiveMaxWidth,
+                                               availableHeight: effectiveMaxHeight - 150)
+            } else if tileColumnsRaw > 0 {
+                cols = tileColumnsRaw
+            } else {
+                let thumbSizeRaw = UserDefaults.standard.string(forKey: Preferences.Key.thumbnailSize) ?? "medium"
+                let thumbSize = Preferences.ThumbnailSize(rawValue: thumbSizeRaw) ?? .medium
+                cols = max(1, min(windows.count, Int(effectiveMaxWidth / (thumbSize.cellWidth + 12))))
+            }
+            let next = selectedWindowIndex + (reverse ? -cols : cols)
+            if reverse && next < 0 {
+                exitWindowMode()
+                return
+            }
+            selectedWindowIndex = max(0, min(windows.count - 1, next))
+
+        case .flatWindows:
+            let visible = filteredFlatWindows
+            guard !visible.isEmpty else { return }
+            let cols: Int
+            if tileColumnsRaw == -1 {
+                cols = Self.computeFillColumns(count: visible.count, maxWidth: effectiveMaxWidth,
+                                               availableHeight: effectiveMaxHeight - 150)
+            } else if tileColumnsRaw > 0 {
+                cols = tileColumnsRaw
+            } else {
+                let thumbSizeRaw = UserDefaults.standard.string(forKey: Preferences.Key.thumbnailSize) ?? "medium"
+                let thumbSize = Preferences.ThumbnailSize(rawValue: thumbSizeRaw) ?? .medium
+                cols = max(1, min(visible.count, Int(effectiveMaxWidth / (thumbSize.cellWidth + 12))))
+            }
+            let currentInFiltered = visible.firstIndex(where: { $0.id == flatWindows[safe: selectedFlatIndex]?.id }) ?? 0
+            let next = max(0, min(visible.count - 1, currentInFiltered + (reverse ? -cols : cols)))
+            if let newIndex = flatWindows.firstIndex(where: { $0.id == visible[next].id }) {
+                selectedFlatIndex = newIndex
+            }
+        }
+        if panelShown { onUpdate?() }
+        schedulePeekIfEnabled()
+    }
+
+    /// Minimum columns (= largest tile size) such that `ceil(count/cols)` rows of
+    /// estimated height `cellWidth*0.625 + 50` fit within `availableHeight`.
+    static func computeFillColumns(count: Int, maxWidth: CGFloat, availableHeight: CGFloat,
+                                    spacing: CGFloat = 12) -> Int {
+        guard count > 0 else { return 1 }
+        let avail = max(availableHeight, 100)
+        for cols in 1...count {
+            let cw = max(80, (maxWidth - spacing * CGFloat(cols - 1)) / CGFloat(cols))
+            let rowH = cw * 0.625 + 50
+            let rows = ceil(Double(count) / Double(cols))
+            if CGFloat(rows) * rowH <= avail { return cols }
+        }
+        return count
     }
 
     func selectApp(at index: Int) {
@@ -226,7 +324,7 @@ final class SwitcherModel: ObservableObject {
     func appendFilter(_ ch: String) {
         guard isArmed, mode != .windowsForApp else { return } // window-mode drill-in stays as-is
         filterText.append(ch)
-        clampSelectionToFilter()
+        selectFirstFilteredMatch()
         if !panelShown {
             // First keystroke reveals the panel even before the show-delay elapses,
             // otherwise the user wouldn't see what they're filtering.
@@ -238,13 +336,35 @@ final class SwitcherModel: ObservableObject {
     func backspaceFilter() {
         guard isArmed, !filterText.isEmpty else { return }
         filterText.removeLast()
-        clampSelectionToFilter()
+        selectFirstFilteredMatch()
     }
 
     func clearFilter() {
         guard !filterText.isEmpty else { return }
         filterText = ""
-        clampSelectionToFilter()
+        selectFirstFilteredMatch()
+    }
+
+    /// Jump selection to the first item in the current filtered set. Called after every
+    /// keystroke so the user sees the top match highlighted as they type — they can hit
+    /// Enter (or release ⌘) immediately without arrowing.
+    private func selectFirstFilteredMatch() {
+        switch mode {
+        case .apps:
+            let visible = filteredApps
+            if let first = visible.first, let absIdx = apps.firstIndex(of: first) {
+                selectedAppIndex = absIdx
+                selectedWindowIndex = 0
+            }
+        case .flatWindows:
+            let visible = filteredFlatWindows
+            if let first = visible.first, let absIdx = flatWindows.firstIndex(of: first) {
+                selectedFlatIndex = absIdx
+            }
+        case .windowsForApp:
+            break
+        }
+        if panelShown { onUpdate?() }
     }
 
     /// Apps after applying the filter — name substring, case-insensitive.
@@ -284,27 +404,56 @@ final class SwitcherModel: ObservableObject {
         let flat = flatWindows
         teardown()
 
+        // Bundle ID of whichever app we're about to activate. We bump it into MRU
+        // ourselves AFTER focusing so the next ⌘+Tab sees it as most-recent — needed
+        // because some apps (notably Chromium-based ones) don't reliably fire the
+        // standard `didActivate` notification when raised via AX `kAXFrontmostAttribute`.
+        var bumpedBundleID: String?
+
         switch mode {
         case .apps:
             guard let app else { return }
             WindowFocuser.focus(app: app)
+            bumpedBundleID = app.bundleIdentifier
         case .windowsForApp:
             guard let app else { return }
             let windows = app.windows
             guard windowIndex < windows.count else {
                 WindowFocuser.focus(app: app)
+                bumpedBundleID = app.bundleIdentifier
                 return
             }
             WindowFocuser.focus(window: windows[windowIndex])
+            bumpedBundleID = app.bundleIdentifier
         case .flatWindows:
             guard flatIndex < flat.count else { return }
-            WindowFocuser.focus(window: flat[flatIndex].window)
+            let entry = flat[flatIndex]
+            WindowFocuser.focus(window: entry.window)
+            // Resolve the owning app's bundle id from the flat entry.
+            if let runningApp = NSRunningApplication(processIdentifier: entry.window.pid) {
+                bumpedBundleID = runningApp.bundleIdentifier
+            }
+        }
+
+        if let bumpedBundleID {
+            focusTracker.bump(bumpedBundleID)
         }
     }
 
     func cancel() {
         guard isArmed else { return }
+        let savedPID = preArmFrontmostPID
         teardown()
+
+        // If peek temporarily activated a different app while the picker was open,
+        // restore the user's original focus so Esc reads as a true "never mind."
+        // No-op when frontmost hasn't changed since arm (e.g. peek-on-hover off,
+        // or the user never moved their cursor / pressed Tab to trigger a peek).
+        guard let savedPID,
+              let currentPID = NSWorkspace.shared.frontmostApplication?.processIdentifier,
+              savedPID != currentPID
+        else { return }
+        WindowFocuser.focus(pid: savedPID)
     }
 
     /// Activate the window/app at the current selection without dismissing the picker.
@@ -350,6 +499,12 @@ final class SwitcherModel: ObservableObject {
     /// Re-enumerate after a pin/unpin so the order updates while the picker is open.
     /// Selection follows the previously-selected app if still present.
     func refreshAfterPinChange() {
+        refreshAfterAppListPreferenceChange()
+    }
+
+    /// Re-enumerate after app list preferences change while the picker is open.
+    /// Selection follows the previously-selected app/window if still present.
+    func refreshAfterAppListPreferenceChange() {
         guard isArmed else { return }
         let previouslySelectedID = currentApp?.id
         let previouslySelectedFlatID = flatWindows[safe: selectedFlatIndex]?.id
@@ -360,6 +515,11 @@ final class SwitcherModel: ObservableObject {
             app.windows.map { window in
                 FlatWindowEntry(id: window.id, window: window, appName: app.name, appIcon: app.icon)
             }
+        }
+
+        if apps.isEmpty {
+            teardown()
+            return
         }
 
         if let pid = previouslySelectedID, let newIndex = apps.firstIndex(where: { $0.id == pid }) {
@@ -469,6 +629,8 @@ final class SwitcherModel: ObservableObject {
     private func teardown() {
         cancelShowTimer()
         stopRefreshTimer()
+        peekWorkItem?.cancel()
+        peekWorkItem = nil
         isArmed = false
         apps = []
         flatWindows = []
@@ -479,6 +641,7 @@ final class SwitcherModel: ObservableObject {
         thumbnails = [:]
         mouseHasMoved = false
         filterText = ""
+        preArmFrontmostPID = nil
         if panelShown {
             onHide?()
         }

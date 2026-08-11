@@ -99,6 +99,7 @@ final class SwitcherPanel: NSPanel {
         let percent = max(20, min(UserDefaults.standard.integer(forKey: Preferences.Key.maxPanelWidthPercent), 100))
         let effectiveMax = screenWidth * CGFloat(percent) / 100.0
         model.effectiveMaxWidth = effectiveMax
+        model.effectiveMaxHeight = screen?.visibleFrame.height ?? 900
 
         hostingView.layoutSubtreeIfNeeded()
         let fitting = hostingView.fittingSize

@@ -8,7 +8,6 @@ struct SwitcherView: View {
     @AppStorage(Preferences.Key.panelMaterial) private var panelMaterialRaw: String = Preferences.PanelMaterial.translucentLight.rawValue
     @AppStorage(Preferences.Key.panelCornerRadius) private var panelCornerRadius: Int = 16
     @AppStorage(Preferences.Key.overlayPosition) private var overlayPositionRaw: String = Preferences.OverlayPosition.bottomLeading.rawValue
-    @AppStorage(Preferences.Key.thumbnailOverlay) private var thumbnailOverlayRaw: String = Preferences.ThumbnailOverlay.none.rawValue
 
     private var tint: Color {
         Color(hex: accentColorHex) ?? .accentColor
@@ -26,19 +25,15 @@ struct SwitcherView: View {
         Preferences.OverlayPosition(rawValue: overlayPositionRaw) ?? .bottomLeading
     }
 
-    private var thumbnailOverlay: Preferences.ThumbnailOverlay {
-        Preferences.ThumbnailOverlay(rawValue: thumbnailOverlayRaw) ?? .none
-    }
-
     var body: some View {
-        VStack(spacing: 10) {
-            // Floating search bar sits above the panel. Rendered with reserved height
+        VStack(spacing: 14) {
+            // Floating search field sits above the panel. Rendered with reserved height
             // so the panel never resizes when the filter appears/disappears.
-            FilterBadge(text: model.filterText)
+            FilterField(text: model.filterText)
                 .opacity(model.filterText.isEmpty ? 0 : 1)
-                .scaleEffect(model.filterText.isEmpty ? 0.95 : 1.0, anchor: .bottom)
+                .scaleEffect(model.filterText.isEmpty ? 0.96 : 1.0, anchor: .bottom)
                 .animation(.easeOut(duration: 0.15), value: model.filterText.isEmpty)
-                .frame(maxWidth: 380)
+                .frame(maxWidth: 520)
 
             Group {
                 switch model.mode {
@@ -46,31 +41,22 @@ struct SwitcherView: View {
                     AppGridView(model: model, maxWidth: model.effectiveMaxWidth)
                         .padding(20)
                 case .windowsForApp:
-                    VStack(spacing: 0) {
-                        AppGridView(model: model, maxWidth: model.effectiveMaxWidth)
-                            .padding(.horizontal, 20)
-                            .padding(.top, 20)
-                            .padding(.bottom, 8)
-                        Divider().padding(.horizontal, 20)
-                        if let app = model.currentApp, app.windows.count > 1 {
-                            WindowGridView(
-                                model: model,
-                                app: app,
-                                maxWidth: model.effectiveMaxWidth,
-                                thumbnailSize: thumbnailSize,
-                                overlayPosition: overlayPosition,
-                                thumbnailOverlay: thumbnailOverlay
-                            )
-                            .padding(20)
-                        }
+                    if let app = model.currentApp, app.windows.count > 1 {
+                        WindowGridView(
+                            model: model,
+                            app: app,
+                            maxWidth: model.effectiveMaxWidth,
+                            thumbnailSize: thumbnailSize,
+                            overlayPosition: overlayPosition
+                        )
+                        .padding(20)
                     }
                 case .flatWindows:
                     FlatWindowGridView(
                         model: model,
                         maxWidth: model.effectiveMaxWidth,
                         thumbnailSize: thumbnailSize,
-                        overlayPosition: overlayPosition,
-                        thumbnailOverlay: thumbnailOverlay
+                        overlayPosition: overlayPosition
                     )
                     .padding(20)
                 }
@@ -105,34 +91,61 @@ private struct NoMatchesView: View {
     }
 }
 
-private struct FilterBadge: View {
+/// Spotlight-style search field. Wide, prominent, with a large magnifying glass on
+/// the left, the typed query in big rounded type, a blinking cursor for the I-beam
+/// feel, and an unobtrusive hint on the right.
+private struct FilterField: View {
     let text: String
     @Environment(\.swiitchAccent) private var accent: Color
+    @State private var cursorVisible: Bool = true
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 14) {
             Image(systemName: "magnifyingglass")
-                .font(.callout.weight(.medium))
+                .font(.system(size: 22, weight: .medium))
                 .foregroundStyle(accent)
-            Text(text.isEmpty ? " " : text)
-                .font(.system(.callout, design: .rounded).weight(.medium))
-                .foregroundStyle(Color.primary)
-            Spacer(minLength: 8)
+
+            ZStack(alignment: .leading) {
+                Text(text)
+                    .font(.system(size: 22, weight: .regular, design: .rounded))
+                    .foregroundStyle(Color.primary)
+                    .lineLimit(1)
+                    .truncationMode(.head)
+                // Blinking caret to make the field read as "input" rather than "label".
+                Rectangle()
+                    .fill(accent)
+                    .frame(width: 2, height: 24)
+                    .offset(x: caretX, y: 0)
+                    .opacity(cursorVisible ? 1 : 0)
+                    .animation(.easeInOut(duration: 0.55).repeatForever(autoreverses: true), value: cursorVisible)
+            }
+
+            Spacer(minLength: 12)
+
             Text("⌫ to delete")
-                .font(.caption2)
+                .font(.caption)
                 .foregroundStyle(.tertiary)
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 9)
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
         .background(
-            Capsule(style: .continuous)
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .fill(.ultraThinMaterial)
                 .overlay(
-                    Capsule(style: .continuous)
-                        .strokeBorder(accent.opacity(0.5), lineWidth: 1.5)
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .strokeBorder(accent.opacity(0.45), lineWidth: 1.5)
                 )
-                .shadow(color: .black.opacity(0.25), radius: 10, x: 0, y: 4)
+                .shadow(color: .black.opacity(0.30), radius: 14, x: 0, y: 6)
         )
+        .onAppear { cursorVisible = false } // triggers the autoreverses toggle
+    }
+
+    /// Rough offset of the caret past the end of typed text. We don't have access to
+    /// real text-layout metrics here, so we estimate from string length × glyph width.
+    /// Good enough for the "typing visualizer" effect.
+    private var caretX: CGFloat {
+        let estimatedGlyph: CGFloat = 13.5
+        return min(CGFloat(text.count) * estimatedGlyph, 460)
     }
 }
 
@@ -185,6 +198,10 @@ private struct AppGridView: View {
                             Button(isPinned ? "Unpin from top" : "Pin to top") {
                                 Preferences.togglePinned(bid)
                                 model.refreshAfterPinChange()
+                            }
+                            Button("Exclude from Swiitch") {
+                                Preferences.excludeApp(bid)
+                                model.refreshAfterAppListPreferenceChange()
                             }
                         }
                     }
@@ -273,13 +290,24 @@ private struct WindowGridView: View {
     let maxWidth: CGFloat
     let thumbnailSize: Preferences.ThumbnailSize
     let overlayPosition: Preferences.OverlayPosition
-    let thumbnailOverlay: Preferences.ThumbnailOverlay
 
+    @AppStorage(Preferences.Key.tileColumns) private var tileColumns: Int = 0
     private let cellSpacing: CGFloat = 12
 
     var body: some View {
-        let cellWidth = thumbnailSize.cellWidth
-        let columnsCount = max(1, min(app.windows.count, Int(maxWidth / (cellWidth + cellSpacing))))
+        let count = app.windows.count
+        let fillCols: Int = {
+            if tileColumns == -1 {
+                return SwitcherModel.computeFillColumns(count: count, maxWidth: maxWidth,
+                                                        availableHeight: model.effectiveMaxHeight - 300)
+            }
+            return tileColumns > 0 ? min(tileColumns, count) : 0
+        }()
+        let cellWidth: CGFloat = fillCols > 0
+            ? max(120, (maxWidth - cellSpacing * CGFloat(fillCols - 1)) / CGFloat(fillCols))
+            : thumbnailSize.cellWidth
+        let thumbHeight: CGFloat = fillCols > 0 ? cellWidth * 0.625 : thumbnailSize.thumbHeight
+        let columnsCount = max(1, fillCols > 0 ? fillCols : min(count, Int(maxWidth / (cellWidth + cellSpacing))))
         let columns = Array(repeating: GridItem(.fixed(cellWidth), spacing: cellSpacing), count: columnsCount)
 
         LazyVGrid(columns: columns, alignment: .center, spacing: 14) {
@@ -289,9 +317,8 @@ private struct WindowGridView: View {
                     thumbnail: model.thumbnails[window.id],
                     appIcon: app.icon,
                     overlayPosition: overlayPosition,
-                    thumbnailOverlay: thumbnailOverlay,
                     isSelected: index == model.selectedWindowIndex,
-                    thumbHeight: thumbnailSize.thumbHeight,
+                    thumbHeight: thumbHeight,
                     isOnScreen: window.isOnScreen
                 )
                 .frame(width: cellWidth)
@@ -323,8 +350,8 @@ private struct FlatWindowGridView: View {
     let maxWidth: CGFloat
     let thumbnailSize: Preferences.ThumbnailSize
     let overlayPosition: Preferences.OverlayPosition
-    let thumbnailOverlay: Preferences.ThumbnailOverlay
 
+    @AppStorage(Preferences.Key.tileColumns) private var tileColumns: Int = 0
     private let cellSpacing: CGFloat = 12
 
     var body: some View {
@@ -338,8 +365,19 @@ private struct FlatWindowGridView: View {
     }
 
     private func grid(visible: [SwitcherModel.FlatWindowEntry]) -> some View {
-        let cellWidth = thumbnailSize.cellWidth
-        let columnsCount = max(1, min(visible.count, Int(maxWidth / (cellWidth + cellSpacing))))
+        let count = visible.count
+        let fillCols: Int = {
+            if tileColumns == -1 {
+                return SwitcherModel.computeFillColumns(count: count, maxWidth: maxWidth,
+                                                        availableHeight: model.effectiveMaxHeight - 150)
+            }
+            return tileColumns > 0 ? min(tileColumns, count) : 0
+        }()
+        let cellWidth: CGFloat = fillCols > 0
+            ? max(120, (maxWidth - cellSpacing * CGFloat(fillCols - 1)) / CGFloat(fillCols))
+            : thumbnailSize.cellWidth
+        let thumbHeight: CGFloat = fillCols > 0 ? cellWidth * 0.625 : thumbnailSize.thumbHeight
+        let columnsCount = max(1, fillCols > 0 ? fillCols : min(count, Int(maxWidth / (cellWidth + cellSpacing))))
         let columns = Array(repeating: GridItem(.fixed(cellWidth), spacing: cellSpacing), count: columnsCount)
 
         return LazyVGrid(columns: columns, alignment: .center, spacing: 14) {
@@ -350,10 +388,9 @@ private struct FlatWindowGridView: View {
                     thumbnail: model.thumbnails[entry.id],
                     appIcon: entry.appIcon,
                     overlayPosition: overlayPosition,
-                    thumbnailOverlay: thumbnailOverlay,
                     secondaryLabel: entry.appName,
                     isSelected: absoluteIndex == model.selectedFlatIndex,
-                    thumbHeight: thumbnailSize.thumbHeight,
+                    thumbHeight: thumbHeight,
                     isOnScreen: entry.window.isOnScreen
                 )
                 .frame(width: cellWidth)
@@ -385,7 +422,6 @@ private struct WindowCell: View {
     let thumbnail: NSImage?
     let appIcon: NSImage?
     let overlayPosition: Preferences.OverlayPosition
-    var thumbnailOverlay: Preferences.ThumbnailOverlay = .none
     var secondaryLabel: String? = nil
     let isSelected: Bool
     let thumbHeight: CGFloat
@@ -413,7 +449,6 @@ private struct WindowCell: View {
                         .aspectRatio(contentMode: .fit)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
                         .padding(4)
-                        .overlay(thumbnailOverlayLayer)
                         .transition(.opacity)
                 } else {
                     Text(title)
@@ -469,52 +504,6 @@ private struct WindowCell: View {
                 }
             }
             .frame(maxWidth: .infinity)
-        }
-    }
-
-    /// Decorative layer rendered on top of the captured thumbnail. Clipped to the inner
-    /// rounded shape so it never spills outside the cell border.
-    @ViewBuilder
-    private var thumbnailOverlayLayer: some View {
-        switch thumbnailOverlay {
-        case .none:
-            EmptyView()
-        case .gradientEdges:
-            // Two accent-colored gradients hugging the top and bottom edges. Subtle on
-            // light themes, punchy on dark — exactly what the Synthwave preset wants.
-            RoundedRectangle(cornerRadius: 7, style: .continuous)
-                .fill(
-                    LinearGradient(
-                        stops: [
-                            .init(color: accent.opacity(0.55), location: 0.0),
-                            .init(color: accent.opacity(0.0),  location: 0.18),
-                            .init(color: accent.opacity(0.0),  location: 0.82),
-                            .init(color: accent.opacity(0.55), location: 1.0)
-                        ],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                )
-                .blendMode(.plusLighter)
-                .allowsHitTesting(false)
-        case .scanlines:
-            // 2-pixel-tall horizontal lines every 4 pixels — CRT-style.
-            Canvas { ctx, size in
-                let path = Path { p in
-                    var y: CGFloat = 0
-                    while y < size.height {
-                        p.addRect(CGRect(x: 0, y: y, width: size.width, height: 1))
-                        y += 3
-                    }
-                }
-                ctx.fill(path, with: .color(.black.opacity(0.25)))
-            }
-            .allowsHitTesting(false)
-        case .tint:
-            // Soft accent multiply across the whole thumbnail.
-            accent.opacity(0.22)
-                .blendMode(.multiply)
-                .allowsHitTesting(false)
         }
     }
 }

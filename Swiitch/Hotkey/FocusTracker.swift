@@ -45,6 +45,17 @@ final class FocusTracker {
         mruByBundle.insert(bundleID, at: 0)
     }
 
+    /// Bring the OS-reported frontmost app to the top of MRU. Cheap insurance against
+    /// a missed `didActivateApplicationNotification` — Chromium-based apps (Chrome,
+    /// Arc, Dia) sometimes don't fire the standard notification when activated via
+    /// AX `kAXFrontmostAttribute`, which would otherwise leave them stuck wherever
+    /// `runningApplications` happened to seed them.
+    func refreshFromFrontmost() {
+        if let bid = NSWorkspace.shared.frontmostApplication?.bundleIdentifier {
+            bump(bid)
+        }
+    }
+
     /// Returns the MRU index for a bundle id, or Int.max if not seen.
     func rank(for bundleID: String?) -> Int {
         guard let bundleID, let index = mruByBundle.firstIndex(of: bundleID) else { return .max }

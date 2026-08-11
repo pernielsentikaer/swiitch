@@ -14,9 +14,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Preferences.registerDefaults()
         Preferences.applyAppearance()
 
-        // Touch the Sparkle updater singleton so its background-check schedule arms.
+        // Arm the Sparkle updater singleton so its background-check schedule kicks in.
         // The Info.plist flags `SUEnableAutomaticChecks` + `SUFeedURL` drive behavior.
-        _ = UpdateController.shared
+        UpdateController.shared.arm()
 
         // Sparkle's default scheduled-check cadence is conservative (24h) and the first
         // tick has its own startup delay. For an app users launch and leave running,

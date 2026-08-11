@@ -72,7 +72,7 @@ Both hotkeys are user-recordable in Preferences → General → Hotkeys.
 Four tabs in ⌘, from the menu bar:
 
 - **General** — Permissions, Launch at login, menu-bar / Dock icon visibility, hotkey recorders.
-- **Switcher** — Display mode (apps vs flat windows), screen scope, show-delay, wrap percentage, peek, navigation, "show window list" toggle.
+- **Switcher** — Display mode (apps vs flat windows), screen scope, excluded apps, show-delay, wrap percentage, peek, navigation, "show window list" toggle.
 - **Appearance** — Theme presets, system appearance (Light / Dark / System), accent color, panel material + corner radius, thumbnail size, app-icon overlay position.
 - **About** — Version + Welcome window button.
 

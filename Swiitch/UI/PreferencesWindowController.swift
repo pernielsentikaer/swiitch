@@ -25,7 +25,10 @@ final class PreferencesWindowController: NSObject, NSWindowDelegate {
         let hosting = NSHostingController(rootView: PreferencesView())
         let window = NSWindow(contentViewController: hosting)
         window.title = "Swiitch Preferences"
-        window.styleMask = [.titled, .closable, .miniaturizable]
+        window.styleMask = [.titled, .closable, .miniaturizable, .fullSizeContentView]
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
+        window.isMovableByWindowBackground = true
         window.isReleasedWhenClosed = false
         window.center()
         window.delegate = self
