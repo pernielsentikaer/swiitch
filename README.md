@@ -7,7 +7,7 @@ A native SwiftUI ⌘+Tab replacement for macOS. Lets you switch between every **
 ## Features
 
 - **All windows, not just apps.** The default ⌘+Tab cycles apps; ↓ or `` ` `` drills into the selected app's windows.
-- **Optional second hotkey** that opens the picker directly in the frontmost app's window list (default ⌥+`).
+- **Optional second hotkey** that opens the picker directly in the frontmost app's window list (default ⌥+Tab).
 - **Live window thumbnails** via ScreenCaptureKit, with a `CGWindowList` fallback for windows on other Spaces / minimised.
 - **Type to filter.** While the picker is open, just start typing — narrows the list by name or window title.
 - **Mouse and keyboard parity.** Hover to select, click to commit, arrows / Tab to navigate, ⌘W to close, ⌘H to hide.
@@ -27,7 +27,9 @@ A native SwiftUI ⌘+Tab replacement for macOS. Lets you switch between every **
 
 ## Install
 
-Pre-built binaries: <!-- TODO: link to GitHub Releases once you've cut your first tagged release -->.
+Download the latest archive from [GitHub Releases](https://github.com/pernielsentikaer/swiitch/releases/latest).
+
+> **Current release note:** v0.1.4 is an early Apple-silicon-only, ad-hoc-signed build. Control-click the app and choose **Open** on first launch to approve it. Intel support and normal Gatekeeper approval require the next universal, notarized release.
 
 Or build from source — see [CONTRIBUTING.md](CONTRIBUTING.md#development-setup).
 
@@ -63,7 +65,7 @@ Swiitch uses the private `_AXUIElementGetWindow` Accessibility SPI to reliably m
 | ⌘ H | Hide highlighted app |
 | Esc | Cancel |
 | Release ⌘ | Commit |
-| ⌥ ` | (Optional) Open picker in frontmost app's windows |
+| ⌥ Tab | (Optional) Open picker in frontmost app's windows |
 
 Both hotkeys are user-recordable in Preferences → General → Hotkeys.
 

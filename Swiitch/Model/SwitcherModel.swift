@@ -16,6 +16,59 @@ final class SwitcherModel: ObservableObject {
         let appIcon: NSImage?
     }
 
+    /// External operations used by the state machine. Keeping these injectable lets the
+    /// selection and filtering behavior run under unit tests without focusing real apps,
+    /// enumerating the developer's desktop, or requesting Screen Recording permission.
+    struct Dependencies {
+        var enumerate: (FocusTracker, EnumerateOptions) -> [AppEntry]
+        var focusApp: (AppEntry) -> Void
+        var focusWindow: (WindowInfo) -> Void
+        var closeWindow: (WindowInfo) -> Bool
+        var hideApp: (pid_t) -> Bool
+        var thumbnail: ((CGWindowID, Bool) async -> NSImage?)?
+        var retainThumbnails: ((Set<CGWindowID>) async -> Void)?
+        var invalidateThumbnail: ((CGWindowID) async -> Void)?
+
+        init(
+            enumerate: @escaping (FocusTracker, EnumerateOptions) -> [AppEntry],
+            focusApp: @escaping (AppEntry) -> Void,
+            focusWindow: @escaping (WindowInfo) -> Void,
+            closeWindow: @escaping (WindowInfo) -> Bool,
+            hideApp: @escaping (pid_t) -> Bool,
+            thumbnail: ((CGWindowID, Bool) async -> NSImage?)? = nil,
+            retainThumbnails: ((Set<CGWindowID>) async -> Void)? = nil,
+            invalidateThumbnail: ((CGWindowID) async -> Void)? = nil
+        ) {
+            self.enumerate = enumerate
+            self.focusApp = focusApp
+            self.focusWindow = focusWindow
+            self.closeWindow = closeWindow
+            self.hideApp = hideApp
+            self.thumbnail = thumbnail
+            self.retainThumbnails = retainThumbnails
+            self.invalidateThumbnail = invalidateThumbnail
+        }
+
+        static let live = Dependencies(
+            enumerate: { focusTracker, options in
+                WindowEnumerator.enumerate(focusTracker: focusTracker, options: options)
+            },
+            focusApp: { WindowFocuser.focus(app: $0) },
+            focusWindow: { WindowFocuser.focus(window: $0) },
+            closeWindow: { WindowFocuser.close(window: $0) },
+            hideApp: { WindowFocuser.hide(pid: $0) },
+            thumbnail: { windowID, fresh in
+                await WindowThumbnails.shared.image(for: windowID, fresh: fresh)
+            },
+            retainThumbnails: { liveIDs in
+                await WindowThumbnails.shared.retain(only: liveIDs)
+            },
+            invalidateThumbnail: { windowID in
+                await WindowThumbnails.shared.invalidate(windowID)
+            }
+        )
+    }
+
     @Published private(set) var apps: [AppEntry] = []
     @Published private(set) var flatWindows: [FlatWindowEntry] = []
     @Published private(set) var mode: Mode = .apps
@@ -40,6 +93,8 @@ final class SwitcherModel: ObservableObject {
     var onUpdate: (() -> Void)?
 
     private let focusTracker: FocusTracker
+    private let defaults: UserDefaults
+    private let dependencies: Dependencies
     private var showTimer: Timer?
     private var panelShown: Bool = false
     private var prewarmTimer: Timer?
@@ -47,8 +102,21 @@ final class SwitcherModel: ObservableObject {
     private var hasArmedOnce = false
     private var peekWorkItem: DispatchWorkItem?
 
-    init(focusTracker: FocusTracker) {
+    init(
+        focusTracker: FocusTracker,
+        defaults: UserDefaults = .standard,
+        dependencies: Dependencies = .live
+    ) {
         self.focusTracker = focusTracker
+        self.defaults = defaults
+        self.dependencies = dependencies
+    }
+
+    deinit {
+        showTimer?.invalidate()
+        prewarmTimer?.invalidate()
+        refreshTimer?.invalidate()
+        peekWorkItem?.cancel()
     }
 
     // MARK: - State transitions
@@ -57,7 +125,7 @@ final class SwitcherModel: ObservableObject {
         guard !isArmed else { return }
 
         let options = currentEnumerateOptions()
-        apps = WindowEnumerator.enumerate(focusTracker: focusTracker, options: options)
+        apps = dependencies.enumerate(focusTracker, options)
 
         let displayMode = currentDisplayMode()
         switch displayMode {
@@ -89,10 +157,11 @@ final class SwitcherModel: ObservableObject {
         isArmed = true
         scheduleShow()
 
-        // Kick off thumbnail fetch — useful for both display modes.
-        let allWindows = apps.flatMap { $0.windows }
-        Task { [weak self] in
-            await self?.fetchThumbnails(for: allWindows, fresh: false)
+        if shouldLoadThumbnails(for: displayMode) {
+            let allWindows = apps.flatMap { $0.windows }
+            Task { [weak self] in
+                await self?.fetchThumbnails(for: allWindows, fresh: false)
+            }
         }
         startRefreshTimer()
         if !hasArmedOnce {
@@ -112,7 +181,7 @@ final class SwitcherModel: ObservableObject {
         guard !isArmed else { return }
 
         let options = currentEnumerateOptions()
-        apps = WindowEnumerator.enumerate(focusTracker: focusTracker, options: options)
+        apps = dependencies.enumerate(focusTracker, options)
         guard !apps.isEmpty else { return }
 
         // Find the entry for the frontmost foreign app (the one whose windows we want).
@@ -186,7 +255,9 @@ final class SwitcherModel: ObservableObject {
 
     func enterWindowMode() {
         guard isArmed, mode == .apps else { return }
+        guard defaults.bool(forKey: Preferences.Key.showWindowPreviews) else { return }
         guard let app = currentApp, app.windows.count > 1 else { return }
+        filterText = ""
         mode = .windowsForApp
         selectedWindowIndex = 0
         showTimer?.invalidate()
@@ -250,55 +321,92 @@ final class SwitcherModel: ObservableObject {
     /// Apps after applying the filter — name substring, case-insensitive.
     var filteredApps: [AppEntry] {
         guard !filterText.isEmpty else { return apps }
-        return apps.filter { $0.name.range(of: filterText, options: .caseInsensitive) != nil }
+        return apps.filter { app in
+            matchesFilter(app.name)
+                || app.windows.contains(where: { matchesFilter($0.displayTitle) })
+        }
     }
 
     /// Flat windows after applying the filter — title OR owning app name.
     var filteredFlatWindows: [FlatWindowEntry] {
         guard !filterText.isEmpty else { return flatWindows }
         return flatWindows.filter {
-            $0.window.title.range(of: filterText, options: .caseInsensitive) != nil
-                || $0.appName.range(of: filterText, options: .caseInsensitive) != nil
+            matchesFilter($0.window.displayTitle) || matchesFilter($0.appName)
         }
+    }
+
+    private func matchesFilter(_ candidate: String) -> Bool {
+        candidate.range(
+            of: filterText,
+            options: [.caseInsensitive, .diacriticInsensitive],
+            locale: .current
+        ) != nil
     }
 
     private func clampSelectionToFilter() {
         switch mode {
         case .apps:
-            selectedAppIndex = filteredApps.isEmpty ? 0 : min(selectedAppIndex, filteredApps.count - 1)
-            if selectedAppIndex < 0 { selectedAppIndex = 0 }
+            selectedAppIndex = resolvedAbsoluteSelection(
+                current: selectedAppIndex,
+                all: apps,
+                visible: filteredApps,
+                id: \AppEntry.id
+            )
         case .flatWindows:
-            selectedFlatIndex = filteredFlatWindows.isEmpty ? 0 : min(selectedFlatIndex, filteredFlatWindows.count - 1)
-            if selectedFlatIndex < 0 { selectedFlatIndex = 0 }
+            selectedFlatIndex = resolvedAbsoluteSelection(
+                current: selectedFlatIndex,
+                all: flatWindows,
+                visible: filteredFlatWindows,
+                id: \FlatWindowEntry.id
+            )
         case .windowsForApp:
             break
         }
     }
 
+    /// The selection indices are absolute indices into `apps` / `flatWindows`, while the
+    /// UI renders filtered subsets. Preserve the current absolute selection when it remains
+    /// visible; otherwise select the first visible item's absolute index.
+    private func resolvedAbsoluteSelection<Item, ID: Equatable>(
+        current: Int,
+        all: [Item],
+        visible: [Item],
+        id: KeyPath<Item, ID>
+    ) -> Int {
+        guard let firstVisible = visible.first else { return 0 }
+        if all.indices.contains(current) {
+            let currentID = all[current][keyPath: id]
+            if visible.contains(where: { $0[keyPath: id] == currentID }) {
+                return current
+            }
+        }
+        let firstVisibleID = firstVisible[keyPath: id]
+        return all.firstIndex(where: { $0[keyPath: id] == firstVisibleID }) ?? 0
+    }
+
     func commit() {
         guard isArmed else { return }
         let mode = self.mode
-        let app = currentApp
+        let app = mode == .apps ? selectedVisibleApp : currentApp
         let windowIndex = selectedWindowIndex
-        let flatIndex = selectedFlatIndex
-        let flat = flatWindows
+        let flatWindow = selectedVisibleFlatWindow
         teardown()
 
         switch mode {
         case .apps:
             guard let app else { return }
-            WindowFocuser.focus(app: app)
+            dependencies.focusApp(app)
         case .windowsForApp:
             guard let app else { return }
             let windows = app.windows
             guard windowIndex < windows.count else {
-                WindowFocuser.focus(app: app)
+                dependencies.focusApp(app)
                 return
             }
-            WindowFocuser.focus(window: windows[windowIndex])
+            dependencies.focusWindow(windows[windowIndex])
         case .flatWindows:
-            guard flatIndex < flat.count else { return }
-            WindowFocuser.focus(window: flat[flatIndex].window)
+            guard let flatWindow else { return }
+            dependencies.focusWindow(flatWindow.window)
         }
     }
 
@@ -313,14 +421,14 @@ final class SwitcherModel: ObservableObject {
         guard isArmed else { return }
         switch mode {
         case .apps:
-            if let app = currentApp { WindowFocuser.focus(app: app) }
+            if let app = selectedVisibleApp { dependencies.focusApp(app) }
         case .windowsForApp:
             guard let app = currentApp,
                   selectedWindowIndex < app.windows.count else { return }
-            WindowFocuser.focus(window: app.windows[selectedWindowIndex])
+            dependencies.focusWindow(app.windows[selectedWindowIndex])
         case .flatWindows:
-            guard selectedFlatIndex < flatWindows.count else { return }
-            WindowFocuser.focus(window: flatWindows[selectedFlatIndex].window)
+            guard let flatWindow = selectedVisibleFlatWindow else { return }
+            dependencies.focusWindow(flatWindow.window)
         }
     }
 
@@ -332,9 +440,9 @@ final class SwitcherModel: ObservableObject {
         peekWorkItem?.cancel()
         peekWorkItem = nil
         guard isArmed else { return }
-        guard UserDefaults.standard.bool(forKey: Preferences.Key.peekOnHover) else { return }
+        guard defaults.bool(forKey: Preferences.Key.peekOnHover) else { return }
 
-        let configured = UserDefaults.standard.integer(forKey: Preferences.Key.peekDelayMs)
+        let configured = defaults.integer(forKey: Preferences.Key.peekDelayMs)
         let resolved = max(50, min(configured == 0 ? 500 : configured, 2500))
 
         let item = DispatchWorkItem { [weak self] in self?.peekCurrent() }
@@ -355,7 +463,7 @@ final class SwitcherModel: ObservableObject {
         let previouslySelectedFlatID = flatWindows[safe: selectedFlatIndex]?.id
 
         let options = currentEnumerateOptions()
-        apps = WindowEnumerator.enumerate(focusTracker: focusTracker, options: options)
+        apps = dependencies.enumerate(focusTracker, options)
         flatWindows = apps.flatMap { app in
             app.windows.map { window in
                 FlatWindowEntry(id: window.id, window: window, appName: app.name, appIcon: app.icon)
@@ -372,6 +480,7 @@ final class SwitcherModel: ObservableObject {
         } else {
             selectedFlatIndex = 0
         }
+        clampSelectionToFilter()
         onUpdate?()
     }
 
@@ -383,19 +492,18 @@ final class SwitcherModel: ObservableObject {
         guard isArmed else { return }
         switch mode {
         case .apps:
-            guard let app = currentApp, let target = app.windows.first else { return }
-            WindowFocuser.close(window: target)
+            guard let app = selectedVisibleApp, let target = app.windows.first else { return }
+            guard dependencies.closeWindow(target) else { return }
             removeWindow(id: target.id)
         case .windowsForApp:
             guard let app = currentApp,
                   selectedWindowIndex >= 0, selectedWindowIndex < app.windows.count else { return }
             let target = app.windows[selectedWindowIndex]
-            WindowFocuser.close(window: target)
+            guard dependencies.closeWindow(target) else { return }
             removeWindow(id: target.id)
         case .flatWindows:
-            guard selectedFlatIndex >= 0, selectedFlatIndex < flatWindows.count else { return }
-            let entry = flatWindows[selectedFlatIndex]
-            WindowFocuser.close(window: entry.window)
+            guard let entry = selectedVisibleFlatWindow else { return }
+            guard dependencies.closeWindow(entry.window) else { return }
             removeWindow(id: entry.id)
         }
     }
@@ -406,15 +514,16 @@ final class SwitcherModel: ObservableObject {
         guard isArmed else { return }
         let targetPID: pid_t? = {
             switch mode {
-            case .apps, .windowsForApp:
+            case .apps:
+                return selectedVisibleApp?.pid
+            case .windowsForApp:
                 return currentApp?.pid
             case .flatWindows:
-                guard selectedFlatIndex < flatWindows.count else { return nil }
-                return flatWindows[selectedFlatIndex].window.pid
+                return selectedVisibleFlatWindow?.window.pid
             }
         }()
         guard let pid = targetPID else { return }
-        WindowFocuser.hide(pid: pid)
+        guard dependencies.hideApp(pid) else { return }
         removeApp(pid: pid)
     }
 
@@ -425,6 +534,9 @@ final class SwitcherModel: ObservableObject {
         apps.removeAll { $0.windows.isEmpty }
         flatWindows.removeAll { $0.id == id }
         thumbnails.removeValue(forKey: id)
+        if let invalidateThumbnail = dependencies.invalidateThumbnail {
+            Task { await invalidateThumbnail(id) }
+        }
 
         if apps.isEmpty && flatWindows.isEmpty {
             teardown()
@@ -434,8 +546,17 @@ final class SwitcherModel: ObservableObject {
     }
 
     private func removeApp(pid: pid_t) {
+        let removedWindowIDs = Set(
+            apps.filter { $0.pid == pid }.flatMap { $0.windows.map(\.id) }
+        )
         apps.removeAll { $0.pid == pid }
         flatWindows.removeAll { $0.window.pid == pid }
+        thumbnails = thumbnails.filter { !removedWindowIDs.contains($0.key) }
+        if let invalidateThumbnail = dependencies.invalidateThumbnail {
+            for id in removedWindowIDs {
+                Task { await invalidateThumbnail(id) }
+            }
+        }
         if apps.isEmpty && flatWindows.isEmpty {
             teardown()
             return
@@ -446,22 +567,23 @@ final class SwitcherModel: ObservableObject {
     private func clampSelectionAfterRemoval() {
         switch mode {
         case .apps:
-            let visible = filteredApps
-            if selectedAppIndex >= apps.count { selectedAppIndex = max(0, apps.count - 1) }
-            if !visible.isEmpty,
-               !visible.contains(where: { $0.id == apps[safe: selectedAppIndex]?.id }) {
-                if let firstAbs = apps.firstIndex(where: { $0.id == visible[0].id }) {
-                    selectedAppIndex = firstAbs
-                }
-            }
+            selectedAppIndex = resolvedAbsoluteSelection(
+                current: selectedAppIndex,
+                all: apps,
+                visible: filteredApps,
+                id: \AppEntry.id
+            )
         case .windowsForApp:
             guard let app = currentApp else { mode = .apps; selectedWindowIndex = 0; return }
             if app.windows.isEmpty { mode = .apps; selectedWindowIndex = 0; return }
             if selectedWindowIndex >= app.windows.count { selectedWindowIndex = max(0, app.windows.count - 1) }
         case .flatWindows:
-            if selectedFlatIndex >= flatWindows.count {
-                selectedFlatIndex = max(0, flatWindows.count - 1)
-            }
+            selectedFlatIndex = resolvedAbsoluteSelection(
+                current: selectedFlatIndex,
+                all: flatWindows,
+                visible: filteredFlatWindows,
+                id: \FlatWindowEntry.id
+            )
         }
         if panelShown { onUpdate?() }
     }
@@ -491,7 +613,7 @@ final class SwitcherModel: ObservableObject {
         showTimer?.invalidate()
         panelShown = false
 
-        let delayMs = UserDefaults.standard.integer(forKey: Preferences.Key.switcherShowDelayMs)
+        let delayMs = defaults.integer(forKey: Preferences.Key.switcherShowDelayMs)
         let delay = max(0, min(delayMs, 1000))
 
         if delay == 0 {
@@ -522,6 +644,7 @@ final class SwitcherModel: ObservableObject {
         refreshTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
             guard let self else { return }
             guard self.isArmed, self.panelShown else { return }
+            guard self.shouldLoadThumbnailsForCurrentMode else { return }
             let ws = self.apps.flatMap { $0.windows }
             Task { [weak self] in
                 await self?.fetchThumbnails(for: ws, fresh: true)
@@ -547,17 +670,23 @@ final class SwitcherModel: ObservableObject {
 
     private func prewarmCache() async {
         guard #available(macOS 14.0, *) else { return }
+        guard let retainThumbnails = dependencies.retainThumbnails,
+              let thumbnail = dependencies.thumbnail else { return }
+        let shouldPrewarm = await MainActor.run {
+            self.shouldLoadThumbnails(for: self.currentDisplayMode())
+        }
+        guard shouldPrewarm else { return }
         let opts = await MainActor.run { self.currentEnumerateOptions() }
         let apps = await MainActor.run {
-            WindowEnumerator.enumerate(focusTracker: self.focusTracker, options: opts)
+            self.dependencies.enumerate(self.focusTracker, opts)
         }
         let windows = apps.flatMap { $0.windows }
         let liveIDs = Set(windows.map { $0.id })
-        await WindowThumbnails.shared.retain(only: liveIDs)
+        await retainThumbnails(liveIDs)
         await withTaskGroup(of: Void.self) { group in
             for window in windows {
                 group.addTask {
-                    _ = await WindowThumbnails.shared.image(for: window.id, fresh: false)
+                    _ = await thumbnail(window.id, false)
                 }
             }
         }
@@ -565,10 +694,11 @@ final class SwitcherModel: ObservableObject {
 
     private func fetchThumbnails(for windows: [WindowInfo], fresh: Bool) async {
         guard #available(macOS 14.0, *) else { return }
+        guard let thumbnail = dependencies.thumbnail else { return }
         await withTaskGroup(of: (CGWindowID, NSImage?).self) { group in
             for window in windows {
                 group.addTask {
-                    let img = await WindowThumbnails.shared.image(for: window.id, fresh: fresh)
+                    let img = await thumbnail(window.id, fresh)
                     return (window.id, img)
                 }
             }
@@ -588,17 +718,35 @@ final class SwitcherModel: ObservableObject {
         return apps[selectedAppIndex]
     }
 
+    private var selectedVisibleApp: AppEntry? {
+        guard let currentApp else { return nil }
+        return filteredApps.contains(where: { $0.id == currentApp.id }) ? currentApp : nil
+    }
+
+    private var selectedVisibleFlatWindow: FlatWindowEntry? {
+        guard let selected = flatWindows[safe: selectedFlatIndex] else { return nil }
+        return filteredFlatWindows.contains(where: { $0.id == selected.id }) ? selected : nil
+    }
+
     // MARK: - Preference reads
 
     private func currentDisplayMode() -> Preferences.DisplayMode {
-        let raw = UserDefaults.standard.string(forKey: Preferences.Key.displayMode) ?? Preferences.DisplayMode.apps.rawValue
+        let raw = defaults.string(forKey: Preferences.Key.displayMode) ?? Preferences.DisplayMode.apps.rawValue
         return Preferences.DisplayMode(rawValue: raw) ?? .apps
+    }
+
+    private func shouldLoadThumbnails(for displayMode: Preferences.DisplayMode) -> Bool {
+        displayMode == .windows || defaults.bool(forKey: Preferences.Key.showWindowPreviews)
+    }
+
+    private var shouldLoadThumbnailsForCurrentMode: Bool {
+        mode != .apps || defaults.bool(forKey: Preferences.Key.showWindowPreviews)
     }
 
     private func currentEnumerateOptions() -> EnumerateOptions {
         EnumerateOptions(
-            includeOtherSpaces: UserDefaults.standard.bool(forKey: Preferences.Key.includeOtherSpaces),
-            restrictToActiveScreen: UserDefaults.standard.bool(forKey: Preferences.Key.restrictToActiveScreen)
+            includeOtherSpaces: defaults.bool(forKey: Preferences.Key.includeOtherSpaces),
+            restrictToActiveScreen: defaults.bool(forKey: Preferences.Key.restrictToActiveScreen)
         )
     }
 }

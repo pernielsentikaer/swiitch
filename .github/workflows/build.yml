@@ -27,8 +27,9 @@ jobs:
       # CI builds with ad-hoc signing — no Apple Developer credentials needed.
       # Contributors who want stable TCC on their own machine override via
       # Config/Signing.local.xcconfig (gitignored).
-      - name: Build (Debug)
+      - name: Build and test (Debug)
         run: |
+          set -o pipefail
           xcodebuild \
             -project Swiitch.xcodeproj \
             -scheme Swiitch \
@@ -38,4 +39,4 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             DEVELOPMENT_TEAM= \
             CODE_SIGN_STYLE=Automatic \
-            build | xcpretty || (set -o pipefail; xcodebuild -project Swiitch.xcodeproj -scheme Swiitch -configuration Debug build)
+            test | xcpretty

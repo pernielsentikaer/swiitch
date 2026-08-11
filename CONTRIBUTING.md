@@ -64,10 +64,10 @@ The script writes PNGs into `Swiitch/Resources/Assets.xcassets/AppIcon.appiconse
 ## Pull requests
 
 - Keep PRs focused. One feature or fix per PR is ideal.
-- Run a build before opening:
+- Run the test suite before opening:
   ```bash
   xcodegen generate
-  xcodebuild -project Swiitch.xcodeproj -scheme Swiitch -configuration Debug build
+  xcodebuild -project Swiitch.xcodeproj -scheme Swiitch -configuration Debug test
   ```
 - For UI changes, attach a screenshot or short screen-capture GIF.
 - For behavior changes that touch the switcher state machine, mention what you tested manually.
@@ -94,6 +94,8 @@ Swiitch/
   Theme/Theme.swift, ColorHex.swift
   Permissions/PermissionsMonitor.swift  AX + Screen Recording polling
   Preferences/Preferences.swift   UserDefaults keys + side-effect helpers
+SwiitchTests/
+  SwitcherModelTests.swift        filtering, selection, and action regressions
 ```
 
 ## Where to start
@@ -102,7 +104,7 @@ Good first PR candidates:
 - More theme presets (Appearance → Preset)
 - Localization scaffolding (`Localizable.strings` for English, hook up `LocalizedStringKey`)
 - VoiceOver labels on the switcher cells
-- Unit tests for `SwitcherModel` filter / advance / pinning logic
+- More unit tests for `SwitcherModel` advance / pinning logic
 - A `swift-format` config + `make format` script
 
 ## Releases (maintainer notes)
@@ -116,13 +118,24 @@ Swiitch ships binary updates via [Sparkle](https://sparkle-project.org). The flo
      ```
    - The private key lands in your macOS Keychain (back it up — losing it locks out future updates from existing installs).
    - The public key is printed to stdout. It's already pasted into `Swiitch/Resources/Info.plist` under `SUPublicEDKey`.
+   - Install a **Developer ID Application** certificate from the Apple Developer portal. A paid Apple Developer account is required for a Gatekeeper-compatible release. Point `Config/Signing.local.xcconfig` at that identity and its team ID.
+   - Store App Store Connect notarization credentials in the Keychain, then export the profile name for the release script:
+     ```bash
+     xcrun notarytool store-credentials "swiitch-notary" \
+       --apple-id "you@example.com" \
+       --team-id "YOUR_TEAM_ID" \
+       --password "APP_SPECIFIC_PASSWORD"
+     export SWIITCH_NOTARY_PROFILE="swiitch-notary"
+     ```
 
 2. **For each release**:
    ```bash
    Scripts/build_release.sh 0.2.0
    ```
    This:
-   - Runs `xcodegen generate` + a clean Release build.
+   - Runs `xcodegen generate` + a universal (`arm64` + `x86_64`) Release build.
+   - Refuses ad-hoc/development signatures or a build without hardened runtime.
+   - Submits the app to Apple notarization and staples the accepted ticket.
    - Zips `Swiitch.app` to `build/dist/Swiitch-v0.2.0.zip`.
    - Signs the zip with Sparkle's `sign_update` (uses the Keychain private key).
    - Prints a ready-to-paste `<item>` block.
@@ -136,7 +149,7 @@ Swiitch ships binary updates via [Sparkle](https://sparkle-project.org). The flo
 
 `appcast.xml` is served from `https://raw.githubusercontent.com/pernielsentikaer/swiitch/main/appcast.xml` — no GitHub Pages setup needed. The URL is configured in `Info.plist` under `SUFeedURL`.
 
-`build/` is gitignored — release artifacts never land in the repo.
+`build/` is gitignored — release artifacts never land in the repo. The script intentionally fails before packaging when Developer ID signing or notarization is unavailable; do not distribute an ad-hoc build as a public release.
 
 ## Code of conduct
 

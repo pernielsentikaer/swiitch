@@ -31,6 +31,10 @@ settings:
     DEAD_CODE_STRIPPING: YES
     SWIFT_STRICT_CONCURRENCY: minimal
     GENERATE_INFOPLIST_FILE: NO
+  configs:
+    Release:
+      ARCHS: "arm64 x86_64"
+      ONLY_ACTIVE_ARCH: NO
 
 targets:
   Swiitch:
@@ -53,3 +57,26 @@ targets:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         LD_RUNPATH_SEARCH_PATHS: "@executable_path/../Frameworks"
         COMBINE_HIDPI_IMAGES: YES
+
+  SwiitchTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - SwiitchTests
+    dependencies:
+      - target: Swiitch
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_NAME: SwiitchTests
+        PRODUCT_BUNDLE_IDENTIFIER: com.swiitch.SwiitchTests
+
+schemes:
+  Swiitch:
+    build:
+      targets:
+        Swiitch: all
+        SwiitchTests: [test]
+    test:
+      targets:
+        - SwiitchTests

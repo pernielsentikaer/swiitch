@@ -11,11 +11,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var defaultsObserver: NSObjectProtocol?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Hosted unit tests load the app executable, which also calls its delegate. Do not
+        // arm Sparkle, show onboarding, or install an event tap inside the test runner.
+        let isRunningTests = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+            || NSClassFromString("XCTestCase") != nil
+        guard !isRunningTests else {
+            return
+        }
+
         Preferences.registerDefaults()
         Preferences.applyAppearance()
 
+        #if !DEBUG
         // Touch the Sparkle updater singleton so its background-check schedule arms.
-        // The Info.plist flags `SUEnableAutomaticChecks` + `SUFeedURL` drive behavior.
+        // Debug builds intentionally skip automatic checks: their static build number is
+        // lower than published releases, which would otherwise offer a same-version update
+        // every time a contributor runs from Xcode. Manual checks remain available.
         _ = UpdateController.shared
 
         // Sparkle's default scheduled-check cadence is conservative (24h) and the first
@@ -26,6 +37,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
             UpdateController.shared.updaterController.updater.checkForUpdatesInBackground()
         }
+        #endif
 
         applyDockIconPreference()
         observeDefaults()

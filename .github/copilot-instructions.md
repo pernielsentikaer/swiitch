@@ -31,7 +31,7 @@ Key constraint: `_AXUIElementGetWindow` SPI in `AXPrivate.swift` is intentional.
 xcodegen generate
 
 # Build (CI-style)
-xcodebuild -project Swiitch.xcodeproj -scheme Swiitch -configuration Debug build
+xcodebuild -project Swiitch.xcodeproj -scheme Swiitch -configuration Debug test
 
 # Release
 Scripts/build_release.sh <version>

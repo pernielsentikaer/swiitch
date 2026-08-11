@@ -15,6 +15,9 @@ Swiitch.xcodeproj/
 
 # Local signing overrides — never commit your cert SHA1 / team ID
 Config/Signing.local.xcconfig
+.env
+.env.*
+.dev.vars
 
 # Conductor (multi-agent workspace) internal state — screenshots, todos, etc.
 .context/
