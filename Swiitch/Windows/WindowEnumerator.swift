@@ -49,6 +49,9 @@ enum WindowEnumerator {
                 && !options.excludedBundleIDs.contains(app.bundleIdentifier ?? "")
         }
         let regularPIDs = Set(regularApps.map { $0.processIdentifier })
+        let bundleIDByPID = Dictionary(uniqueKeysWithValues: regularApps.compactMap { app in
+            app.bundleIdentifier.map { (app.processIdentifier, $0) }
+        })
 
         let activeScreenCG: CGRect? = options.restrictToActiveScreen ? activeScreenCGFrame() : nil
 
@@ -69,6 +72,13 @@ enum WindowEnumerator {
             if let screen = activeScreenCG, !screen.intersects(bounds) { continue }
 
             let title = entry[kCGWindowName as String] as? String ?? ""
+            if isKnownAuxiliaryWindow(
+                bundleID: bundleIDByPID[pidNum],
+                title: title,
+                bounds: bounds
+            ) {
+                continue
+            }
             let info = WindowInfo(
                 id: wid,
                 pid: pidNum,
@@ -161,6 +171,26 @@ enum WindowEnumerator {
             "company.thebrowser.dia",
         ]
         return prefixes.contains(where: bundleID.hasPrefix)
+    }
+
+    /// Some apps keep switcher-ineligible helper windows alive as ordinary layer-0 windows.
+    /// Warp's dedicated global-hotkey surface currently exposes an untitled compact square host
+    /// even while hidden, so it survives the generic size/layer checks and appears as a blank
+    /// window. Keep this deliberately narrow: normal Warp terminals have titles and non-square
+    /// terminal geometry, and other apps are unaffected.
+    static func isKnownAuxiliaryWindow(
+        bundleID: String?,
+        title: String,
+        bounds: CGRect
+    ) -> Bool {
+        guard bundleID?.lowercased().hasPrefix("dev.warp.warp") == true else { return false }
+        guard title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+
+        let width = bounds.width
+        let height = bounds.height
+        let isCompact = width >= 320 && height >= 320 && width <= 640 && height <= 640
+        let isApproximatelySquare = abs(width - height) <= 24
+        return isCompact && isApproximatelySquare
     }
 
     /// Returns the frame of the screen selected by the user's `screenScope` preference,
