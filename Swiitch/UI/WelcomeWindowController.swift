@@ -30,6 +30,7 @@ final class WelcomeWindowController: NSObject, NSWindowDelegate {
         let window = NSWindow(contentViewController: hosting)
         window.title = "Welcome to Swiitch"
         window.styleMask = [.titled, .closable, .fullSizeContentView]
+        window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
         window.isMovableByWindowBackground = true
         window.isReleasedWhenClosed = false
