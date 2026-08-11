@@ -169,6 +169,7 @@ enum Preferences {
         case translucentLight  // ultraThin material — most see-through
         case translucent       // regular material — middle ground
         case frosted           // thick material — heavily blurred
+        case solid             // opaque semantic background that follows system appearance
         case solidLight        // opaque light grey
         case solidDark         // opaque near-black
         var id: String { rawValue }
@@ -177,6 +178,7 @@ enum Preferences {
             case .translucentLight: return "Translucent (light)"
             case .translucent:      return "Translucent"
             case .frosted:          return "Frosted"
+            case .solid:            return "Solid"
             case .solidLight:       return "Solid Light"
             case .solidDark:        return "Solid Dark"
             }
@@ -186,6 +188,7 @@ enum Preferences {
             case .translucentLight: return "Most see-through. Lets the desktop / app behind show clearly."
             case .translucent:      return "Default macOS blur. Balanced."
             case .frosted:          return "Heavily blurred — barely shows what's behind."
+            case .solid:            return "Opaque system background. Automatically follows Light and Dark appearance."
             case .solidLight:       return "Opaque light grey. No translucency."
             case .solidDark:        return "Opaque near-black. No translucency."
             }
@@ -241,7 +244,7 @@ enum Preferences {
         case minimal   // small, clean, no overlay
         case raycast   // dark, sharper, prominent
         case frosted   // very translucent, large thumbs
-        case spotlight // light, sober
+        case spotlight // sober, system-adaptive
         case synthwave // wild — solid dark + magenta + gradient-edged thumbnails
 
         var id: String { rawValue }
@@ -250,9 +253,9 @@ enum Preferences {
             case .custom:    return "Custom"
             case .classic:   return "Classic"
             case .minimal:   return "Minimal"
-            case .raycast:   return "Raycast-style"
+            case .raycast:   return "Raycast"
             case .frosted:   return "Frosted"
-            case .spotlight: return "Spotlight-style"
+            case .spotlight: return "Spotlight"
             case .synthwave: return "Synthwave"
             }
         }
@@ -273,7 +276,7 @@ enum Preferences {
                 d.set(ThumbnailOverlay.none.rawValue, forKey: Key.thumbnailOverlay)
 
             case .minimal:
-                d.set(PanelMaterial.solidLight.rawValue, forKey: Key.panelMaterial)
+                d.set(PanelMaterial.solid.rawValue, forKey: Key.panelMaterial)
                 d.set(6, forKey: Key.panelCornerRadius)
                 d.set(ThumbnailSize.small.rawValue, forKey: Key.thumbnailSize)
                 d.set(OverlayPosition.hidden.rawValue, forKey: Key.overlayPosition)
@@ -297,7 +300,7 @@ enum Preferences {
                 d.set(ThumbnailOverlay.none.rawValue, forKey: Key.thumbnailOverlay)
 
             case .spotlight:
-                d.set(PanelMaterial.solidLight.rawValue, forKey: Key.panelMaterial)
+                d.set(PanelMaterial.solid.rawValue, forKey: Key.panelMaterial)
                 d.set(18, forKey: Key.panelCornerRadius)
                 d.set(ThumbnailSize.medium.rawValue, forKey: Key.thumbnailSize)
                 d.set(OverlayPosition.bottomLeading.rawValue, forKey: Key.overlayPosition)
@@ -333,6 +336,16 @@ enum Preferences {
             defaults.set(true, forKey: Key.fitWindowGridToScreen)
         }
         defaults.removeObject(forKey: LegacyKey.tileColumns)
+
+        // Minimal and Spotlight used to force a light panel even while following the system.
+        // Upgrade only untouched named presets; Custom and explicitly themed presets keep their
+        // saved material exactly as the user chose it.
+        let storedPreset = storedValues[Key.themePreset] as? String
+        let storedMaterial = storedValues[Key.panelMaterial] as? String
+        if (storedPreset == ThemePreset.minimal.rawValue || storedPreset == ThemePreset.spotlight.rawValue),
+           storedMaterial == PanelMaterial.solidLight.rawValue {
+            defaults.set(PanelMaterial.solid.rawValue, forKey: Key.panelMaterial)
+        }
 
         defaults.register(defaults: [
             Key.launchAtLogin: false,

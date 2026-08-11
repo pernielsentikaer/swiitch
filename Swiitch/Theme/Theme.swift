@@ -30,6 +30,9 @@ enum Theme {
         case .frosted:
             shape.fill(.thickMaterial)
                 .shadow(color: .black.opacity(0.4), radius: 20, x: 0, y: 8)
+        case .solid:
+            shape.fill(Color(nsColor: .windowBackgroundColor))
+                .shadow(color: .black.opacity(0.4), radius: 20, x: 0, y: 8)
         case .solidLight:
             shape.fill(Color(white: 0.94))
                 .shadow(color: .black.opacity(0.4), radius: 20, x: 0, y: 8)

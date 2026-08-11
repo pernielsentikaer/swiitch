@@ -37,4 +37,36 @@ final class PreferencesTests: XCTestCase {
         XCTAssertFalse(defaults.bool(forKey: Preferences.Key.fitWindowGridToScreen))
         XCTAssertNil(defaults.object(forKey: "tileColumns"))
     }
+
+    func testMinimalAndSpotlightApplySystemAdaptiveSolidMaterial() {
+        for preset in [Preferences.ThemePreset.minimal, .spotlight] {
+            preset.apply(defaults: defaults)
+            XCTAssertEqual(
+                defaults.string(forKey: Preferences.Key.panelMaterial),
+                Preferences.PanelMaterial.solid.rawValue
+            )
+        }
+    }
+
+    func testExistingSystemAdaptivePresetsMigrateFromSolidLight() {
+        for preset in [Preferences.ThemePreset.minimal, .spotlight] {
+            defaults.set(preset.rawValue, forKey: Preferences.Key.themePreset)
+            defaults.set(
+                Preferences.PanelMaterial.solidLight.rawValue,
+                forKey: Preferences.Key.panelMaterial
+            )
+
+            Preferences.registerDefaults(in: defaults, persistentDomainName: suiteName)
+
+            XCTAssertEqual(
+                defaults.string(forKey: Preferences.Key.panelMaterial),
+                Preferences.PanelMaterial.solid.rawValue
+            )
+        }
+    }
+
+    func testPresetLabelsDoNotUseStyleSuffix() {
+        XCTAssertEqual(Preferences.ThemePreset.raycast.label, "Raycast")
+        XCTAssertEqual(Preferences.ThemePreset.spotlight.label, "Spotlight")
+    }
 }
