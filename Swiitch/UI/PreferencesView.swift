@@ -1,19 +1,70 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-struct PreferencesView: View {
-    var body: some View {
-        TabView {
-            GeneralTab()
-                .tabItem { Label("General", systemImage: "gear") }
-            SwitcherTab()
-                .tabItem { Label("Switcher", systemImage: "rectangle.stack") }
-            AppearanceTab()
-                .tabItem { Label("Appearance", systemImage: "paintpalette") }
-            AboutTab()
-                .tabItem { Label("About", systemImage: "info.circle") }
+enum PreferencesSection: String, CaseIterable, Identifiable {
+    case general
+    case switcher
+    case appearance
+    case about
+
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .general: "General"
+        case .switcher: "Switcher"
+        case .appearance: "Appearance"
+        case .about: "About"
         }
-        .frame(width: 520, height: 440)
+    }
+
+    var systemImage: String {
+        switch self {
+        case .general: "gearshape"
+        case .switcher: "rectangle.stack"
+        case .appearance: "paintpalette"
+        case .about: "info.circle"
+        }
+    }
+}
+
+struct PreferencesView: View {
+    @State private var selection: PreferencesSection = .general
+
+    var body: some View {
+        NavigationSplitView {
+            List(PreferencesSection.allCases, selection: $selection) { section in
+                Label(section.title, systemImage: section.systemImage)
+                    .tag(section)
+            }
+            .listStyle(.sidebar)
+            .navigationSplitViewColumnWidth(min: 170, ideal: 190, max: 220)
+        } detail: {
+            detailView
+        }
+        .navigationSplitViewStyle(.balanced)
+        .frame(
+            minWidth: 720,
+            idealWidth: 780,
+            maxWidth: .infinity,
+            minHeight: 520,
+            idealHeight: 600,
+            maxHeight: .infinity
+        )
+    }
+
+    @ViewBuilder
+    private var detailView: some View {
+        switch selection {
+        case .general:
+            GeneralTab()
+        case .switcher:
+            SwitcherTab()
+        case .appearance:
+            AppearanceTab()
+        case .about:
+            AboutTab()
+        }
     }
 }
 
