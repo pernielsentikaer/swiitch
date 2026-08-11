@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var panel: SwitcherPanel?
     private var model: SwitcherModel!
@@ -21,6 +22,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         Preferences.registerDefaults()
         Preferences.applyAppearance()
+
+        PreferencesWindowController.shared.onVisibilityChange = { [weak self] _ in
+            self?.applyDockIconPreference()
+        }
 
         #if !DEBUG
         // Arm Sparkle so its background-check schedule starts.
@@ -102,7 +107,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let dock = UserDefaults.standard.bool(forKey: Preferences.Key.showDockIcon)
             if dock != lastDock {
                 lastDock = dock
-                self?.applyDockIconPreference()
+                Task { @MainActor [weak self] in
+                    self?.applyDockIconPreference()
+                }
             }
             let login = UserDefaults.standard.bool(forKey: Preferences.Key.launchAtLogin)
             if login != lastLogin {
@@ -118,8 +125,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func applyDockIconPreference() {
-        let desired: NSApplication.ActivationPolicy =
-            UserDefaults.standard.bool(forKey: Preferences.Key.showDockIcon) ? .regular : .accessory
+        let desired = Self.activationPolicy(
+            showDockIcon: UserDefaults.standard.bool(forKey: Preferences.Key.showDockIcon),
+            preferencesOpen: PreferencesWindowController.shared.isOpen
+        )
         guard NSApp.activationPolicy() != desired else { return }
         NSApp.setActivationPolicy(desired)
 
@@ -130,6 +139,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if desired == .regular {
             NSApp.activate(ignoringOtherApps: true)
         }
+    }
+
+    nonisolated static func activationPolicy(
+        showDockIcon: Bool,
+        preferencesOpen: Bool
+    ) -> NSApplication.ActivationPolicy {
+        showDockIcon || preferencesOpen ? .regular : .accessory
     }
 
     // MARK: - Accessibility monitor
@@ -144,7 +160,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         axMonitorTimer?.invalidate()
         axMonitorTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
-            self?.checkAXTrustTransition()
+            Task { @MainActor [weak self] in
+                self?.checkAXTrustTransition()
+            }
         }
     }
 
