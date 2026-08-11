@@ -170,6 +170,7 @@ private struct GeneralTab: View {
             }
         }
         .formStyle(.grouped)
+        .contentMargins(.top, -10, for: .scrollContent)
         .onAppear { permissions.start() }
         .onDisappear { permissions.stop() }
         .confirmationDialog(
@@ -343,6 +344,7 @@ private struct SwitcherTab: View {
             }
         }
         .formStyle(.grouped)
+        .contentMargins(.top, -10, for: .scrollContent)
     }
 }
 
@@ -585,6 +587,7 @@ private struct AppearanceTab: View {
             }
         }
         .formStyle(.grouped)
+        .contentMargins(.top, -10, for: .scrollContent)
     }
 
     /// Any individual tweak flips the preset picker to Custom so the user knows their
