@@ -277,8 +277,16 @@ private struct SwitcherTab: View {
                 }
                 .padding(.vertical, 4)
 
-                Toggle("Fit all windows on screen", isOn: $fitWindowGridToScreen)
-                Text("Shrinks window tiles when necessary so the complete grid fits on the active display.")
+                Picker("Window grid", selection: $fitWindowGridToScreen) {
+                    Text("Automatic").tag(false)
+                    Text("Fit to Screen").tag(true)
+                }
+                .pickerStyle(.segmented)
+                Text(
+                    fitWindowGridToScreen
+                        ? "Shrinks tiles when necessary so every window fits on the active display at once."
+                        : "Uses your selected thumbnail size and wraps windows into additional rows."
+                )
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

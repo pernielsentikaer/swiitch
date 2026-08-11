@@ -44,6 +44,11 @@ enum Preferences {
         static let fitWindowGridToScreen = "fitWindowGridToScreen"         // Bool
     }
 
+    private enum LegacyKey {
+        /// Budapest exposed the same feature as an Auto / Fill picker backed by an Int.
+        static let tileColumns = "tileColumns"
+    }
+
     enum ScreenScope: String, CaseIterable, Identifiable {
         case mousePointer  // the screen containing the mouse cursor — Swiitch's previous default
         case activeWindow  // the screen of the frontmost app's key window
@@ -312,7 +317,23 @@ enum Preferences {
 
     /// Registered defaults (the value `UserDefaults.bool(forKey:)` returns when the user hasn't
     /// set anything yet). Call once at launch.
-    static func registerDefaults(in defaults: UserDefaults = .standard) {
+    static func registerDefaults(
+        in defaults: UserDefaults = .standard,
+        persistentDomainName: String? = nil
+    ) {
+        // Keep the user's Budapest "Fill" choice when moving to the clearer Boolean setting.
+        // An explicitly saved current setting wins, including an explicit `false` value.
+        // Read the persistent domain rather than `object(forKey:)`, which also sees registered
+        // fallback values and therefore cannot tell whether the user saved a preference.
+        let domainName = persistentDomainName ?? Bundle.main.bundleIdentifier
+        let storedValues = domainName.flatMap { defaults.persistentDomain(forName: $0) } ?? [:]
+        if storedValues[Key.fitWindowGridToScreen] == nil,
+           let legacyTileColumns = storedValues[LegacyKey.tileColumns] as? Int,
+           legacyTileColumns == -1 {
+            defaults.set(true, forKey: Key.fitWindowGridToScreen)
+        }
+        defaults.removeObject(forKey: LegacyKey.tileColumns)
+
         defaults.register(defaults: [
             Key.launchAtLogin: false,
             Key.showWindowPreviews: true,
