@@ -703,6 +703,7 @@ private struct AboutTab: View {
 
             Button("Check for Updates…") { UpdateController.shared.checkForUpdates() }
                 .padding(.top, 10)
+            Button("Show Welcome…") { WelcomeWindowController.shared.show() }
 
             Spacer()
         }

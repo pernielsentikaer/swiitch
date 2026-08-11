@@ -20,7 +20,6 @@ struct SwiitchApp: App {
                 .keyboardShortcut(",", modifiers: .command)
 
             Button("Check for Updates…") { UpdateController.shared.checkForUpdates() }
-            Button("Show Welcome…") { WelcomeWindowController.shared.show() }
             Divider()
             Button("Quit Swiitch") { NSApplication.shared.terminate(nil) }
                 .keyboardShortcut("q", modifiers: .command)
