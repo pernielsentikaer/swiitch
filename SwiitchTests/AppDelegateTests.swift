@@ -20,4 +20,34 @@ final class AppDelegateTests: XCTestCase {
             .regular
         )
     }
+
+    func testFirstLaunchShowsWelcome() {
+        XCTAssertEqual(
+            AppDelegate.startupPresentation(
+                hasCompletedOnboarding: false,
+                accessibilityGranted: false
+            ),
+            .welcome
+        )
+    }
+
+    func testCompletedOnboardingUsesPreferencesForPermissionRecovery() {
+        XCTAssertEqual(
+            AppDelegate.startupPresentation(
+                hasCompletedOnboarding: true,
+                accessibilityGranted: false
+            ),
+            .preferences
+        )
+    }
+
+    func testCompletedAndAuthorizedLaunchStaysQuiet() {
+        XCTAssertEqual(
+            AppDelegate.startupPresentation(
+                hasCompletedOnboarding: true,
+                accessibilityGranted: true
+            ),
+            .none
+        )
+    }
 }

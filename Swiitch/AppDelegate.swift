@@ -1,6 +1,12 @@
 import AppKit
 import SwiftUI
 
+enum StartupPresentation: Equatable {
+    case none
+    case welcome
+    case preferences
+}
+
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var panel: SwitcherPanel?
@@ -68,10 +74,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         //  - Re-grant after either of the above
         startAXMonitor()
 
-        let needsOnboarding = !UserDefaults.standard.bool(forKey: Preferences.Key.hasCompletedOnboarding)
-        if needsOnboarding || !AXIsProcessTrusted() {
+        let hasCompletedOnboarding = UserDefaults.standard.bool(
+            forKey: Preferences.Key.hasCompletedOnboarding
+        )
+        switch Self.startupPresentation(
+            hasCompletedOnboarding: hasCompletedOnboarding,
+            accessibilityGranted: AXIsProcessTrusted()
+        ) {
+        case .none:
+            break
+        case .welcome:
             DispatchQueue.main.async {
                 WelcomeWindowController.shared.show()
+            }
+        case .preferences:
+            DispatchQueue.main.async {
+                PreferencesWindowController.shared.show()
             }
         }
     }
@@ -148,6 +166,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         showDockIcon || preferencesOpen ? .regular : .accessory
     }
 
+    /// First launch gets onboarding. If a completed installation later loses Accessibility
+    /// permission, General Preferences already contains the focused recovery UI; reopening the
+    /// entire Welcome flow would incorrectly make an update feel like a fresh installation.
+    nonisolated static func startupPresentation(
+        hasCompletedOnboarding: Bool,
+        accessibilityGranted: Bool
+    ) -> StartupPresentation {
+        if !hasCompletedOnboarding { return .welcome }
+        if !accessibilityGranted { return .preferences }
+        return .none
+    }
+
     // MARK: - Accessibility monitor
 
     /// Polls `AXIsProcessTrusted()` and reacts to transitions. Cheap call (TCC client
@@ -179,14 +209,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             // Revoked mid-session. The event tap is now dead — ⌘+Tab events won't
             // reach us. Tear it down, cancel any in-progress switcher state, and
-            // re-open Welcome so the user has a one-click path back to System Settings.
+            // Show the compact permission recovery UI so the user has a one-click path back
+            // to System Settings without being sent through onboarding again.
             hotkey.uninstall()
             model.cancel()
-            // WelcomeWindowController.show() is @MainActor-isolated; the Timer body
-            // runs on the main run loop but Swift's isolation checker needs an
-            // explicit hop.
             Task { @MainActor in
-                WelcomeWindowController.shared.show()
+                let hasCompletedOnboarding = UserDefaults.standard.bool(
+                    forKey: Preferences.Key.hasCompletedOnboarding
+                )
+                if hasCompletedOnboarding {
+                    PreferencesWindowController.shared.show()
+                } else {
+                    WelcomeWindowController.shared.show()
+                }
             }
         }
     }
