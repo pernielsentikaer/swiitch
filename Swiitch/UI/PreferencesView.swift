@@ -261,7 +261,7 @@ private struct SwitcherTab: View {
             Section("Layout") {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack {
-                        Text("Wrap past")
+                        Text("Maximum width")
                         Spacer()
                         Text("\(maxPanelWidthPercent)% of screen")
                             .font(.callout.monospacedDigit())
@@ -284,7 +284,7 @@ private struct SwitcherTab: View {
                 .pickerStyle(.segmented)
                 Text(
                     fitWindowGridToScreen
-                        ? "Shrinks tiles when necessary so every window fits on the active display at once."
+                        ? "Uses this width to spread out the grid, then shrinks tiles only if every window still would not fit on the active display."
                         : "Uses your selected thumbnail size and wraps windows into additional rows."
                 )
                     .font(.caption)

@@ -325,7 +325,9 @@ final class SwitcherModel: ObservableObject {
     }
 
     /// Calculates one layout used by both SwiftUI and keyboard row navigation. Fit mode
-    /// only shrinks tiles; it never enlarges them beyond the chosen thumbnail preset.
+    /// first uses the selected wrap width, then adds columns and shrinks tiles only when
+    /// necessary to keep the complete grid on screen. Tiles never grow beyond the chosen
+    /// thumbnail preset.
     static func gridMetrics(
         count: Int,
         maxWidth: CGFloat,
@@ -360,7 +362,16 @@ final class SwitcherModel: ObservableObject {
         let height = max(120, availableHeight)
         let labelHeight: CGFloat = 34
 
-        for columns in 1...count {
+        // Begin with the number of full-size tiles that naturally use the selected wrap
+        // width. Starting at one column made tall/portrait displays choose the narrowest
+        // grid that only just fit vertically (for example, 18 windows in a two-column
+        // tower), leaving most of the configured width unused.
+        let preferredColumns = max(
+            1,
+            min(count, Int((width + columnSpacing) / (preferredWidth + columnSpacing)))
+        )
+
+        for columns in preferredColumns...count {
             let candidateWidth = (width - columnSpacing * CGFloat(columns - 1)) / CGFloat(columns)
             guard candidateWidth >= minimumWidth else { continue }
             let cellWidth = min(preferredWidth, candidateWidth)

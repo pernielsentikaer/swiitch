@@ -251,6 +251,23 @@ final class SwitcherModelTests: XCTestCase {
         XCTAssertLessThan(fitted.thumbnailHeight, automatic.thumbnailHeight)
     }
 
+    func testFitGridUsesConfiguredWidthInsteadOfChoosingATallNarrowGrid() {
+        let fitted = SwitcherModel.gridMetrics(
+            count: 18,
+            maxWidth: 1_200,
+            availableHeight: 1_620,
+            thumbnailSize: .medium,
+            fitAll: true
+        )
+
+        XCTAssertEqual(fitted.columns, 5)
+        XCTAssertEqual(fitted.cellWidth, Preferences.ThumbnailSize.medium.cellWidth)
+        XCTAssertLessThanOrEqual(
+            CGFloat(fitted.columns) * fitted.cellWidth + CGFloat(fitted.columns - 1) * 12,
+            1_200
+        )
+    }
+
     func testChromiumFallbackIsRestrictedToKnownBrowserFamilies() {
         XCTAssertTrue(WindowEnumerator.isChromiumFamily(bundleID: "com.google.Chrome.canary"))
         XCTAssertTrue(WindowEnumerator.isChromiumFamily(bundleID: "company.thebrowser.dia"))
