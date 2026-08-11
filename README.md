@@ -11,11 +11,11 @@ A native SwiftUI ⌘+Tab replacement for macOS. Lets you switch between every **
 - **Live window thumbnails** via ScreenCaptureKit, with a `CGWindowList` fallback for windows on other Spaces / minimised.
 - **Type to filter.** While the picker is open, just start typing — narrows the list by name or window title.
 - **Mouse and keyboard parity.** Hover to select, click to commit, arrows / Tab to navigate, ⌘W to close, ⌘H to hide.
-- **Optional peek** — hover (or keyboard-navigate) for a beat to bring that window forward while keeping the picker open.
+- **Optional peek** — hover (or keyboard-navigate) for a beat to bring that window forward while keeping the picker open; Esc restores the app you started from.
 - **Per-monitor + per-Space filtering** to match the screen you actually mean.
 - **Themeable.** Custom accent color, panel material (translucent / frosted / solid), corner radius, thumbnail size, app-icon overlay position, plus one-click presets (Classic / Minimal / Raycast-style / Frosted / Spotlight-style).
-- **App pinning.** Right-click any app cell → Pin to top.
-- **Wraps to multiple rows** past a configurable percentage of your screen width.
+- **App pinning and exclusions.** Right-click any app cell to pin it or hide it from Swiitch; excluded apps can be managed in Preferences.
+- **Adaptive window grids.** Wrap past a configurable screen width, optionally shrink tiles to fit every window, and move by rows with ↑ / ↓.
 - **Configurable show-delay** so quick ⌘+Tab→release switches without ever showing the panel.
 - Lives in the menu bar by default; can be hidden entirely.
 
@@ -47,7 +47,7 @@ The project builds with ad-hoc signing out of the box. For stable TCC permission
 
 ## Why not the Mac App Store?
 
-Swiitch uses the private `_AXUIElementGetWindow` Accessibility SPI to reliably map AX elements to `CGWindowID`s — the only robust way to disambiguate, say, multiple Chrome windows with identical titles. Apple rejects Mac App Store submissions that link private SPIs, so Swiitch is distributed outside the Store. Auto-updates ship via [Sparkle](https://sparkle-project.org/).
+Swiitch uses the private `_AXUIElementGetWindow` Accessibility SPI to reliably map AX elements to `CGWindowID`s — the only robust way to disambiguate, say, multiple Chrome windows with identical titles. It can also dynamically load a SkyLight activation fallback when Chromium-family apps ignore the public activation paths. Apple rejects apps that use private SPIs, so Swiitch is distributed outside the Store. Auto-updates ship via [Sparkle](https://sparkle-project.org/).
 
 ## Default shortcuts
 
@@ -56,8 +56,8 @@ Swiitch uses the private `_AXUIElementGetWindow` Accessibility SPI to reliably m
 | ⌘ Tab | Open switcher / next app |
 | ⌘ ⇧ Tab | Previous app |
 | ⌘ ⇧ (no Tab) | Previous, configurable in Switcher → Navigation |
-| ↓ or `` ` `` | Drill into selected app's windows |
-| ↑ | Back to apps |
+| ↓ or `` ` `` | Drill into selected app's windows; ↓ then moves one grid row |
+| ↑ | Move up one grid row; back to apps from the first row |
 | ← / → | Same as ⌘+Tab / ⌘+⇧+Tab |
 | `letters / digits` | Filter list |
 | ⌫ | Backspace filter |
@@ -73,8 +73,8 @@ Both hotkeys are user-recordable in Preferences → General → Hotkeys.
 
 Four tabs in ⌘, from the menu bar:
 
-- **General** — Permissions, Launch at login, menu-bar / Dock icon visibility, hotkey recorders.
-- **Switcher** — Display mode (apps vs flat windows), screen scope, show-delay, wrap percentage, peek, navigation, "show window list" toggle.
+- **General** — Permissions, Launch at login, menu-bar / Dock icon visibility, hotkey recorders, and reset-to-defaults.
+- **Switcher** — Display mode (apps vs flat windows), screen scope, excluded apps, show-delay, wrapping / fit-to-screen, peek, navigation, and the window-list toggle.
 - **Appearance** — Theme presets, system appearance (Light / Dark / System), accent color, panel material + corner radius, thumbnail size, app-icon overlay position.
 - **About** — Version + Welcome window button.
 

@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct PreferencesView: View {
     var body: some View {
@@ -23,7 +24,18 @@ private struct GeneralTab: View {
     @AppStorage(Preferences.Key.showMenuBarIcon) private var showMenuBarIcon: Bool = true
     @AppStorage(Preferences.Key.showDockIcon) private var showDockIcon: Bool = false
     @AppStorage(Preferences.Key.currentAppHotkeyEnabled) private var currentAppHotkeyEnabled: Bool = false
+    @AppStorage(Preferences.Key.hotkeyKeyCode) private var hotkeyKeyCode: Int = 48
+    @AppStorage(Preferences.Key.hotkeyModifierFlags) private var hotkeyModifierFlags: Int = Int(CGEventFlags.maskCommand.rawValue)
+    @AppStorage(Preferences.Key.currentAppHotkeyKeyCode) private var currentAppHotkeyKeyCode: Int = 48
+    @AppStorage(Preferences.Key.currentAppHotkeyModifierFlags) private var currentAppHotkeyModifierFlags: Int = Int(CGEventFlags.maskAlternate.rawValue)
     @StateObject private var permissions = PermissionsMonitor()
+    @State private var showResetConfirmation = false
+
+    private var hotkeysConflict: Bool {
+        currentAppHotkeyEnabled
+            && hotkeyKeyCode == currentAppHotkeyKeyCode
+            && hotkeyModifierFlags == currentAppHotkeyModifierFlags
+    }
 
     var body: some View {
         Form {
@@ -78,6 +90,11 @@ private struct GeneralTab: View {
                 Text("Click a recorder, press your shortcut. Esc cancels. The second hotkey jumps straight to the frontmost app's windows.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                if hotkeysConflict {
+                    Label("Both shortcuts are identical, so only the first one will run.", systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundStyle(Color.orange)
+                }
             } header: {
                 Text("Hotkeys")
             }
@@ -94,10 +111,29 @@ private struct GeneralTab: View {
                         .foregroundStyle(.secondary)
                 }
             }
+
+            Section {
+                Button("Reset All Settings to Defaults…", role: .destructive) {
+                    showResetConfirmation = true
+                }
+            }
         }
         .formStyle(.grouped)
         .onAppear { permissions.start() }
         .onDisappear { permissions.stop() }
+        .confirmationDialog(
+            "Reset all settings to defaults?",
+            isPresented: $showResetConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Reset", role: .destructive) {
+                Preferences.resetSettings()
+                Preferences.applyAppearance()
+                Preferences.syncLaunchAtLogin()
+            }
+        } message: {
+            Text("Hotkeys, appearance, pinned apps, and excluded apps will all be reset. Onboarding will remain completed.")
+        }
     }
 }
 
@@ -134,6 +170,7 @@ private struct SwitcherTab: View {
     @AppStorage(Preferences.Key.shiftCyclesBackwards) private var shiftCyclesBackwards: Bool = true
     @AppStorage(Preferences.Key.peekOnHover) private var peekOnHover: Bool = false
     @AppStorage(Preferences.Key.peekDelayMs) private var peekDelayMs: Int = 500
+    @AppStorage(Preferences.Key.fitWindowGridToScreen) private var fitWindowGridToScreen: Bool = false
 
     var body: some View {
         Form {
@@ -162,6 +199,8 @@ private struct SwitcherTab: View {
                 Toggle("Only show windows on that screen", isOn: $restrictToActiveScreen)
                 Toggle("Include windows from other Spaces", isOn: $includeOtherSpaces)
             }
+
+            ExcludedAppsEditor()
 
             Section("Navigation") {
                 Toggle("Shift cycles backward (without Tab)", isOn: $shiftCyclesBackwards)
@@ -237,9 +276,115 @@ private struct SwitcherTab: View {
                     )
                 }
                 .padding(.vertical, 4)
+
+                Toggle("Fit all windows on screen", isOn: $fitWindowGridToScreen)
+                Text("Shrinks window tiles when necessary so the complete grid fits on the active display.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
+    }
+}
+
+private struct ExcludedAppsEditor: View {
+    private struct ExcludedApp: Identifiable {
+        let id: String
+        let name: String
+        let icon: NSImage?
+    }
+
+    @State private var excludedApps: [ExcludedApp] = []
+
+    var body: some View {
+        Section("Excluded apps") {
+            if excludedApps.isEmpty {
+                Text("No excluded apps")
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(excludedApps) { app in
+                    HStack(spacing: 10) {
+                        Group {
+                            if let icon = app.icon {
+                                Image(nsImage: icon)
+                                    .resizable()
+                            } else {
+                                Image(systemName: "app.dashed")
+                                    .resizable()
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .scaledToFit()
+                        .frame(width: 28, height: 28)
+
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(app.name)
+                            Text(app.id)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Button {
+                            Preferences.includeApp(app.id)
+                            reload()
+                        } label: {
+                            Image(systemName: "minus.circle")
+                        }
+                        .buttonStyle(.borderless)
+                        .help("Include this app again")
+                    }
+                }
+            }
+
+            Button {
+                pickApps()
+            } label: {
+                Label("Add App…", systemImage: "plus")
+            }
+
+            Text("You can also right-click an app in Swiitch and choose Exclude from Swiitch.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .onAppear(perform: reload)
+        .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
+            reload()
+        }
+    }
+
+    private func reload() {
+        excludedApps = Preferences.excludedBundleIDs
+            .map(appDetails(for:))
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    private func pickApps() {
+        let panel = NSOpenPanel()
+        panel.title = "Choose Apps to Exclude"
+        panel.prompt = "Exclude"
+        panel.directoryURL = URL(fileURLWithPath: "/Applications", isDirectory: true)
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = true
+        panel.allowedContentTypes = [.applicationBundle]
+
+        guard panel.runModal() == .OK else { return }
+        for url in panel.urls {
+            guard let bundleID = Bundle(url: url)?.bundleIdentifier else { continue }
+            Preferences.excludeApp(bundleID)
+        }
+        reload()
+    }
+
+    private func appDetails(for bundleID: String) -> ExcludedApp {
+        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) else {
+            return ExcludedApp(id: bundleID, name: bundleID, icon: nil)
+        }
+        let bundle = Bundle(url: url)
+        let name = bundle?.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
+            ?? bundle?.object(forInfoDictionaryKey: "CFBundleName") as? String
+            ?? url.deletingPathExtension().lastPathComponent
+        return ExcludedApp(id: bundleID, name: name, icon: NSWorkspace.shared.icon(forFile: url.path))
     }
 }
 
@@ -255,6 +400,7 @@ private struct AppearanceTab: View {
     @AppStorage(Preferences.Key.thumbnailOverlay) private var thumbnailOverlay: String = Preferences.ThumbnailOverlay.none.rawValue
     @AppStorage(Preferences.Key.themePreset) private var themePreset: String = Preferences.ThemePreset.classic.rawValue
     @AppStorage(Preferences.Key.displayMode) private var displayMode: String = Preferences.DisplayMode.windows.rawValue
+    @State private var applyingPreset = false
 
     private var accentColorBinding: Binding<Color> {
         Binding(
@@ -277,7 +423,15 @@ private struct AppearanceTab: View {
                 }
                 .onChange(of: themePreset) { _, newValue in
                     if let preset = Preferences.ThemePreset(rawValue: newValue), preset != .custom {
+                        applyingPreset = true
                         preset.apply()
+                        // @AppStorage propagates the individual preset writes on the next
+                        // run-loop turns. Keep their markCustom callbacks suppressed until then.
+                        DispatchQueue.main.async {
+                            DispatchQueue.main.async {
+                                applyingPreset = false
+                            }
+                        }
                     }
                 }
                 Text("Presets bulk-apply background, radius, thumbnail size, overlay, and accent. Tweaking any value below switches to Custom.")
@@ -377,6 +531,7 @@ private struct AppearanceTab: View {
     /// Any individual tweak flips the preset picker to Custom so the user knows their
     /// preset selection no longer matches the current state.
     private func markCustom() {
+        guard !applyingPreset else { return }
         if themePreset != Preferences.ThemePreset.custom.rawValue {
             themePreset = Preferences.ThemePreset.custom.rawValue
         }

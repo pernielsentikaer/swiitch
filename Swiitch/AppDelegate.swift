@@ -23,11 +23,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Preferences.applyAppearance()
 
         #if !DEBUG
-        // Touch the Sparkle updater singleton so its background-check schedule arms.
+        // Arm Sparkle so its background-check schedule starts.
         // Debug builds intentionally skip automatic checks: their static build number is
         // lower than published releases, which would otherwise offer a same-version update
         // every time a contributor runs from Xcode. Manual checks remain available.
-        _ = UpdateController.shared
+        UpdateController.shared.arm()
 
         // Sparkle's default scheduled-check cadence is conservative (24h) and the first
         // tick has its own startup delay. For an app users launch and leave running,

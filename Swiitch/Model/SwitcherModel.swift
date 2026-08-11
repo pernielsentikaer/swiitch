@@ -12,6 +12,7 @@ final class SwitcherModel: ObservableObject {
     struct FlatWindowEntry: Identifiable, Hashable {
         let id: CGWindowID
         let window: WindowInfo
+        let bundleIdentifier: String?
         let appName: String
         let appIcon: NSImage?
     }
@@ -25,6 +26,9 @@ final class SwitcherModel: ObservableObject {
         var focusWindow: (WindowInfo) -> Void
         var closeWindow: (WindowInfo) -> Bool
         var hideApp: (pid_t) -> Bool
+        var focusPID: (pid_t) -> Void
+        var frontmostPID: () -> pid_t?
+        var frontmostBundleID: () -> String?
         var thumbnail: ((CGWindowID, Bool) async -> NSImage?)?
         var retainThumbnails: ((Set<CGWindowID>) async -> Void)?
         var invalidateThumbnail: ((CGWindowID) async -> Void)?
@@ -35,6 +39,9 @@ final class SwitcherModel: ObservableObject {
             focusWindow: @escaping (WindowInfo) -> Void,
             closeWindow: @escaping (WindowInfo) -> Bool,
             hideApp: @escaping (pid_t) -> Bool,
+            focusPID: @escaping (pid_t) -> Void = { WindowFocuser.focus(pid: $0) },
+            frontmostPID: @escaping () -> pid_t? = { NSWorkspace.shared.frontmostApplication?.processIdentifier },
+            frontmostBundleID: @escaping () -> String? = { NSWorkspace.shared.frontmostApplication?.bundleIdentifier },
             thumbnail: ((CGWindowID, Bool) async -> NSImage?)? = nil,
             retainThumbnails: ((Set<CGWindowID>) async -> Void)? = nil,
             invalidateThumbnail: ((CGWindowID) async -> Void)? = nil
@@ -44,6 +51,9 @@ final class SwitcherModel: ObservableObject {
             self.focusWindow = focusWindow
             self.closeWindow = closeWindow
             self.hideApp = hideApp
+            self.focusPID = focusPID
+            self.frontmostPID = frontmostPID
+            self.frontmostBundleID = frontmostBundleID
             self.thumbnail = thumbnail
             self.retainThumbnails = retainThumbnails
             self.invalidateThumbnail = invalidateThumbnail
@@ -57,6 +67,9 @@ final class SwitcherModel: ObservableObject {
             focusWindow: { WindowFocuser.focus(window: $0) },
             closeWindow: { WindowFocuser.close(window: $0) },
             hideApp: { WindowFocuser.hide(pid: $0) },
+            focusPID: { WindowFocuser.focus(pid: $0) },
+            frontmostPID: { NSWorkspace.shared.frontmostApplication?.processIdentifier },
+            frontmostBundleID: { NSWorkspace.shared.frontmostApplication?.bundleIdentifier },
             thumbnail: { windowID, fresh in
                 await WindowThumbnails.shared.image(for: windowID, fresh: fresh)
             },
@@ -80,6 +93,7 @@ final class SwitcherModel: ObservableObject {
     /// Computed by the panel from `maxPanelWidthPercent` × active-screen width. SwiftUI
     /// reads this from the model so `LazyVGrid` knows where to wrap.
     @Published var effectiveMaxWidth: CGFloat = 1200
+    @Published var effectiveMaxHeight: CGFloat = 900
     /// True once the user has actually moved the mouse after the panel opened. Hover
     /// callbacks ignore selection changes until this flips, so a stationary cursor that
     /// happens to start inside the panel doesn't snap selection on its own.
@@ -101,6 +115,8 @@ final class SwitcherModel: ObservableObject {
     private var refreshTimer: Timer?
     private var hasArmedOnce = false
     private var peekWorkItem: DispatchWorkItem?
+    private var preArmFrontmostPID: pid_t?
+    private var hasPeeked = false
 
     init(
         focusTracker: FocusTracker,
@@ -124,6 +140,8 @@ final class SwitcherModel: ObservableObject {
     func arm(reverse: Bool) {
         guard !isArmed else { return }
 
+        capturePreArmFocus()
+
         let options = currentEnumerateOptions()
         apps = dependencies.enumerate(focusTracker, options)
 
@@ -142,7 +160,13 @@ final class SwitcherModel: ObservableObject {
         case .windows:
             flatWindows = apps.flatMap { app in
                 app.windows.map { window in
-                    FlatWindowEntry(id: window.id, window: window, appName: app.name, appIcon: app.icon)
+                    FlatWindowEntry(
+                        id: window.id,
+                        window: window,
+                        bundleIdentifier: app.bundleIdentifier,
+                        appName: app.name,
+                        appIcon: app.icon
+                    )
                 }
             }
             guard !flatWindows.isEmpty else { return }
@@ -180,12 +204,14 @@ final class SwitcherModel: ObservableObject {
     func armForCurrentApp(reverse: Bool) {
         guard !isArmed else { return }
 
+        capturePreArmFocus()
+
         let options = currentEnumerateOptions()
         apps = dependencies.enumerate(focusTracker, options)
         guard !apps.isEmpty else { return }
 
         // Find the entry for the frontmost foreign app (the one whose windows we want).
-        let frontmostBundle = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+        let frontmostBundle = dependencies.frontmostBundleID()
         if let idx = apps.firstIndex(where: { $0.bundleIdentifier == frontmostBundle }) {
             selectedAppIndex = idx
         } else {
@@ -251,6 +277,129 @@ final class SwitcherModel: ObservableObject {
         }
         if panelShown { onUpdate?() }
         schedulePeekIfEnabled()
+    }
+
+    /// Moves by one visual row. Down enters an app's window grid; Up from the first
+    /// per-app row returns to the app grid. Flat-window navigation stays within bounds.
+    func advanceRow(reverse: Bool) {
+        guard isArmed else { return }
+
+        switch mode {
+        case .apps:
+            guard !reverse else { return }
+            enterWindowMode()
+            return
+
+        case .windowsForApp:
+            let windows = currentApp?.windows ?? []
+            guard !windows.isEmpty else { return }
+            let columns = gridMetrics(count: windows.count, for: .windowsForApp).columns
+            if reverse, selectedWindowIndex < columns {
+                exitWindowMode()
+                return
+            }
+            let next = selectedWindowIndex + (reverse ? -columns : columns)
+            selectedWindowIndex = max(0, min(windows.count - 1, next))
+
+        case .flatWindows:
+            let visible = filteredFlatWindows
+            guard !visible.isEmpty else { return }
+            let columns = gridMetrics(count: visible.count, for: .flatWindows).columns
+            let current = visible.firstIndex(where: {
+                $0.id == flatWindows[safe: selectedFlatIndex]?.id
+            }) ?? 0
+            let next = max(0, min(visible.count - 1, current + (reverse ? -columns : columns)))
+            if let absolute = flatWindows.firstIndex(where: { $0.id == visible[next].id }) {
+                selectedFlatIndex = absolute
+            }
+        }
+
+        if panelShown { onUpdate?() }
+        schedulePeekIfEnabled()
+    }
+
+    struct GridMetrics: Equatable {
+        let columns: Int
+        let cellWidth: CGFloat
+        let thumbnailHeight: CGFloat
+    }
+
+    /// Calculates one layout used by both SwiftUI and keyboard row navigation. Fit mode
+    /// only shrinks tiles; it never enlarges them beyond the chosen thumbnail preset.
+    static func gridMetrics(
+        count: Int,
+        maxWidth: CGFloat,
+        availableHeight: CGFloat,
+        thumbnailSize: Preferences.ThumbnailSize,
+        fitAll: Bool,
+        columnSpacing: CGFloat = 12,
+        rowSpacing: CGFloat = 14
+    ) -> GridMetrics {
+        guard count > 0 else {
+            return GridMetrics(
+                columns: 1,
+                cellWidth: thumbnailSize.cellWidth,
+                thumbnailHeight: thumbnailSize.thumbHeight
+            )
+        }
+
+        let width = max(120, maxWidth)
+        let preferredWidth = thumbnailSize.cellWidth
+        let aspectRatio = thumbnailSize.thumbHeight / preferredWidth
+
+        if !fitAll {
+            let columns = max(1, min(count, Int((width + columnSpacing) / (preferredWidth + columnSpacing))))
+            return GridMetrics(
+                columns: columns,
+                cellWidth: preferredWidth,
+                thumbnailHeight: thumbnailSize.thumbHeight
+            )
+        }
+
+        let minimumWidth: CGFloat = 120
+        let height = max(120, availableHeight)
+        let labelHeight: CGFloat = 34
+
+        for columns in 1...count {
+            let candidateWidth = (width - columnSpacing * CGFloat(columns - 1)) / CGFloat(columns)
+            guard candidateWidth >= minimumWidth else { continue }
+            let cellWidth = min(preferredWidth, candidateWidth)
+            let thumbnailHeight = cellWidth * aspectRatio
+            let rows = Int(ceil(Double(count) / Double(columns)))
+            let totalHeight = CGFloat(rows) * (thumbnailHeight + labelHeight)
+                + CGFloat(max(0, rows - 1)) * rowSpacing
+            if totalHeight <= height {
+                return GridMetrics(
+                    columns: columns,
+                    cellWidth: cellWidth,
+                    thumbnailHeight: thumbnailHeight
+                )
+            }
+        }
+
+        // Very large window sets may not fit above the minimum comfortable tile width.
+        // Use the densest width-safe grid; the panel can still grow vertically as before.
+        let columns = max(1, min(count, Int((width + columnSpacing) / (minimumWidth + columnSpacing))))
+        let candidateWidth = (width - columnSpacing * CGFloat(columns - 1)) / CGFloat(columns)
+        let cellWidth = max(96, min(preferredWidth, candidateWidth))
+        return GridMetrics(
+            columns: columns,
+            cellWidth: cellWidth,
+            thumbnailHeight: cellWidth * aspectRatio
+        )
+    }
+
+    func gridMetrics(count: Int, for gridMode: Mode) -> GridMetrics {
+        let raw = defaults.string(forKey: Preferences.Key.thumbnailSize) ?? Preferences.ThumbnailSize.medium.rawValue
+        let size = Preferences.ThumbnailSize(rawValue: raw) ?? .medium
+        let reservedHeight: CGFloat = gridMode == .windowsForApp ? 330 : 170
+        return Self.gridMetrics(
+            count: count,
+            maxWidth: effectiveMaxWidth,
+            availableHeight: effectiveMaxHeight - reservedHeight,
+            thumbnailSize: size,
+            fitAll: defaults.bool(forKey: Preferences.Key.fitWindowGridToScreen)
+        )
     }
 
     func enterWindowMode() {
@@ -392,27 +541,42 @@ final class SwitcherModel: ObservableObject {
         let flatWindow = selectedVisibleFlatWindow
         teardown()
 
+        var focusedBundleID: String?
+
         switch mode {
         case .apps:
             guard let app else { return }
             dependencies.focusApp(app)
+            focusedBundleID = app.bundleIdentifier
         case .windowsForApp:
             guard let app else { return }
             let windows = app.windows
-            guard windowIndex < windows.count else {
+            if windowIndex < windows.count {
+                dependencies.focusWindow(windows[windowIndex])
+            } else {
                 dependencies.focusApp(app)
-                return
             }
-            dependencies.focusWindow(windows[windowIndex])
+            focusedBundleID = app.bundleIdentifier
         case .flatWindows:
             guard let flatWindow else { return }
             dependencies.focusWindow(flatWindow.window)
+            focusedBundleID = flatWindow.bundleIdentifier
+        }
+
+        if let focusedBundleID {
+            focusTracker.bump(focusedBundleID)
         }
     }
 
     func cancel() {
         guard isArmed else { return }
+        let originalPID = hasPeeked ? preArmFrontmostPID : nil
         teardown()
+
+        guard let originalPID,
+              dependencies.frontmostPID() != originalPID
+        else { return }
+        dependencies.focusPID(originalPID)
     }
 
     /// Activate the window/app at the current selection without dismissing the picker.
@@ -421,13 +585,18 @@ final class SwitcherModel: ObservableObject {
         guard isArmed else { return }
         switch mode {
         case .apps:
-            if let app = selectedVisibleApp { dependencies.focusApp(app) }
+            if let app = selectedVisibleApp {
+                hasPeeked = true
+                dependencies.focusApp(app)
+            }
         case .windowsForApp:
             guard let app = currentApp,
                   selectedWindowIndex < app.windows.count else { return }
+            hasPeeked = true
             dependencies.focusWindow(app.windows[selectedWindowIndex])
         case .flatWindows:
             guard let flatWindow = selectedVisibleFlatWindow else { return }
+            hasPeeked = true
             dependencies.focusWindow(flatWindow.window)
         }
     }
@@ -458,6 +627,12 @@ final class SwitcherModel: ObservableObject {
     /// Re-enumerate after a pin/unpin so the order updates while the picker is open.
     /// Selection follows the previously-selected app if still present.
     func refreshAfterPinChange() {
+        refreshAfterAppListPreferenceChange()
+    }
+
+    /// Re-enumerates after pinning or exclusion changes while keeping the previous
+    /// selection when possible. Excluding the final app dismisses the picker safely.
+    func refreshAfterAppListPreferenceChange() {
         guard isArmed else { return }
         let previouslySelectedID = currentApp?.id
         let previouslySelectedFlatID = flatWindows[safe: selectedFlatIndex]?.id
@@ -466,8 +641,19 @@ final class SwitcherModel: ObservableObject {
         apps = dependencies.enumerate(focusTracker, options)
         flatWindows = apps.flatMap { app in
             app.windows.map { window in
-                FlatWindowEntry(id: window.id, window: window, appName: app.name, appIcon: app.icon)
+                FlatWindowEntry(
+                    id: window.id,
+                    window: window,
+                    bundleIdentifier: app.bundleIdentifier,
+                    appName: app.name,
+                    appIcon: app.icon
+                )
             }
+        }
+
+        guard !apps.isEmpty else {
+            teardown()
+            return
         }
 
         if let pid = previouslySelectedID, let newIndex = apps.firstIndex(where: { $0.id == pid }) {
@@ -591,6 +777,8 @@ final class SwitcherModel: ObservableObject {
     private func teardown() {
         cancelShowTimer()
         stopRefreshTimer()
+        peekWorkItem?.cancel()
+        peekWorkItem = nil
         isArmed = false
         apps = []
         flatWindows = []
@@ -601,6 +789,8 @@ final class SwitcherModel: ObservableObject {
         thumbnails = [:]
         mouseHasMoved = false
         filterText = ""
+        preArmFrontmostPID = nil
+        hasPeeked = false
         if panelShown {
             onHide?()
         }
@@ -743,10 +933,19 @@ final class SwitcherModel: ObservableObject {
         mode != .apps || defaults.bool(forKey: Preferences.Key.showWindowPreviews)
     }
 
+    private func capturePreArmFocus() {
+        preArmFrontmostPID = dependencies.frontmostPID()
+        hasPeeked = false
+        if let frontmostBundleID = dependencies.frontmostBundleID() {
+            focusTracker.bump(frontmostBundleID)
+        }
+    }
+
     private func currentEnumerateOptions() -> EnumerateOptions {
         EnumerateOptions(
             includeOtherSpaces: defaults.bool(forKey: Preferences.Key.includeOtherSpaces),
-            restrictToActiveScreen: defaults.bool(forKey: Preferences.Key.restrictToActiveScreen)
+            restrictToActiveScreen: defaults.bool(forKey: Preferences.Key.restrictToActiveScreen),
+            excludedBundleIDs: Set(Preferences.excludedBundleIDs(in: defaults))
         )
     }
 }

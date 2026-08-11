@@ -59,7 +59,7 @@ The script writes PNGs into `Swiitch/Resources/Assets.xcassets/AppIcon.appiconse
 - Doc comments (`///`) on public types and non-obvious internals.
 - Prefer plain `@AppStorage` for user-facing settings over a shared `ObservableObject` — there's a SwiftUI gotcha where `@Published` bindings into `MenuBarExtra(isInserted:)` log "Publishing changes from within view updates is not allowed."
 - AppKit interop for windowing (`NSPanel`, `NSWindow`), SwiftUI for view bodies.
-- `@_silgen_name("_AXUIElementGetWindow")` is used in `Swiitch/Windows/AXPrivate.swift` to map AX elements to `CGWindowID`. This is a private SPI and means **Swiitch cannot be distributed via the Mac App Store**. Any change that would relax this constraint is welcome but breaks the existing reliable window-matching behavior.
+- `@_silgen_name("_AXUIElementGetWindow")` is used in `Swiitch/Windows/AXPrivate.swift` to map AX elements to `CGWindowID`. The same file dynamically resolves a SkyLight activation fallback for Chromium-family apps. These are private SPIs and mean **Swiitch cannot be distributed via the Mac App Store**. Keep the SkyLight path optional and gated so a missing symbol never prevents launch.
 
 ## Pull requests
 
@@ -85,7 +85,7 @@ Swiitch/
   Windows/WindowEnumerator.swift  CGWindowList + AX ghost-filter, screen-scope filtering
   Windows/WindowFocuser.swift     AX raise + frontmost + activate, close, hide
   Windows/WindowThumbnails.swift  ScreenCaptureKit + CGWindowList fallback (actor)
-  Windows/AXPrivate.swift         _AXUIElementGetWindow SPI
+  Windows/AXPrivate.swift         _AXUIElementGetWindow + optional SkyLight SPIs
   UI/SwitcherPanel.swift          .nonactivatingPanel host
   UI/SwitcherView.swift           SwiftUI grid + filter badge + cells
   UI/WelcomeView.swift / WelcomeWindowController.swift
@@ -95,7 +95,7 @@ Swiitch/
   Permissions/PermissionsMonitor.swift  AX + Screen Recording polling
   Preferences/Preferences.swift   UserDefaults keys + side-effect helpers
 SwiitchTests/
-  SwitcherModelTests.swift        filtering, selection, and action regressions
+  SwitcherModelTests.swift        filtering, selection, focus, grid, and action regressions
 ```
 
 ## Where to start

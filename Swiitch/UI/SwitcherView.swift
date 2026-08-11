@@ -186,6 +186,10 @@ private struct AppGridView: View {
                                 Preferences.togglePinned(bid)
                                 model.refreshAfterPinChange()
                             }
+                            Button("Exclude from Swiitch") {
+                                Preferences.excludeApp(bid)
+                                model.refreshAfterAppListPreferenceChange()
+                            }
                         }
                     }
             }
@@ -278,9 +282,11 @@ private struct WindowGridView: View {
     private let cellSpacing: CGFloat = 12
 
     var body: some View {
-        let cellWidth = thumbnailSize.cellWidth
-        let columnsCount = max(1, min(app.windows.count, Int(maxWidth / (cellWidth + cellSpacing))))
-        let columns = Array(repeating: GridItem(.fixed(cellWidth), spacing: cellSpacing), count: columnsCount)
+        let metrics = model.gridMetrics(count: app.windows.count, for: .windowsForApp)
+        let columns = Array(
+            repeating: GridItem(.fixed(metrics.cellWidth), spacing: cellSpacing),
+            count: metrics.columns
+        )
 
         LazyVGrid(columns: columns, alignment: .center, spacing: 14) {
             ForEach(Array(app.windows.enumerated()), id: \.element.id) { index, window in
@@ -291,10 +297,10 @@ private struct WindowGridView: View {
                     overlayPosition: overlayPosition,
                     thumbnailOverlay: thumbnailOverlay,
                     isSelected: index == model.selectedWindowIndex,
-                    thumbHeight: thumbnailSize.thumbHeight,
+                    thumbHeight: metrics.thumbnailHeight,
                     isOnScreen: window.isOnScreen
                 )
-                .frame(width: cellWidth)
+                .frame(width: metrics.cellWidth)
                 .contentShape(Rectangle())
                 .onHover { hovering in
                     if hovering {
@@ -338,9 +344,11 @@ private struct FlatWindowGridView: View {
     }
 
     private func grid(visible: [SwitcherModel.FlatWindowEntry]) -> some View {
-        let cellWidth = thumbnailSize.cellWidth
-        let columnsCount = max(1, min(visible.count, Int(maxWidth / (cellWidth + cellSpacing))))
-        let columns = Array(repeating: GridItem(.fixed(cellWidth), spacing: cellSpacing), count: columnsCount)
+        let metrics = model.gridMetrics(count: visible.count, for: .flatWindows)
+        let columns = Array(
+            repeating: GridItem(.fixed(metrics.cellWidth), spacing: cellSpacing),
+            count: metrics.columns
+        )
 
         return LazyVGrid(columns: columns, alignment: .center, spacing: 14) {
             ForEach(visible, id: \.id) { entry in
@@ -353,10 +361,10 @@ private struct FlatWindowGridView: View {
                     thumbnailOverlay: thumbnailOverlay,
                     secondaryLabel: entry.appName,
                     isSelected: absoluteIndex == model.selectedFlatIndex,
-                    thumbHeight: thumbnailSize.thumbHeight,
+                    thumbHeight: metrics.thumbnailHeight,
                     isOnScreen: entry.window.isOnScreen
                 )
-                .frame(width: cellWidth)
+                .frame(width: metrics.cellWidth)
                 .contentShape(Rectangle())
                 .onHover { hovering in
                     if hovering {

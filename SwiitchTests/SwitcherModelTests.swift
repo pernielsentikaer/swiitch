@@ -140,22 +140,181 @@ final class SwitcherModelTests: XCTestCase {
         XCTAssertEqual(model.flatWindows.map(\.id), originalIDs)
     }
 
+    func testExcludedAppsAreIdempotentAndSettingsResetKeepsOnboarding() {
+        Preferences.registerDefaults(in: defaults)
+        defaults.set(true, forKey: Preferences.Key.hasCompletedOnboarding)
+
+        Preferences.excludeApp("com.example.alpha", defaults: defaults)
+        Preferences.excludeApp("com.example.alpha", defaults: defaults)
+        Preferences.excludeApp("com.example.beta", defaults: defaults)
+        XCTAssertEqual(
+            Preferences.excludedBundleIDs(in: defaults),
+            ["com.example.alpha", "com.example.beta"]
+        )
+
+        Preferences.includeApp("com.example.alpha", defaults: defaults)
+        XCTAssertEqual(Preferences.excludedBundleIDs(in: defaults), ["com.example.beta"])
+
+        Preferences.resetSettings(in: defaults)
+        XCTAssertTrue(Preferences.excludedBundleIDs(in: defaults).isEmpty)
+        XCTAssertTrue(defaults.bool(forKey: Preferences.Key.hasCompletedOnboarding))
+    }
+
+    func testExcludedBundleIDsReachEnumerationOptions() {
+        defaults.set(Preferences.DisplayMode.apps.rawValue, forKey: Preferences.Key.displayMode)
+        Preferences.excludeApp("com.example.beta", defaults: defaults)
+        let apps = sampleApps()
+        var capturedOptions: EnumerateOptions?
+        let model = makeModel(apps: apps, enumerate: { options in
+            capturedOptions = options
+            return apps.filter { !options.excludedBundleIDs.contains($0.bundleIdentifier ?? "") }
+        })
+
+        model.arm(reverse: false)
+
+        XCTAssertEqual(capturedOptions?.excludedBundleIDs, Set(["com.example.beta"]))
+        XCTAssertEqual(model.apps.map(\.name), ["Alpha", "Gamma"])
+    }
+
+    func testCancelAfterPeekRestoresTheOriginalFrontmostProcess() {
+        defaults.set(Preferences.DisplayMode.apps.rawValue, forKey: Preferences.Key.displayMode)
+        var frontmostPID: pid_t? = 999
+        var restoredPIDs: [pid_t] = []
+        let model = makeModel(
+            apps: sampleApps(),
+            focusApp: { frontmostPID = $0.pid },
+            focusPID: {
+                restoredPIDs.append($0)
+                frontmostPID = $0
+            },
+            frontmostPID: { frontmostPID }
+        )
+
+        model.arm(reverse: false)
+        model.peekCurrent()
+        XCTAssertEqual(frontmostPID, 102)
+
+        model.cancel()
+
+        XCTAssertEqual(restoredPIDs, [999])
+        XCTAssertEqual(frontmostPID, 999)
+        XCTAssertFalse(model.isArmed)
+    }
+
+    func testCancelWithoutPeekDoesNotChangeFocus() {
+        defaults.set(Preferences.DisplayMode.apps.rawValue, forKey: Preferences.Key.displayMode)
+        var frontmostPID: pid_t? = 999
+        var restoredPIDs: [pid_t] = []
+        let model = makeModel(
+            apps: sampleApps(),
+            focusPID: { restoredPIDs.append($0) },
+            frontmostPID: { frontmostPID }
+        )
+
+        model.arm(reverse: false)
+        frontmostPID = 555
+        model.cancel()
+
+        XCTAssertTrue(restoredPIDs.isEmpty)
+    }
+
+    func testCommitRepairsMRUForTheFocusedApp() {
+        defaults.set(Preferences.DisplayMode.apps.rawValue, forKey: Preferences.Key.displayMode)
+        let tracker = FocusTracker()
+        let model = makeModel(apps: sampleApps(), focusTracker: tracker)
+
+        model.arm(reverse: false)
+        model.commit()
+
+        XCTAssertEqual(tracker.rank(for: "com.example.beta"), 0)
+    }
+
+    func testFitGridShrinksTilesAndUsesAdditionalColumns() {
+        let automatic = SwitcherModel.gridMetrics(
+            count: 8,
+            maxWidth: 600,
+            availableHeight: 300,
+            thumbnailSize: .medium,
+            fitAll: false
+        )
+        let fitted = SwitcherModel.gridMetrics(
+            count: 8,
+            maxWidth: 600,
+            availableHeight: 300,
+            thumbnailSize: .medium,
+            fitAll: true
+        )
+
+        XCTAssertEqual(automatic.columns, 2)
+        XCTAssertGreaterThan(fitted.columns, automatic.columns)
+        XCTAssertLessThan(fitted.cellWidth, automatic.cellWidth)
+        XCTAssertLessThan(fitted.thumbnailHeight, automatic.thumbnailHeight)
+    }
+
+    func testChromiumFallbackIsRestrictedToKnownBrowserFamilies() {
+        XCTAssertTrue(WindowEnumerator.isChromiumFamily(bundleID: "com.google.Chrome.canary"))
+        XCTAssertTrue(WindowEnumerator.isChromiumFamily(bundleID: "company.thebrowser.dia"))
+        XCTAssertFalse(WindowEnumerator.isChromiumFamily(bundleID: "com.tinyspeck.slackmacgap"))
+        XCTAssertFalse(WindowEnumerator.isChromiumFamily(bundleID: nil))
+    }
+
+    func testRowNavigationUsesTheRenderedColumnCount() {
+        defaults.set(Preferences.DisplayMode.windows.rawValue, forKey: Preferences.Key.displayMode)
+        defaults.set(Preferences.ThumbnailSize.medium.rawValue, forKey: Preferences.Key.thumbnailSize)
+        let windows = (1...6).map {
+            makeWindow(id: CGWindowID($0), pid: 101, title: "Window \($0)")
+        }
+        let model = makeModel(apps: [makeApp(pid: 101, name: "Alpha", windows: windows)])
+        model.effectiveMaxWidth = 500
+
+        model.arm(reverse: false)
+        XCTAssertEqual(model.selectedFlatIndex, 1)
+
+        model.advanceRow(reverse: false)
+        XCTAssertEqual(model.selectedFlatIndex, 3)
+
+        model.advanceRow(reverse: true)
+        XCTAssertEqual(model.selectedFlatIndex, 1)
+    }
+
+    func testExcludingTheFinalAppDismissesAnOpenSwitcher() {
+        defaults.set(Preferences.DisplayMode.apps.rawValue, forKey: Preferences.Key.displayMode)
+        var availableApps = [makeApp(pid: 101, name: "Alpha", windows: [makeWindow(id: 1, pid: 101, title: "One")])]
+        let model = makeModel(apps: availableApps, enumerate: { _ in availableApps })
+
+        model.arm(reverse: false)
+        XCTAssertTrue(model.isArmed)
+
+        availableApps = []
+        model.refreshAfterAppListPreferenceChange()
+
+        XCTAssertFalse(model.isArmed)
+    }
+
     private func makeModel(
         apps: [AppEntry],
+        enumerate: ((EnumerateOptions) -> [AppEntry])? = nil,
         focusApp: @escaping (AppEntry) -> Void = { _ in },
         focusWindow: @escaping (WindowInfo) -> Void = { _ in },
         closeWindow: @escaping (WindowInfo) -> Bool = { _ in true },
-        hideApp: @escaping (pid_t) -> Bool = { _ in true }
+        hideApp: @escaping (pid_t) -> Bool = { _ in true },
+        focusPID: @escaping (pid_t) -> Void = { _ in },
+        frontmostPID: @escaping () -> pid_t? = { nil },
+        frontmostBundleID: @escaping () -> String? = { nil },
+        focusTracker: FocusTracker = FocusTracker()
     ) -> SwitcherModel {
         let dependencies = SwitcherModel.Dependencies(
-            enumerate: { _, _ in apps },
+            enumerate: { _, options in enumerate?(options) ?? apps },
             focusApp: focusApp,
             focusWindow: focusWindow,
             closeWindow: closeWindow,
-            hideApp: hideApp
+            hideApp: hideApp,
+            focusPID: focusPID,
+            frontmostPID: frontmostPID,
+            frontmostBundleID: frontmostBundleID
         )
         return SwitcherModel(
-            focusTracker: FocusTracker(),
+            focusTracker: focusTracker,
             defaults: defaults,
             dependencies: dependencies
         )

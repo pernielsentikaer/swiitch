@@ -29,6 +29,8 @@ struct EnumerateOptions {
     /// If true, only includes windows whose frames intersect the active screen
     /// (the screen containing the mouse cursor).
     var restrictToActiveScreen: Bool = false
+    /// Bundle identifiers omitted before any Accessibility or thumbnail work begins.
+    var excludedBundleIDs: Set<String> = []
 }
 
 enum WindowEnumerator {
@@ -42,7 +44,10 @@ enum WindowEnumerator {
         let all = copyWindows(option: allListOption)
         let onScreenIDs = Set(onScreen.compactMap { $0[kCGWindowNumber as String] as? CGWindowID })
 
-        let regularApps = NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular }
+        let regularApps = NSWorkspace.shared.runningApplications.filter { app in
+            app.activationPolicy == .regular
+                && !options.excludedBundleIDs.contains(app.bundleIdentifier ?? "")
+        }
         let regularPIDs = Set(regularApps.map { $0.processIdentifier })
 
         let activeScreenCG: CGRect? = options.restrictToActiveScreen ? activeScreenCGFrame() : nil
@@ -75,10 +80,18 @@ enum WindowEnumerator {
         }
 
         // Drop ghost windows using AX: intersect with the windows AX actually reports for the pid.
+        // Chromium-family apps can expose a completely different set of AX window IDs while
+        // their accessibility bridge warms up. Only in that known all-mismatch case do we keep
+        // the already-filtered CGWindowList entries instead of making the app disappear.
         for (pid, windows) in byPID {
             let real = axWindowIDs(forPID: pid)
             guard !real.isEmpty else { continue }
-            byPID[pid] = windows.filter { real.contains($0.id) }
+            let filtered = windows.filter { real.contains($0.id) }
+            let bundleID = regularApps.first(where: { $0.processIdentifier == pid })?.bundleIdentifier
+            if filtered.isEmpty, !windows.isEmpty, isChromiumFamily(bundleID: bundleID) {
+                continue
+            }
+            byPID[pid] = filtered
         }
 
         // Build entries.
@@ -134,6 +147,20 @@ enum WindowEnumerator {
             }
         }
         return result
+    }
+
+    static func isChromiumFamily(bundleID: String?) -> Bool {
+        guard let bundleID = bundleID?.lowercased() else { return false }
+        let prefixes = [
+            "com.google.chrome",
+            "com.brave.browser",
+            "com.microsoft.edgemac",
+            "com.operasoftware.opera",
+            "com.vivaldi.vivaldi",
+            "company.thebrowser.browser",
+            "company.thebrowser.dia",
+        ]
+        return prefixes.contains(where: bundleID.hasPrefix)
     }
 
     /// Returns the frame of the screen selected by the user's `screenScope` preference,

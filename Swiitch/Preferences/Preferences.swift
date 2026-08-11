@@ -30,6 +30,7 @@ enum Preferences {
         static let thumbnailOverlay = "thumbnailOverlay"      // ThumbnailOverlay.rawValue
         static let shiftCyclesBackwards = "shiftCyclesBackwards"  // Bool
         static let pinnedBundleIDs = "pinnedBundleIDs"            // [String]
+        static let excludedBundleIDs = "excludedBundleIDs"        // [String]
         static let hotkeyKeyCode = "hotkeyKeyCode"                // Int (kVK_Tab default = 48)
         static let hotkeyModifierFlags = "hotkeyModifierFlags"    // Int — raw CGEventFlags value
         static let peekOnHover = "peekOnHover"                    // Bool
@@ -40,6 +41,7 @@ enum Preferences {
         static let currentAppHotkeyEnabled = "currentAppHotkeyEnabled"     // Bool
         static let currentAppHotkeyKeyCode = "currentAppHotkeyKeyCode"     // Int
         static let currentAppHotkeyModifierFlags = "currentAppHotkeyModifierFlags" // Int
+        static let fitWindowGridToScreen = "fitWindowGridToScreen"         // Bool
     }
 
     enum ScreenScope: String, CaseIterable, Identifiable {
@@ -76,6 +78,34 @@ enum Preferences {
     static func isPinned(_ bundleID: String?) -> Bool {
         guard let bundleID else { return false }
         return pinnedBundleIDs.contains(bundleID)
+    }
+
+    // MARK: - Excluded apps
+
+    static var excludedBundleIDs: [String] {
+        get { excludedBundleIDs(in: .standard) }
+        set { UserDefaults.standard.set(newValue, forKey: Key.excludedBundleIDs) }
+    }
+
+    static func excludedBundleIDs(in defaults: UserDefaults) -> [String] {
+        defaults.stringArray(forKey: Key.excludedBundleIDs) ?? []
+    }
+
+    static func excludeApp(_ bundleID: String, defaults: UserDefaults = .standard) {
+        var current = excludedBundleIDs(in: defaults)
+        guard !current.contains(bundleID) else { return }
+        current.append(bundleID)
+        defaults.set(current, forKey: Key.excludedBundleIDs)
+    }
+
+    static func includeApp(_ bundleID: String, defaults: UserDefaults = .standard) {
+        let included = excludedBundleIDs(in: defaults).filter { $0 != bundleID }
+        defaults.set(included, forKey: Key.excludedBundleIDs)
+    }
+
+    static func isExcluded(_ bundleID: String?, defaults: UserDefaults = .standard) -> Bool {
+        guard let bundleID else { return false }
+        return excludedBundleIDs(in: defaults).contains(bundleID)
     }
 
     enum DisplayMode: String, CaseIterable, Identifiable {
@@ -224,8 +254,7 @@ enum Preferences {
 
         /// Write the preset's values into UserDefaults. The picker is just a convenience —
         /// the actual source of truth is still the individual keys.
-        func apply() {
-            let d = UserDefaults.standard
+        func apply(defaults d: UserDefaults = .standard) {
             switch self {
             case .custom:
                 return // no-op — represents "I've been tweaking it"
@@ -283,8 +312,9 @@ enum Preferences {
 
     /// Registered defaults (the value `UserDefaults.bool(forKey:)` returns when the user hasn't
     /// set anything yet). Call once at launch.
-    static func registerDefaults() {
-        UserDefaults.standard.register(defaults: [
+    static func registerDefaults(in defaults: UserDefaults = .standard) {
+        defaults.register(defaults: [
+            Key.launchAtLogin: false,
             Key.showWindowPreviews: true,
             Key.includeOtherSpaces: true,
             Key.showMenuBarIcon: true,
@@ -302,6 +332,8 @@ enum Preferences {
             Key.thumbnailOverlay: ThumbnailOverlay.none.rawValue,
             Key.themePreset: ThemePreset.classic.rawValue,
             Key.shiftCyclesBackwards: true,
+            Key.pinnedBundleIDs: [],
+            Key.excludedBundleIDs: [],
             // kVK_Tab = 48; CGEventFlags.maskCommand.rawValue = 0x100000 (1048576)
             Key.hotkeyKeyCode: 48,
             Key.hotkeyModifierFlags: Int(CGEventFlags.maskCommand.rawValue),
@@ -311,8 +343,46 @@ enum Preferences {
             Key.currentAppHotkeyEnabled: false,
             // Defaults to ⌥+Tab (kVK_Tab = 48, Option = 0x80000)
             Key.currentAppHotkeyKeyCode: 48,
-            Key.currentAppHotkeyModifierFlags: Int(CGEventFlags.maskAlternate.rawValue)
+            Key.currentAppHotkeyModifierFlags: Int(CGEventFlags.maskAlternate.rawValue),
+            Key.fitWindowGridToScreen: false
         ])
+    }
+
+    /// Restores user-configurable settings while keeping onboarding completion intact.
+    /// Registered defaults become visible immediately after each persistent value is removed.
+    static func resetSettings(in defaults: UserDefaults = .standard) {
+        let keys = [
+            Key.launchAtLogin,
+            Key.showMenuBarIcon,
+            Key.showDockIcon,
+            Key.currentAppHotkeyEnabled,
+            Key.hotkeyKeyCode,
+            Key.hotkeyModifierFlags,
+            Key.currentAppHotkeyKeyCode,
+            Key.currentAppHotkeyModifierFlags,
+            Key.displayMode,
+            Key.showWindowPreviews,
+            Key.includeOtherSpaces,
+            Key.restrictToActiveScreen,
+            Key.screenScope,
+            Key.switcherShowDelayMs,
+            Key.maxPanelWidthPercent,
+            Key.shiftCyclesBackwards,
+            Key.peekOnHover,
+            Key.peekDelayMs,
+            Key.fitWindowGridToScreen,
+            Key.appearance,
+            Key.accentColorHex,
+            Key.thumbnailSize,
+            Key.panelMaterial,
+            Key.panelCornerRadius,
+            Key.overlayPosition,
+            Key.thumbnailOverlay,
+            Key.themePreset,
+            Key.pinnedBundleIDs,
+            Key.excludedBundleIDs,
+        ]
+        keys.forEach { defaults.removeObject(forKey: $0) }
     }
 
     static func applyAppearance() {

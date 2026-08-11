@@ -106,9 +106,21 @@ actor WindowThumbnails {
             )
             return nsImage(from: cgImage)
         } catch {
-            log.debug("SCK capture failed for window \(windowID, privacy: .public): \(String(describing: error), privacy: .public)")
+            let owner = ownerBundleID(forWindowID: windowID) ?? "unknown"
+            log.debug("SCK capture failed for window \(windowID, privacy: .public) (\(owner, privacy: .public)): \(String(describing: error), privacy: .public)")
             return nil
         }
+    }
+
+    private nonisolated func ownerBundleID(forWindowID windowID: CGWindowID) -> String? {
+        guard let info = CGWindowListCopyWindowInfo(
+            [.optionIncludingWindow],
+            windowID
+        ) as? [[String: Any]],
+              let pid = info.first?[kCGWindowOwnerPID as String] as? pid_t,
+              let runningApp = NSRunningApplication(processIdentifier: pid)
+        else { return nil }
+        return runningApp.bundleIdentifier
     }
 
     private nonisolated func captureUsingCoreGraphics(windowID: CGWindowID) -> NSImage? {

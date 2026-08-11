@@ -10,7 +10,7 @@ enum WindowFocuser {
 
         // Frontmost window for the app = first in CGWindowList's z-order for this pid.
         if let window = entry.windows.first {
-            raise(windowID: window.id, pid: entry.pid)
+            raise(window: window)
         }
 
         activate(app: runningApp)
@@ -21,7 +21,13 @@ enum WindowFocuser {
     /// be denied intermittently.
     static func focus(window: WindowInfo) {
         guard let runningApp = NSRunningApplication(processIdentifier: window.pid) else { return }
-        raise(windowID: window.id, pid: window.pid)
+        raise(window: window)
+        activate(app: runningApp)
+    }
+
+    /// Activates an app by pid, used to restore focus when the user cancels after peeking.
+    static func focus(pid: pid_t) {
+        guard let runningApp = NSRunningApplication(processIdentifier: pid) else { return }
         activate(app: runningApp)
     }
 
@@ -56,17 +62,22 @@ enum WindowFocuser {
         return runningApp.hide()
     }
 
-    private static func raise(windowID: CGWindowID, pid: pid_t) {
-        let app = AXUIElementCreateApplication(pid)
+    private static func raise(window: WindowInfo) {
+        let app = AXUIElementCreateApplication(window.pid)
         var value: AnyObject?
         guard
             AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &value) == .success,
             let windows = value as? [AXUIElement]
         else { return }
 
-        guard let match = windows.first(where: { AXPrivate.windowID(for: $0) == windowID }) else {
-            return
-        }
+        let exact = windows.first(where: { AXPrivate.windowID(for: $0) == window.id })
+        let titleMatch = window.title.isEmpty ? nil : windows.first(where: {
+            normalizedTitle(axTitle(for: $0)) == normalizedTitle(window.title)
+        })
+        // A one-window fallback is unambiguous. Never raise the first of several AX
+        // windows merely because Chromium supplied mismatched IDs; that can focus the
+        // wrong tab/window after a deliberate selection.
+        guard let match = exact ?? titleMatch ?? (windows.count == 1 ? windows[0] : nil) else { return }
 
         // Unminiaturize if needed.
         var minimized: AnyObject?
@@ -80,6 +91,19 @@ enum WindowFocuser {
         AXUIElementPerformAction(match, kAXRaiseAction as CFString)
     }
 
+    private static func axTitle(for element: AXUIElement) -> String {
+        var value: AnyObject?
+        guard AXUIElementCopyAttributeValue(element, kAXTitleAttribute as CFString, &value) == .success else {
+            return ""
+        }
+        return value as? String ?? ""
+    }
+
+    private static func normalizedTitle(_ title: String) -> String {
+        title.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     private static func activate(app: NSRunningApplication) {
         // On macOS 14+, `NSRunningApplication.activate()` from an `.accessory` (LSUIElement)
         // app is frequently denied for cross-process activation. Avoiding the workaround
@@ -87,8 +111,10 @@ enum WindowFocuser {
         // SwiftUI + `MenuBarExtra`), we use the Accessibility API instead: setting
         // `kAXFrontmostAttribute = true` on the target app's AX element forces it frontmost
         // when we hold Accessibility permission.
-        let axApp = AXUIElementCreateApplication(app.processIdentifier)
+        let pid = app.processIdentifier
+        let axApp = AXUIElementCreateApplication(pid)
         AXUIElementSetAttributeValue(axApp, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
+        AXUIElementPerformAction(axApp, kAXRaiseAction as CFString)
 
         // Belt-and-suspenders: also call `activate()`. On macOS pre-14 this is the only
         // thing that works; on macOS 14+ it's a no-op when AX already brought us forward.
@@ -96,6 +122,12 @@ enum WindowFocuser {
             app.activate()
         } else {
             app.activate(options: [.activateIgnoringOtherApps])
+        }
+
+        guard WindowEnumerator.isChromiumFamily(bundleID: app.bundleIdentifier) else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+            guard NSWorkspace.shared.frontmostApplication?.processIdentifier != pid else { return }
+            _ = AXPrivate.windowServerActivate(pid: pid)
         }
     }
 }

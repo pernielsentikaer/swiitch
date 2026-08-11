@@ -5,23 +5,21 @@ import Sparkle
 /// the menu bar "Check for Updates…" item can trigger a check without threading the
 /// controller through SwiftUI bindings.
 @MainActor
-final class UpdateController {
+final class UpdateController: NSObject, SPUStandardUserDriverDelegate {
     static let shared = UpdateController()
 
-    let updaterController: SPUStandardUpdaterController
-
-    private init() {
+    lazy var updaterController: SPUStandardUpdaterController = {
         // `startingUpdater: true` arms Sparkle on construction so background checks
         // (configured via Info.plist `SUEnableAutomaticChecks`) start scheduling.
-        // We don't supply custom delegates — Sparkle's defaults handle the standard
-        // "show update dialog, download, restart" flow without intervention. Add an
-        // SPUUpdaterDelegate later only if we need to customize behavior (e.g.
-        // signed-update channel selection, pre-flight conditions).
-        self.updaterController = SPUStandardUpdaterController(
+        SPUStandardUpdaterController(
             startingUpdater: true,
             updaterDelegate: nil,
-            userDriverDelegate: nil
+            userDriverDelegate: self
         )
+    }()
+
+    func arm() {
+        _ = updaterController
     }
 
     func checkForUpdates() {
@@ -32,4 +30,7 @@ final class UpdateController {
         get { updaterController.updater.automaticallyChecksForUpdates }
         set { updaterController.updater.automaticallyChecksForUpdates = newValue }
     }
+
+    /// A menu-bar utility can reasonably surface Sparkle's standard scheduled reminder.
+    nonisolated var supportsGentleScheduledUpdateReminders: Bool { true }
 }
