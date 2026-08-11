@@ -174,23 +174,42 @@ enum WindowEnumerator {
     }
 
     /// Some apps keep switcher-ineligible helper windows alive as ordinary layer-0 windows.
-    /// Warp's dedicated global-hotkey surface currently exposes an untitled compact square host
-    /// even while hidden, so it survives the generic size/layer checks and appears as a blank
-    /// window. Keep this deliberately narrow: normal Warp terminals have titles and non-square
-    /// terminal geometry, and other apps are unaffected.
+    /// Keep these rules deliberately narrow so normal application windows remain switchable.
     static func isKnownAuxiliaryWindow(
         bundleID: String?,
         title: String,
         bounds: CGRect
     ) -> Bool {
-        guard bundleID?.lowercased().hasPrefix("dev.warp.warp") == true else { return false }
-        guard title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+        let normalizedBundleID = bundleID?.lowercased() ?? ""
+        let normalizedTitle = title
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
 
         let width = bounds.width
         let height = bounds.height
-        let isCompact = width >= 320 && height >= 320 && width <= 640 && height <= 640
-        let isApproximatelySquare = abs(width - height) <= 24
-        return isCompact && isApproximatelySquare
+
+        // Warp's dedicated global-hotkey surface is an untitled compact square host even while
+        // hidden, so it survives the generic size/layer checks and appears as a blank window.
+        if normalizedBundleID.hasPrefix("dev.warp.warp") {
+            guard normalizedTitle.isEmpty else { return false }
+            let isCompact = width >= 320 && height >= 320 && width <= 640 && height <= 640
+            let isApproximatelySquare = abs(width - height) <= 24
+            return isCompact && isApproximatelySquare
+        }
+
+        // ChatGPT briefly creates two identically sized utility surfaces while Computer Use is
+        // active. macOS exposes both through CGWindowList and Accessibility as regular windows,
+        // although neither is a user document. Their compact geometry prevents a task/window
+        // with the same title from being hidden.
+        if normalizedBundleID == "com.openai.codex" {
+            let computerUseTitles: Set<String> = ["computer use", "computer use controls"]
+            let isComputerUseHelper = computerUseTitles.contains(normalizedTitle)
+            let isCompactUtilitySurface = width >= 280 && width <= 420
+                && height >= 240 && height <= 360
+            return isComputerUseHelper && isCompactUtilitySurface
+        }
+
+        return false
     }
 
     /// Returns the frame of the screen selected by the user's `screenScope` preference,

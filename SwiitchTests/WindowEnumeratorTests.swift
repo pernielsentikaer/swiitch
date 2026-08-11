@@ -42,4 +42,46 @@ final class WindowEnumeratorTests: XCTestCase {
             )
         )
     }
+
+    func testChatGPTComputerUseHelpersAreExcluded() {
+        for title in ["Computer Use", "Computer Use Controls"] {
+            XCTAssertTrue(
+                WindowEnumerator.isKnownAuxiliaryWindow(
+                    bundleID: "com.openai.codex",
+                    title: title,
+                    bounds: CGRect(x: 2567, y: 604, width: 332, height: 286)
+                )
+            )
+        }
+    }
+
+    func testNormalChatGPTWindowIsKept() {
+        XCTAssertFalse(
+            WindowEnumerator.isKnownAuxiliaryWindow(
+                bundleID: "com.openai.codex",
+                title: "ChatGPT",
+                bounds: CGRect(x: 150, y: 111, width: 2707, height: 1463)
+            )
+        )
+    }
+
+    func testLargeChatGPTWindowWithComputerUseTitleIsKept() {
+        XCTAssertFalse(
+            WindowEnumerator.isKnownAuxiliaryWindow(
+                bundleID: "com.openai.codex",
+                title: "Computer Use",
+                bounds: CGRect(x: 150, y: 111, width: 1200, height: 800)
+            )
+        )
+    }
+
+    func testChatGPTHelperTitleFromAnotherAppIsKept() {
+        XCTAssertFalse(
+            WindowEnumerator.isKnownAuxiliaryWindow(
+                bundleID: "com.example.App",
+                title: "Computer Use Controls",
+                bounds: CGRect(x: 2567, y: 604, width: 332, height: 286)
+            )
+        )
+    }
 }
