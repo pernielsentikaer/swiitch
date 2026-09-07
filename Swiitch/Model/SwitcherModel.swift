@@ -233,7 +233,7 @@ final class SwitcherModel: ObservableObject {
     deinit {
         capabilityTasks.values.forEach { $0.cancel() }
         feedbackTask?.cancel()
-        if isArmed { focusTracker.isWindowTrackingSuspended = false }
+        if isArmed { focusTracker.isTrackingSuspended = false }
         showTimer?.invalidate()
         prewarmTimer?.invalidate()
         refreshTimer?.invalidate()
@@ -289,7 +289,7 @@ final class SwitcherModel: ObservableObject {
             mode = .flatWindows
         }
 
-        focusTracker.isWindowTrackingSuspended = true
+        focusTracker.isTrackingSuspended = true
         isArmed = true
         scheduleShow()
 
@@ -337,7 +337,7 @@ final class SwitcherModel: ObservableObject {
         mode = .currentAppWindows
         selectedFlatIndex = initialFlatSelectionIndex(reverse: reverse)
 
-        focusTracker.isWindowTrackingSuspended = true
+        focusTracker.isTrackingSuspended = true
         isArmed = true
         scheduleShow()
 
@@ -1170,7 +1170,7 @@ final class SwitcherModel: ObservableObject {
         capabilityOwners.removeAll()
         windowCapabilities.removeAll()
         showActionFeedback(nil)
-        focusTracker.isWindowTrackingSuspended = false
+        focusTracker.isTrackingSuspended = false
         cancelShowTimer()
         stopRefreshTimer()
         peekWorkItem?.cancel()
@@ -1346,8 +1346,10 @@ final class SwitcherModel: ObservableObject {
         }
     }
 
+    /// Retain every live, non-excluded preview; only capture missing previews in the
+    /// current display/Spaces/minimized scope. Both lists are cached discovery reads.
     @MainActor
-    private func prewarmCache() async {
+    func prewarmCache() async {
         guard #available(macOS 14.0, *) else { return }
         guard screenCaptureGranted, !updatingCapturePermission, !isArmed, !prewarmInFlight else { return }
         guard let retainThumbnails = dependencies.retainThumbnails,
@@ -1355,15 +1357,27 @@ final class SwitcherModel: ObservableObject {
         guard shouldLoadThumbnails(for: currentDisplayMode()) else { return }
         prewarmInFlight = true
         defer { prewarmInFlight = false }
-        let options = currentEnumerateOptions()
-        await dependencies.prepareSnapshot?(options)
-        guard screenCaptureGranted, !updatingCapturePermission, !isArmed else { return }
-        let apps = dependencies.enumerate(focusTracker, options)
-        let windows = apps.flatMap { $0.windows }
-        let liveIDs = Set(windows.map { $0.id })
+        let epoch = thumbnailEpoch
+        let excluded = currentEnumerateOptions().excludedBundleIDs
+        let allLiveOptions = EnumerateOptions(excludedBundleIDs: excluded)
+        await dependencies.prepareSnapshot?(allLiveOptions)
+        guard canContinuePrewarming(epoch: epoch, excluded: excluded) else { return }
+        // Discovery already caches all Spaces/displays; this is an unscoped read of that
+        // snapshot, not a second AX scan. Scope changes must not masquerade as closed IDs.
+        let liveApps = dependencies.enumerate(focusTracker, allLiveOptions)
+        let liveIDs = Set(liveApps.flatMap { $0.windows.map(\.id) })
         await retainThumbnails(liveIDs)
-        guard screenCaptureGranted, !updatingCapturePermission, !isArmed else { return }
+        guard canContinuePrewarming(epoch: epoch, excluded: excluded) else { return }
+        // Re-read after the actor hop so a changed screen/scope never warms the old set.
+        let windows = dependencies.enumerate(focusTracker, currentEnumerateOptions()).flatMap(\.windows)
         _ = await thumbnails(windows.map(\.id), false, nil)
+    }
+
+    @MainActor
+    private func canContinuePrewarming(epoch: UInt64, excluded: Set<String>) -> Bool {
+        !Task.isCancelled && screenCaptureGranted && !updatingCapturePermission && !isArmed
+            && thumbnailEpoch == epoch && shouldLoadThumbnails(for: currentDisplayMode())
+            && currentEnumerateOptions().excludedBundleIDs == excluded
     }
 
     @MainActor

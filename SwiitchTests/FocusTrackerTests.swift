@@ -3,6 +3,19 @@ import AppKit
 import XCTest
 
 final class FocusTrackerTests: XCTestCase {
+    func testAppHistoryIgnoresPreviewVisitsAndResumesForRealActivations() {
+        let tracker = FocusTracker()
+        ["b", "c", "a"].forEach(tracker.bump)
+        tracker.isTrackingSuspended = true
+        tracker.bump("b")
+        tracker.bump("new-app")
+        XCTAssertEqual(tracker.mruByBundle, ["a", "c", "b"])
+        tracker.isTrackingSuspended = false
+        tracker.bump("b")
+        tracker.bump("b")
+        XCTAssertEqual(tracker.mruByBundle, ["b", "a", "c"])
+    }
+
     func testMinimizedWindowsSortAfterNormalAndUnknownWithinEachRecentGroup() {
         var windows = [window(1), window(2), window(3), window(4)]
         windows[0].isMinimized = true
@@ -97,11 +110,11 @@ final class FocusTrackerTests: XCTestCase {
     func testPreviewDoesNotEnterHistoryAndTrackingResumes() {
         let tracker = FocusTracker()
         tracker.bumpWindow(id: 1, pid: 101)
-        tracker.isWindowTrackingSuspended = true
+        tracker.isTrackingSuspended = true
         tracker.bumpWindow(id: 2, pid: 101)
         XCTAssertEqual(tracker.mruWindows.map(\.id), [1])
 
-        tracker.isWindowTrackingSuspended = false
+        tracker.isTrackingSuspended = false
         tracker.bumpWindow(id: 2, pid: 101)
         XCTAssertEqual(tracker.mruWindows.map(\.id), [2, 1])
     }

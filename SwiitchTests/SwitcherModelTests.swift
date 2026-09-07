@@ -190,7 +190,7 @@ final class SwitcherModelTests: XCTestCase {
         XCTAssertEqual(model.flatWindows[model.selectedFlatIndex].id, 10)
         XCTAssertEqual(tracker.mruWindows.map(\.id), [11])
         model.cancel()
-        XCTAssertFalse(tracker.isWindowTrackingSuspended)
+        XCTAssertFalse(tracker.isTrackingSuspended)
     }
 
     func testPinnedWindowPriorityIsPreservedWithWindowHistory() {
@@ -226,9 +226,9 @@ final class SwitcherModelTests: XCTestCase {
         let tracker = FocusTracker()
         let model = makeModel(apps: [], focusTracker: tracker)
         model.arm(reverse: false)
-        XCTAssertFalse(tracker.isWindowTrackingSuspended)
+        XCTAssertFalse(tracker.isTrackingSuspended)
         model.armForCurrentApp(reverse: false)
-        XCTAssertFalse(tracker.isWindowTrackingSuspended)
+        XCTAssertFalse(tracker.isTrackingSuspended)
     }
 
     private func diaAndChatApps() -> [AppEntry] {

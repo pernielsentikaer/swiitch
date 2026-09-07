@@ -5,6 +5,123 @@ import XCTest
 
 @MainActor
 final class ThumbnailStateTests: XCTestCase {
+    func testPrewarmRetainsAcrossAllScopesButPrunesClosedAndExcludedWindows() async {
+        let fixture = PrewarmFixture()
+        defer { fixture.close() }
+        fixture.defaults.set(false, forKey: Preferences.Key.includeOtherSpaces)
+        fixture.defaults.set(true, forKey: Preferences.Key.restrictToActiveScreen)
+        fixture.defaults.set(Preferences.MinimizedWindows.hide.rawValue, forKey: Preferences.Key.minimizedWindows)
+        fixture.defaults.set(["test.excluded"], forKey: Preferences.Key.excludedBundleIDs)
+        fixture.state.apps[0].windows += [
+            WindowInfo(id: 3, pid: 101, title: "Other display", bounds: CGRect(x: 900, y: 0, width: 300, height: 200), isOnScreen: true),
+            WindowInfo(id: 4, pid: 101, title: "Minimized", bounds: .zero, isOnScreen: false, isMinimized: true),
+            WindowInfo(id: 7, pid: 101, title: "Uncached other Space", bounds: .zero, isOnScreen: false),
+        ]
+        fixture.state.apps.append(AppEntry(pid: 102, bundleIdentifier: "test.excluded", name: "Excluded", icon: nil,
+            windows: [WindowInfo(id: 5, pid: 102, title: "Excluded", bounds: .zero, isOnScreen: true)]))
+        // ID 6 was closed; ID 7 is live but should not be captured outside the current scope.
+        let seeded = await fixture.cache.images(for: [1, 2, 3, 4, 5, 6], maximumAge: .infinity)
+        await fixture.model.prewarmCache()
+        XCTAssertEqual(fixture.state.retained, [[1, 2, 3, 4, 7]])
+        XCTAssertEqual(fixture.state.loads, [[1]])
+        let stats = await fixture.cache.statistics
+        XCTAssertEqual(stats.cachedImages, 4)
+        XCTAssertEqual(stats.cacheMisses, 6, "No new captures for hidden scopes")
+        XCTAssertEqual(stats.cacheEvictions, 0)
+        let loaded = await fixture.cache.images(for: [2, 3, 4], maximumAge: .infinity)
+        for id: CGWindowID in [2, 3, 4] { XCTAssertTrue(loaded[id] === seeded[id]) }
+        fixture.state.apps[0].windows.removeAll { $0.id == 2 }
+        await fixture.model.prewarmCache()
+        XCTAssertEqual(fixture.state.retained.last, [1, 3, 4, 7], "Actually closed windows still leave the cache")
+        let afterClosing = await fixture.cache.statistics
+        XCTAssertEqual(afterClosing.cachedImages, 3)
+    }
+
+    func testPrewarmUsesCurrentScopeAfterRetentionWithoutDiscardingHiddenImages() async {
+        let fixture = PrewarmFixture()
+        defer { fixture.close() }
+        fixture.defaults.set(true, forKey: Preferences.Key.includeOtherSpaces)
+        fixture.defaults.set(false, forKey: Preferences.Key.restrictToActiveScreen)
+        let seeded = await fixture.cache.images(for: [1, 2], maximumAge: .infinity)
+        fixture.state.afterRetain = {
+            fixture.defaults.set(false, forKey: Preferences.Key.includeOtherSpaces)
+        }
+        await fixture.model.prewarmCache()
+        XCTAssertEqual(fixture.state.retained, [[1, 2]])
+        XCTAssertEqual(fixture.state.loads, [[1]])
+        fixture.state.afterRetain = nil
+        fixture.defaults.set(true, forKey: Preferences.Key.includeOtherSpaces)
+        await fixture.model.prewarmCache()
+        XCTAssertEqual(fixture.state.loads.last, [1, 2])
+        let loaded = await fixture.cache.images(for: [2], maximumAge: .infinity)
+        XCTAssertTrue(loaded[2] === seeded[2], "Returning to a Space reuses its existing bitmap")
+    }
+
+    func testPrewarmAbandonsWorkAfterExclusionOrPermissionChanges() async {
+        for afterRetention in [false, true] {
+            for revokePermission in [false, true] {
+                let fixture = PrewarmFixture()
+                defer { fixture.close() }
+                let change: () async -> Void = {
+                    if revokePermission { fixture.model.updateScreenCapturePermission(false) }
+                    else { fixture.defaults.set(["test.example"], forKey: Preferences.Key.excludedBundleIDs) }
+                }
+                if afterRetention { fixture.state.afterRetain = change }
+                else { fixture.state.prepare = change }
+                await fixture.model.prewarmCache()
+                XCTAssertEqual(fixture.state.retained.count, afterRetention ? 1 : 0)
+                XCTAssertTrue(fixture.state.loads.isEmpty, "Never capture using stale authorization/exclusions")
+            }
+        }
+    }
+
+    func testPrewarmCannotResumeAfterAnotherPickerInvocation() async {
+        let fixture = PrewarmFixture()
+        defer { fixture.close() }
+        fixture.state.prepare = {
+            fixture.model.arm(reverse: false)
+            fixture.model.cancel()
+        }
+        await fixture.model.prewarmCache()
+        XCTAssertTrue(fixture.state.retained.isEmpty)
+        XCTAssertTrue(fixture.state.loads.isEmpty)
+    }
+
+    func testPrewarmCoalescesOverlappingPassesAndStopsWhilePickerIsOpen() async throws {
+        let fixture = PrewarmFixture()
+        defer { fixture.close() }
+        var continuation: CheckedContinuation<Void, Never>?
+        fixture.state.prepare = { await withCheckedContinuation { continuation = $0 } }
+        let first = Task { await fixture.model.prewarmCache() }
+        try await eventually { continuation != nil }
+        await fixture.model.prewarmCache()
+        continuation?.resume()
+        await first.value
+        XCTAssertEqual(fixture.state.retained.count, 1)
+        XCTAssertEqual(fixture.state.loads.count, 1)
+        fixture.state.prepare = nil
+        fixture.model.arm(reverse: false)
+        await fixture.model.prewarmCache()
+        XCTAssertEqual(fixture.state.retained.count, 1, "Opening the picker stops idle cleanup")
+    }
+
+    func testIdleTimerRetainsPreviewsOutsideCurrentSpace() async {
+        let fixture = PrewarmFixture()
+        defer { fixture.close() }
+        fixture.defaults.set(false, forKey: Preferences.Key.includeOtherSpaces)
+        let seeded = await fixture.cache.images(for: [1, 2], maximumAge: .infinity)
+        let retained = expectation(description: "The real idle timer retains cached previews")
+        fixture.state.didRetain = { retained.fulfill() }
+        fixture.model.arm(reverse: false)
+        fixture.model.cancel()
+        await fulfillment(of: [retained], timeout: 6)
+        let stats = await fixture.cache.statistics
+        XCTAssertEqual(stats.cachedImages, 2, "Filtered does not mean closed")
+        XCTAssertEqual(stats.cacheEvictions, 0)
+        let loaded = await fixture.cache.images(for: [2], maximumAge: .infinity)
+        XCTAssertTrue(loaded[2] === seeded[2], "The cached offscreen image must survive without recapture")
+    }
+
     func testRefreshFollowsViewportAndSearchInEveryWindowMode() async throws {
         for mode in [SwitcherModel.Mode.flatWindows, .currentAppWindows, .windowsForApp] {
             let fixture = CaptureModelFixture(returnImages: true, windowCount: 4,
@@ -278,6 +395,68 @@ private final class CaptureModelFixture {
     }
 
     func close() { model.cancel(); defaults.removePersistentDomain(forName: suite) }
+}
+
+/// Isolated metadata and a real thumbnail cache; never captures or manipulates the desktop.
+@MainActor
+private final class PrewarmFixture {
+    final class State {
+        var apps: [AppEntry] = [AppEntry(pid: 101, bundleIdentifier: "test.example", name: "Example", icon: nil, windows: [
+            WindowInfo(id: 1, pid: 101, title: "Visible", bounds: CGRect(x: 0, y: 0, width: 300, height: 200), isOnScreen: true),
+            WindowInfo(id: 2, pid: 101, title: "Other Space", bounds: CGRect(x: 0, y: 0, width: 300, height: 200), isOnScreen: false),
+        ])]
+        var screen = CGRect(x: 0, y: 0, width: 800, height: 600)
+        var retained: [Set<CGWindowID>] = []
+        var loads: [[CGWindowID]] = []
+        var didRetain: (() -> Void)?
+        var prepare: (() async -> Void)?
+        var afterRetain: (() async -> Void)?
+    }
+
+    let state = State()
+    let suite = "PrewarmFixture.\(UUID().uuidString)"
+    let defaults: UserDefaults
+    let cache = WindowThumbnails(captureProvider: { ids, deliver in
+        for id in ids { await deliver(id, NSImage(size: NSSize(width: 20, height: 20))) }
+    })
+    let model: SwitcherModel
+
+    init() {
+        defaults = UserDefaults(suiteName: suite)!
+        Preferences.registerDefaults(in: defaults, persistentDomainName: suite)
+        defaults.set(0, forKey: Preferences.Key.switcherShowDelayMs)
+        let state = self.state
+        let cache = self.cache
+        model = SwitcherModel(focusTracker: FocusTracker(), defaults: defaults, dependencies: .init(
+            enumerate: { _, options in
+                WindowDiscovery.filtered(state.apps, options: options,
+                    screenFrame: options.restrictToActiveScreen ? state.screen : nil)
+            },
+            focusApp: { _ in }, focusWindow: { _ in }, closeWindow: { _ in false },
+            minimizeWindow: { _ in false }, zoomWindow: { _ in false }, hideApp: { _ in false },
+            focusPID: { _ in }, frontmostPID: { 101 }, frontmostBundleID: { "test.example" },
+            focusedWindowID: { _ in 1 },
+            thumbnails: { ids, fresh, progress in
+                state.loads.append(ids)
+                return await cache.images(for: ids, fresh: fresh, maximumAge: .infinity, onUpdate: progress)
+            },
+            retainThumbnails: { ids in
+                await cache.retain(only: ids)
+                state.retained.append(ids)
+                state.didRetain?()
+                await state.afterRetain?()
+            },
+            prepareSnapshot: { _ in await state.prepare?() }
+        ))
+    }
+
+    func close() {
+        model.cancel()
+        state.prepare = nil
+        state.afterRetain = nil
+        state.didRetain = nil
+        defaults.removePersistentDomain(forName: suite)
+    }
 }
 
 private actor ModelCaptureProbe {

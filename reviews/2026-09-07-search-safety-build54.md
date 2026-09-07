@@ -64,6 +64,10 @@ the shortcut (also try Return): focus should return to the original window.
 
 ## Remaining follow-up items (not implemented here)
 
+Follow-up: items 3–4 below were implemented and verified in **build 56**; see
+`2026-09-07-cache-and-preview-history-build56.md`. The descriptions below retain the
+original findings. The separate delayed native-focus retry investigation remains open.
+
 3. **App recency after cancelled preview:** window history is suspended during previews,
    but FocusTracker's app-activation callback still bumps app history. A,C,B becomes
    A,B,C after previewing B and cancelling back to A. Suspend preview-only app visits

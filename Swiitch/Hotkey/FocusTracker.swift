@@ -56,8 +56,9 @@ final class FocusTracker {
 
     private(set) var mruByBundle: [String] = []
     private(set) var mruWindows: [WindowKey] = []
-    /// Hover-peek is a preview, not a committed visit to a window.
-    var isWindowTrackingSuspended = false
+    /// Hover-peek is not a committed app or window visit. The model resumes both
+    /// histories before recording an intentional commit or restoring original focus.
+    var isTrackingSuspended = false
     private static let historyLimit = 512
     private var observer: NSObjectProtocol?
     private var terminationObserver: NSObjectProtocol?
@@ -129,7 +130,7 @@ final class FocusTracker {
     }
 
     func bumpWindow(id: CGWindowID, pid: pid_t) {
-        guard !isWindowTrackingSuspended, id != kCGNullWindowID, pid > 0 else { return }
+        guard !isTrackingSuspended, id != kCGNullWindowID, pid > 0 else { return }
         let key = WindowKey(pid: pid, id: id)
         guard mruWindows.first != key else { return }
         mruWindows.removeAll { $0 == key }
@@ -184,7 +185,7 @@ final class FocusTracker {
     }
 
     private func recordFrontmostWindow() {
-        guard !isWindowTrackingSuspended,
+        guard !isTrackingSuspended,
               let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier,
               pid == observedPID,
               let id = AXPrivate.focusedWindowID(forPID: pid) else { return }
@@ -192,6 +193,7 @@ final class FocusTracker {
     }
 
     func bump(_ bundleID: String) {
+        guard !isTrackingSuspended, mruByBundle.first != bundleID else { return }
         mruByBundle.removeAll { $0 == bundleID }
         mruByBundle.insert(bundleID, at: 0)
     }

@@ -4,6 +4,54 @@ import XCTest
 
 @MainActor
 final class SwitcherInteractionTests: XCTestCase {
+    func testCommittedPreviewRecordsRealVisitInEveryMode() {
+        for mode in [SwitcherModel.Mode.apps, .flatWindows, .windowsForApp, .currentAppWindows] {
+            let fixture = Fixture(displayMode: mode == .apps || mode == .windowsForApp ? .apps : .windows)
+            for bundle in ["beta", "gamma", "alpha"] { fixture.tracker.bump("com.example.\(bundle)") }
+            let before = fixture.tracker.mruByBundle
+            if mode == .currentAppWindows { fixture.model.armForCurrentApp(reverse: false) }
+            else { fixture.model.arm(reverse: false) }
+            if mode == .windowsForApp { fixture.model.enterWindowMode() }
+            if mode == .flatWindows { fixture.model.appendFilter("Beta 21") }
+            fixture.model.peekCurrent()
+            let pid = fixture.state.frontmostPID!
+            let bundle = fixture.state.apps.first { $0.pid == pid }!.bundleIdentifier!
+            let id = fixture.state.focusedByPID[pid]!
+            fixture.tracker.bump(bundle)
+            fixture.tracker.bumpWindow(id: id, pid: pid)
+            XCTAssertEqual(fixture.tracker.mruByBundle, before, "Preview: \(mode)")
+            fixture.model.commit()
+            XCTAssertFalse(fixture.tracker.isTrackingSuspended)
+            XCTAssertEqual(fixture.tracker.mruByBundle, [bundle] + before.filter { $0 != bundle }, "Commit: \(mode)")
+            XCTAssertEqual(fixture.tracker.mruWindows.first, .init(pid: pid, id: id))
+        }
+    }
+
+    func testCancelledAppPreviewPreservesAppAndWindowHistory() {
+        for emptyCommit in [false, true] {
+            let fixture = Fixture(displayMode: .apps)
+            for bundle in ["beta", "gamma", "alpha"] { fixture.tracker.bump("com.example.\(bundle)") }
+            fixture.tracker.bumpWindow(id: 31, pid: 103)
+            fixture.tracker.bumpWindow(id: 11, pid: 101)
+            let appsBefore = fixture.tracker.mruByBundle
+            let windowsBefore = fixture.tracker.mruWindows
+            fixture.model.arm(reverse: false)
+            fixture.model.peekCurrent()
+            // Simulate the same history calls made by app/window activation observers.
+            fixture.tracker.bump("com.example.beta")
+            fixture.tracker.bumpWindow(id: 21, pid: 102)
+            if emptyCommit {
+                fixture.model.appendFilter("no matching document exists")
+                fixture.model.commit()
+            } else {
+                fixture.model.cancel()
+            }
+            XCTAssertEqual(fixture.state.restoreRequests, [.init(pid: 101, id: 11)])
+            XCTAssertEqual(fixture.tracker.mruByBundle, appsBefore)
+            XCTAssertEqual(fixture.tracker.mruWindows, windowsBefore)
+        }
+    }
+
     func testShowLastKeepsRecentOrderWithinNormalAndMinimizedGroups() {
         let fixture = Fixture()
         fixture.state.setMinimized(true, id: 12)
@@ -110,7 +158,7 @@ final class SwitcherInteractionTests: XCTestCase {
             XCTAssertEqual(fixture.state.restoreRequests, [.init(pid: 101, id: 11)], "\(mode)")
             XCTAssertEqual(fixture.state.frontmostPID, 101, "\(mode)")
             XCTAssertEqual(fixture.state.focusedByPID[101], 11, "\(mode)")
-            XCTAssertFalse(fixture.tracker.isWindowTrackingSuspended)
+            XCTAssertFalse(fixture.tracker.isTrackingSuspended)
         }
     }
 
@@ -328,7 +376,7 @@ final class SwitcherInteractionTests: XCTestCase {
         XCTAssertEqual(fixture.tracker.mruWindows.first, .init(pid: 101, id: 11))
         XCTAssertEqual(fixture.tracker.rank(for: "com.example.alpha"), 0)
         XCTAssertTrue(fixture.state.fallbackPIDs.isEmpty)
-        XCTAssertFalse(fixture.tracker.isWindowTrackingSuspended)
+        XCTAssertFalse(fixture.tracker.isTrackingSuspended)
     }
 
     func testCancelCurrentAppPeekRestoresOriginalSibling() {
