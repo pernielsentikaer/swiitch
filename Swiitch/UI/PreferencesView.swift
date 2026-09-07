@@ -11,10 +11,10 @@ enum PreferencesSection: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .general: "General"
-        case .switcher: "Switcher"
-        case .appearance: "Appearance"
-        case .about: "About"
+        case .general: String(localized: "General")
+        case .switcher: String(localized: "Switcher")
+        case .appearance: String(localized: "Appearance")
+        case .about: String(localized: "About")
         }
     }
 
@@ -30,6 +30,10 @@ enum PreferencesSection: String, CaseIterable, Identifiable {
 
 struct PreferencesView: View {
     @State private var selection: PreferencesSection = .general
+
+    init(initialSelection: PreferencesSection = .general) {
+        _selection = State(initialValue: initialSelection)
+    }
 
     var body: some View {
         NavigationSplitView {
@@ -71,7 +75,6 @@ struct PreferencesView: View {
 // MARK: - General
 
 private struct GeneralTab: View {
-    @AppStorage(Preferences.Key.launchAtLogin) private var launchAtLogin: Bool = false
     @AppStorage(Preferences.Key.showMenuBarIcon) private var showMenuBarIcon: Bool = true
     @AppStorage(Preferences.Key.showDockIcon) private var showDockIcon: Bool = false
     @AppStorage(Preferences.Key.currentAppHotkeyEnabled) private var currentAppHotkeyEnabled: Bool = false
@@ -80,12 +83,15 @@ private struct GeneralTab: View {
     @AppStorage(Preferences.Key.currentAppHotkeyKeyCode) private var currentAppHotkeyKeyCode: Int = 48
     @AppStorage(Preferences.Key.currentAppHotkeyModifierFlags) private var currentAppHotkeyModifierFlags: Int = Int(CGEventFlags.maskAlternate.rawValue)
     @StateObject private var permissions = PermissionsMonitor()
+    @ObservedObject private var hotkeyStatus = HotkeyStatus.shared
+    @ObservedObject private var updates = UpdateController.shared
     @State private var showResetConfirmation = false
 
     private var hotkeysConflict: Bool {
-        currentAppHotkeyEnabled
-            && hotkeyKeyCode == currentAppHotkeyKeyCode
-            && hotkeyModifierFlags == currentAppHotkeyModifierFlags
+        currentAppHotkeyEnabled && Shortcut.conflicts(
+            (hotkeyKeyCode, CGEventFlags(rawValue: UInt64(hotkeyModifierFlags))),
+            (currentAppHotkeyKeyCode, CGEventFlags(rawValue: UInt64(currentAppHotkeyModifierFlags)))
+        )
     }
 
     var body: some View {
@@ -97,14 +103,16 @@ private struct GeneralTab: View {
                 Section("Permissions") {
                     if !permissions.accessibilityGranted {
                         PermissionRow(
-                            title: "Accessibility",
+                            title: String(localized: "Accessibility"),
+                            subtitle: String(localized: "Required to list, raise, and switch between windows in other apps."),
                             granted: false,
                             action: permissions.requestAccessibility
                         )
                     }
                     if !permissions.screenCaptureGranted {
                         PermissionRow(
-                            title: "Screen Recording",
+                            title: String(localized: "Screen Recording"),
+                            subtitle: String(localized: "Optional. Enables live window thumbnails in the switcher."),
                             granted: false,
                             action: permissions.requestScreenCapture
                         )
@@ -113,7 +121,7 @@ private struct GeneralTab: View {
             }
 
             Section("Startup") {
-                Toggle("Launch at login", isOn: $launchAtLogin)
+                LoginItemSetting(title: String(localized: "Launch at login"))
             }
 
             Section {
@@ -141,8 +149,13 @@ private struct GeneralTab: View {
                 Text("Click a recorder, press your shortcut. Esc cancels. The second hotkey jumps straight to the frontmost app's windows.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                if hotkeyStatus.value == .retrying {
+                    Label("Keyboard shortcut temporarily unavailable. Swiitch is retrying automatically.",
+                          systemImage: "exclamationmark.triangle")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
                 if hotkeysConflict {
-                    Label("Both shortcuts are identical, so only the first one will run.", systemImage: "exclamationmark.triangle.fill")
+                    Label("These shortcuts overlap, including Shift-reverse. Choose different combinations.", systemImage: "exclamationmark.triangle.fill")
                         .font(.caption)
                         .foregroundStyle(Color.orange)
                 }
@@ -161,6 +174,20 @@ private struct GeneralTab: View {
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
+            }
+
+            Section("Updates") {
+                Toggle("Automatically check for updates", isOn: Binding(
+                    get: { updates.automaticChecksEnabled },
+                    set: { updates.setAutomaticChecksEnabled($0) }
+                ))
+                if let error = updates.errorMessage {
+                    Text(error).font(.caption).foregroundStyle(.secondary)
+                }
+                #if DEBUG
+                Text("Development builds check only when you choose Check for Updates.")
+                    .font(.caption).foregroundStyle(.secondary)
+                #endif
             }
 
             Section {
@@ -191,14 +218,22 @@ private struct GeneralTab: View {
 
 private struct PermissionRow: View {
     let title: String
+    let subtitle: String
     let granted: Bool
     let action: () -> Void
 
     var body: some View {
-        HStack {
+        HStack(alignment: .top, spacing: 10) {
             Image(systemName: granted ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
                 .foregroundStyle(granted ? Color.green : Color.orange)
-            Text(title)
+                .padding(.top, 2)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             Spacer()
             if granted {
                 Text("Granted").foregroundStyle(.secondary)
@@ -213,8 +248,8 @@ private struct PermissionRow: View {
 
 private struct SwitcherTab: View {
     @AppStorage(Preferences.Key.displayMode) private var displayMode: String = Preferences.DisplayMode.apps.rawValue
-    @AppStorage(Preferences.Key.showWindowPreviews) private var showWindowPreviews: Bool = true
     @AppStorage(Preferences.Key.includeOtherSpaces) private var includeOtherSpaces: Bool = true
+    @AppStorage(Preferences.Key.includeMinimizedWindows) private var includeMinimizedWindows: Bool = true
     @AppStorage(Preferences.Key.restrictToActiveScreen) private var restrictToActiveScreen: Bool = true
     @AppStorage(Preferences.Key.screenScope) private var screenScope: String = Preferences.ScreenScope.mousePointer.rawValue
     @AppStorage(Preferences.Key.switcherShowDelayMs) private var switcherShowDelayMs: Int = 150
@@ -222,23 +257,14 @@ private struct SwitcherTab: View {
     @AppStorage(Preferences.Key.shiftCyclesBackwards) private var shiftCyclesBackwards: Bool = true
     @AppStorage(Preferences.Key.peekOnHover) private var peekOnHover: Bool = false
     @AppStorage(Preferences.Key.peekDelayMs) private var peekDelayMs: Int = 500
+    @AppStorage(Preferences.Key.showWindowControlsOnHover) private var showWindowControlsOnHover: Bool = false
     @AppStorage(Preferences.Key.fitWindowGridToScreen) private var fitWindowGridToScreen: Bool = false
 
     var body: some View {
         Form {
             Section("Display") {
-                Picker("Show", selection: $displayMode) {
-                    ForEach(Preferences.DisplayMode.allCases) { mode in
-                        Text(mode.label).tag(mode.rawValue)
-                    }
-                }
-                .pickerStyle(.inline)
-                .labelsHidden()
-
-                // Only relevant when Apps mode is active — hide entirely when "All windows"
-                // is selected so it doesn't look like a stranded disabled control.
-                if displayMode == Preferences.DisplayMode.apps.rawValue {
-                    Toggle("Show window list for apps with multiple windows", isOn: $showWindowPreviews)
+                ForEach(Preferences.DisplayMode.allCases) { mode in
+                    displayModeButton(for: mode)
                 }
             }
 
@@ -250,6 +276,10 @@ private struct SwitcherTab: View {
                 }
                 Toggle("Only show windows on that screen", isOn: $restrictToActiveScreen)
                 Toggle("Include windows from other Spaces", isOn: $includeOtherSpaces)
+                Toggle("Include minimized windows", isOn: $includeMinimizedWindows)
+                Text("Minimized windows can be included even when other Spaces are hidden. The screen filter still applies.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             ExcludedAppsEditor()
@@ -283,6 +313,13 @@ private struct SwitcherTab: View {
                     .padding(.vertical, 4)
                 }
                 Text("Hovering — or navigating with the keyboard — to a cell will bring that window forward without dismissing the picker. Release ⌘ commits.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section("Window actions") {
+                Toggle("Show window controls on hover", isOn: $showWindowControlsOnHover)
+                Text("Shows close, minimize, and native zoom controls on the window under the pointer. Unavailable controls are dimmed. With the default shortcut, use ⌃⌘H to hide the selected app.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -331,20 +368,51 @@ private struct SwitcherTab: View {
 
                 Picker("Window grid", selection: $fitWindowGridToScreen) {
                     Text("Automatic").tag(false)
-                    Text("Fit to Screen").tag(true)
+                    Text("Fill Screen").tag(true)
                 }
                 .pickerStyle(.segmented)
+                if displayMode == Preferences.DisplayMode.apps.rawValue {
+                    Text("Applies when viewing an app’s windows.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
                 Text(
                     fitWindowGridToScreen
-                        ? "Uses this width to spread out the grid, then shrinks tiles only if every window still would not fit on the active display."
-                        : "Uses your selected thumbnail size and wraps windows into additional rows."
+                        ? String(localized: "Resizes tiles to use this width while keeping every window visible on the active display.")
+                        : String(localized: "Uses your selected thumbnail size and wraps windows into additional rows.")
                 )
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                SwitcherPreview(showsWindowGrid: true)
             }
         }
         .formStyle(.grouped)
         .contentMargins(.top, -10, for: .scrollContent)
+    }
+
+    private func displayModeButton(for mode: Preferences.DisplayMode) -> some View {
+        let isSelected = displayMode == mode.rawValue
+
+        return Button {
+            displayMode = mode.rawValue
+        } label: {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(mode.label)
+                    Text(mode.description)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Image(systemName: isSelected ? "circle.inset.filled" : "circle")
+                    .font(.system(size: 14))
+                    .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+            }
+            .padding(.vertical, 2)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
     }
 }
 
@@ -358,13 +426,27 @@ private struct ExcludedAppsEditor: View {
     @State private var excludedApps: [ExcludedApp] = []
 
     var body: some View {
-        Section("Excluded apps") {
+        Section {
             if excludedApps.isEmpty {
-                Text("No excluded apps")
-                    .foregroundStyle(.secondary)
+                HStack(spacing: 12) {
+                    Image(systemName: "checkmark.circle")
+                        .font(.title2)
+                        .foregroundStyle(.secondary)
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("All apps are included")
+                        Text("Add an app to hide all of its windows from Swiitch.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Spacer()
+                    addAppButton
+                }
+                .padding(.vertical, 6)
             } else {
                 ForEach(excludedApps) { app in
-                    HStack(spacing: 10) {
+                    HStack(spacing: 12) {
                         Group {
                             if let icon = app.icon {
                                 Image(nsImage: icon)
@@ -376,14 +458,9 @@ private struct ExcludedAppsEditor: View {
                             }
                         }
                         .scaledToFit()
-                        .frame(width: 28, height: 28)
+                        .frame(width: 32, height: 32)
 
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(app.name)
-                            Text(app.id)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
+                        Text(app.name)
                         Spacer()
                         Button {
                             Preferences.includeApp(app.id)
@@ -392,17 +469,25 @@ private struct ExcludedAppsEditor: View {
                             Image(systemName: "minus.circle")
                         }
                         .buttonStyle(.borderless)
+                        .foregroundStyle(.secondary)
+                        .accessibilityLabel("Include \(app.name) again")
                         .help("Include this app again")
                     }
+                    .help(app.id)
                 }
-            }
 
-            Button {
-                pickApps()
-            } label: {
-                Label("Add App…", systemImage: "plus")
+                HStack {
+                    addAppButton
+                    Spacer()
+                    Text(excludedApps.count == 1 ? String(localized: "1 app excluded") : String(localized: "\(excludedApps.count) apps excluded"))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.vertical, 2)
             }
-
+        } header: {
+            Text("Excluded apps")
+        } footer: {
             Text("You can also right-click an app in Swiitch and choose Exclude from Swiitch.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -410,6 +495,14 @@ private struct ExcludedAppsEditor: View {
         .onAppear(perform: reload)
         .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
             reload()
+        }
+    }
+
+    private var addAppButton: some View {
+        Button {
+            pickApps()
+        } label: {
+            Label("Add App…", systemImage: "plus")
         }
     }
 
@@ -421,8 +514,8 @@ private struct ExcludedAppsEditor: View {
 
     private func pickApps() {
         let panel = NSOpenPanel()
-        panel.title = "Choose Apps to Exclude"
-        panel.prompt = "Exclude"
+        panel.title = String(localized: "Choose Apps to Exclude")
+        panel.prompt = String(localized: "Exclude")
         panel.directoryURL = URL(fileURLWithPath: "/Applications", isDirectory: true)
         panel.canChooseFiles = true
         panel.canChooseDirectories = false
@@ -460,7 +553,6 @@ private struct AppearanceTab: View {
     @AppStorage(Preferences.Key.overlayPosition) private var overlayPosition: String = Preferences.OverlayPosition.bottomLeading.rawValue
     @AppStorage(Preferences.Key.thumbnailOverlay) private var thumbnailOverlay: String = Preferences.ThumbnailOverlay.none.rawValue
     @AppStorage(Preferences.Key.themePreset) private var themePreset: String = Preferences.ThemePreset.classic.rawValue
-    @AppStorage(Preferences.Key.displayMode) private var displayMode: String = Preferences.DisplayMode.windows.rawValue
     @State private var applyingPreset = false
 
     private var accentColorBinding: Binding<Color> {
@@ -498,15 +590,7 @@ private struct AppearanceTab: View {
                 Text("Presets bulk-apply background, radius, thumbnail size, overlay, and accent. Tweaking any value below switches to Custom.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                SwitcherPreviewCard(
-                    isWindowsMode: displayMode == Preferences.DisplayMode.windows.rawValue,
-                    panelMaterial: Preferences.PanelMaterial(rawValue: panelMaterial) ?? .translucentLight,
-                    cornerRadius: CGFloat(panelCornerRadius),
-                    overlayPosition: Preferences.OverlayPosition(rawValue: overlayPosition) ?? .bottomLeading,
-                    thumbnailOverlay: Preferences.ThumbnailOverlay(rawValue: thumbnailOverlay) ?? .none,
-                    accent: Color(hex: accentColorHex) ?? .accentColor
-                )
-                .padding(.vertical, 4)
+                SwitcherPreview()
             } header: {
                 Text("Theme")
             }
@@ -600,155 +684,14 @@ private struct AppearanceTab: View {
     }
 }
 
-// MARK: - Switcher preview card (live preview in Appearance tab)
-
-private struct SwitcherPreviewCard: View {
-    let isWindowsMode: Bool
-    let panelMaterial: Preferences.PanelMaterial
-    let cornerRadius: CGFloat
-    let overlayPosition: Preferences.OverlayPosition
-    let thumbnailOverlay: Preferences.ThumbnailOverlay
-    let accent: Color
-
-    private static let windowTitles   = ["main.swift — MyApp", "README.md — Editor", "GitHub — Safari"]
-    private static let windowAppNames = ["Xcode", "VS Code", "Safari"]
-    private static let windowColors: [Color] = [.blue.opacity(0.2), .indigo.opacity(0.2), .teal.opacity(0.2)]
-
-    private static let appNames:  [String] = ["Safari", "Xcode", "Finder", "Notes", "Mail"]
-    private static let appColors: [Color]  = [.blue, .orange, .green, .purple, .red]
-
-    var body: some View {
-        HStack(spacing: 10) {
-            if isWindowsMode {
-                ForEach(0..<3, id: \.self) { i in
-                    previewWindowCell(index: i)
-                }
-            } else {
-                ForEach(0..<5, id: \.self) { i in
-                    previewAppCell(index: i)
-                }
-            }
-        }
-        .padding(14)
-        .frame(maxWidth: .infinity)
-        .background(Theme.panelBackground(material: panelMaterial, cornerRadius: cornerRadius))
-        .environment(\.swiitchAccent, accent)
-        .allowsHitTesting(false)
-    }
-
-    @ViewBuilder
-    private func previewWindowCell(index: Int) -> some View {
-        let isSelected = index == 0
-        let bgColor = Self.windowColors[index]
-        VStack(spacing: 4) {
-            ZStack(alignment: overlayPosition == .hidden ? .center : overlayPosition.swiftAlignment) {
-                RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .fill(isSelected ? accent.opacity(0.15) : Color.primary.opacity(0.06))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 7, style: .continuous)
-                            .strokeBorder(
-                                isSelected ? accent : Color.primary.opacity(0.1),
-                                lineWidth: isSelected ? 1.5 : 1
-                            )
-                    )
-                // Fake thumbnail
-                RoundedRectangle(cornerRadius: 5, style: .continuous)
-                    .fill(bgColor)
-                    .padding(4)
-                    .overlay(previewThumbnailOverlay)
-                // App icon badge
-                if overlayPosition != .hidden {
-                    Circle()
-                        .fill(Color.white.opacity(0.85))
-                        .frame(width: 14, height: 14)
-                        .padding(5)
-                }
-            }
-            .frame(height: 64)
-            VStack(spacing: 1) {
-                Text(Self.windowTitles[index])
-                    .font(.system(size: 8.5))
-                    .lineLimit(1)
-                    .foregroundStyle(isSelected ? Color.primary : Color.secondary)
-                Text(Self.windowAppNames[index])
-                    .font(.system(size: 7.5))
-                    .lineLimit(1)
-                    .foregroundStyle(.tertiary)
-            }
-            .frame(maxWidth: .infinity)
-        }
-        .frame(maxWidth: .infinity)
-    }
-
-    @ViewBuilder
-    private func previewAppCell(index: Int) -> some View {
-        let isSelected = index == 0
-        let color = Self.appColors[index]
-        VStack(spacing: 4) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(isSelected ? accent.opacity(0.35) : Color.clear)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .strokeBorder(isSelected ? accent : Color.clear, lineWidth: 1.5)
-                    )
-                    .frame(width: 48, height: 48)
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(color)
-                    .frame(width: 32, height: 32)
-            }
-            Text(Self.appNames[index])
-                .font(.system(size: 8.5))
-                .lineLimit(1)
-                .foregroundStyle(isSelected ? Color.primary : Color.secondary)
-        }
-        .frame(maxWidth: .infinity)
-    }
-
-    @ViewBuilder
-    private var previewThumbnailOverlay: some View {
-        switch thumbnailOverlay {
-        case .none:
-            EmptyView()
-        case .gradientEdges:
-            RoundedRectangle(cornerRadius: 5, style: .continuous)
-                .fill(
-                    LinearGradient(
-                        stops: [
-                            .init(color: accent.opacity(0.55), location: 0.0),
-                            .init(color: accent.opacity(0.0),  location: 0.25),
-                            .init(color: accent.opacity(0.0),  location: 0.75),
-                            .init(color: accent.opacity(0.55), location: 1.0)
-                        ],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                )
-                .blendMode(.plusLighter)
-        case .scanlines:
-            Canvas { ctx, size in
-                let path = Path { p in
-                    var y: CGFloat = 0
-                    while y < size.height {
-                        p.addRect(CGRect(x: 0, y: y, width: size.width, height: 1))
-                        y += 3
-                    }
-                }
-                ctx.fill(path, with: .color(.black.opacity(0.25)))
-            }
-        case .tint:
-            accent.opacity(0.22)
-                .blendMode(.multiply)
-        }
-    }
-}
 
 
 private struct AboutTab: View {
+    @State private var showDiagnostics = false
     private var versionText: String {
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
         let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"
-        return "Version \(version) (\(build))"
+        return String(localized: "Version \(version) (\(build))")
     }
 
     var body: some View {
@@ -765,11 +708,12 @@ private struct AboutTab: View {
 
             Button("Check for Updates…") { UpdateController.shared.checkForUpdates() }
                 .padding(.top, 10)
-            Button("Show Welcome…") { WelcomeWindowController.shared.show() }
+            Button("Review Diagnostics…") { showDiagnostics = true }
 
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(28)
+        .sheet(isPresented: $showDiagnostics) { DiagnosticsView() }
     }
 }

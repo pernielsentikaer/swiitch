@@ -5,7 +5,6 @@ struct WelcomeView: View {
     let onFinish: () -> Void
 
     @AppStorage(Preferences.Key.hasCompletedOnboarding) private var hasCompletedOnboarding: Bool = false
-    @AppStorage(Preferences.Key.launchAtLogin) private var launchAtLogin: Bool = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -49,19 +48,19 @@ struct WelcomeView: View {
     }
 
     private var permissionsSection: some View {
-        SectionCard(title: "Permissions") {
+        SectionCard(title: String(localized: "Permissions")) {
             VStack(alignment: .leading, spacing: 14) {
                 permissionRow(
                     granted: permissions.accessibilityGranted,
-                    title: "Accessibility access",
-                    subtitle: "Required. Lets Swiitch list and raise windows across other apps, and intercept ⌘+Tab.",
+                    title: String(localized: "Accessibility access"),
+                    subtitle: String(localized: "Required. Lets Swiitch list and raise windows across other apps, and intercept ⌘+Tab."),
                     action: permissions.requestAccessibility
                 )
                 Divider()
                 permissionRow(
                     granted: permissions.screenCaptureGranted,
-                    title: "Screen Recording",
-                    subtitle: "Optional. Enables live thumbnails of each window in the switcher.",
+                    title: String(localized: "Screen Recording"),
+                    subtitle: String(localized: "Optional. Enables live thumbnails of each window in the switcher."),
                     action: permissions.requestScreenCapture
                 )
             }
@@ -87,15 +86,15 @@ struct WelcomeView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer()
-            Button(granted ? "Granted" : "Open Settings…", action: action)
+            Button(granted ? String(localized: "Granted") : String(localized: "Open Settings…"), action: action)
                 .controlSize(.regular)
                 .disabled(granted)
         }
     }
 
     private var preferencesSection: some View {
-        SectionCard(title: "Preferences") {
-            Toggle("Launch Swiitch at login", isOn: $launchAtLogin)
+        SectionCard(title: String(localized: "Preferences")) {
+            LoginItemSetting(title: String(localized: "Launch Swiitch at login"))
         }
     }
 
@@ -134,4 +133,3 @@ private struct SectionCard<Content: View>: View {
         }
     }
 }
-

@@ -6,6 +6,7 @@ options:
   createIntermediateGroups: true
   developmentLanguage: en
   groupSortPosition: top
+  postGenCommand: bash Scripts/sync_package_lock.sh
 
 packages:
   Sparkle:
@@ -30,6 +31,7 @@ settings:
     CURRENT_PROJECT_VERSION: "1"
     DEAD_CODE_STRIPPING: YES
     SWIFT_STRICT_CONCURRENCY: minimal
+    SWIFT_EMIT_LOC_STRINGS: YES
     GENERATE_INFOPLIST_FILE: NO
   configs:
     Release:

@@ -11,8 +11,8 @@ import SwiftUI
 enum Preferences {
     enum Key {
         static let hasCompletedOnboarding = "hasCompletedOnboarding"
-        static let showWindowPreviews = "showWindowPreviews"
         static let includeOtherSpaces = "includeOtherSpaces"
+        static let includeMinimizedWindows = "includeMinimizedWindows"
         static let launchAtLogin = "launchAtLogin"
         static let showMenuBarIcon = "showMenuBarIcon"
         static let showDockIcon = "showDockIcon"
@@ -35,6 +35,7 @@ enum Preferences {
         static let hotkeyModifierFlags = "hotkeyModifierFlags"    // Int — raw CGEventFlags value
         static let peekOnHover = "peekOnHover"                    // Bool
         static let peekDelayMs = "peekDelayMs"                    // Int (default 500)
+        static let showWindowControlsOnHover = "showWindowControlsOnHover" // Bool
         static let screenScope = "screenScope"                    // ScreenScope.rawValue
 
         // Second hotkey — opens the picker directly in "current app's windows" mode.
@@ -47,6 +48,8 @@ enum Preferences {
     private enum LegacyKey {
         /// Budapest exposed the same feature as an Auto / Fill picker backed by an Int.
         static let tileColumns = "tileColumns"
+        /// Apps-first mode now always supports drilling into the selected app's windows.
+        static let showWindowPreviews = "showWindowPreviews"
     }
 
     enum ScreenScope: String, CaseIterable, Identifiable {
@@ -56,9 +59,9 @@ enum Preferences {
         var id: String { rawValue }
         var label: String {
             switch self {
-            case .mousePointer: return "Screen with mouse pointer"
-            case .activeWindow: return "Active screen (frontmost window)"
-            case .main:         return "Main screen"
+            case .mousePointer: return String(localized: "Screen with mouse pointer")
+            case .activeWindow: return String(localized: "Active screen (frontmost window)")
+            case .main:         return String(localized: "Main screen")
             }
         }
     }
@@ -119,8 +122,14 @@ enum Preferences {
         var id: String { rawValue }
         var label: String {
             switch self {
-            case .apps: return "Apps (drill into windows with ↓)"
-            case .windows: return "All windows directly"
+            case .apps: return String(localized: "Apps first")
+            case .windows: return String(localized: "All windows")
+            }
+        }
+        var description: String {
+            switch self {
+            case .apps: return String(localized: "Use Tab or ← → to switch apps. Press ↓ to choose a window.")
+            case .windows: return String(localized: "Switch directly between every open window.")
             }
         }
     }
@@ -132,9 +141,9 @@ enum Preferences {
         var id: String { rawValue }
         var label: String {
             switch self {
-            case .system: return "Follow system"
-            case .light: return "Light"
-            case .dark: return "Dark"
+            case .system: return String(localized: "Follow system")
+            case .light: return String(localized: "Light")
+            case .dark: return String(localized: "Dark")
             }
         }
     }
@@ -144,9 +153,9 @@ enum Preferences {
         var id: String { rawValue }
         var label: String {
             switch self {
-            case .small: return "Small"
-            case .medium: return "Medium"
-            case .large: return "Large"
+            case .small: return String(localized: "Small")
+            case .medium: return String(localized: "Medium")
+            case .large: return String(localized: "Large")
             }
         }
         var thumbHeight: CGFloat {
@@ -175,22 +184,22 @@ enum Preferences {
         var id: String { rawValue }
         var label: String {
             switch self {
-            case .translucentLight: return "Translucent (light)"
-            case .translucent:      return "Translucent"
-            case .frosted:          return "Frosted"
-            case .solid:            return "Solid"
-            case .solidLight:       return "Solid Light"
-            case .solidDark:        return "Solid Dark"
+            case .translucentLight: return String(localized: "Translucent (light)")
+            case .translucent:      return String(localized: "Translucent")
+            case .frosted:          return String(localized: "Frosted")
+            case .solid:            return String(localized: "Solid")
+            case .solidLight:       return String(localized: "Solid Light")
+            case .solidDark:        return String(localized: "Solid Dark")
             }
         }
         var blurb: String {
             switch self {
-            case .translucentLight: return "Most see-through. Lets the desktop / app behind show clearly."
-            case .translucent:      return "Default macOS blur. Balanced."
-            case .frosted:          return "Heavily blurred — barely shows what's behind."
-            case .solid:            return "Opaque system background. Automatically follows Light and Dark appearance."
-            case .solidLight:       return "Opaque light grey. No translucency."
-            case .solidDark:        return "Opaque near-black. No translucency."
+            case .translucentLight: return String(localized: "Most see-through. Lets the desktop / app behind show clearly.")
+            case .translucent:      return String(localized: "Default macOS blur. Balanced.")
+            case .frosted:          return String(localized: "Heavily blurred — barely shows what's behind.")
+            case .solid:            return String(localized: "Opaque system background. Automatically follows Light and Dark appearance.")
+            case .solidLight:       return String(localized: "Opaque light grey. No translucency.")
+            case .solidDark:        return String(localized: "Opaque near-black. No translucency.")
             }
         }
     }
@@ -200,12 +209,12 @@ enum Preferences {
         var id: String { rawValue }
         var label: String {
             switch self {
-            case .hidden:         return "Hidden"
-            case .topLeading:     return "Top Left"
-            case .topTrailing:    return "Top Right"
-            case .bottomLeading:  return "Bottom Left"
-            case .bottomTrailing: return "Bottom Right"
-            case .center:         return "Center"
+            case .hidden:         return String(localized: "Hidden")
+            case .topLeading:     return String(localized: "Top Left")
+            case .topTrailing:    return String(localized: "Top Right")
+            case .bottomLeading:  return String(localized: "Bottom Left")
+            case .bottomTrailing: return String(localized: "Bottom Right")
+            case .center:         return String(localized: "Center")
             }
         }
         var swiftAlignment: Alignment {
@@ -229,10 +238,10 @@ enum Preferences {
         var id: String { rawValue }
         var label: String {
             switch self {
-            case .none:           return "None"
-            case .gradientEdges:  return "Gradient edges"
-            case .scanlines:      return "Scanlines"
-            case .tint:           return "Color tint"
+            case .none:           return String(localized: "None")
+            case .gradientEdges:  return String(localized: "Gradient edges")
+            case .scanlines:      return String(localized: "Scanlines")
+            case .tint:           return String(localized: "Color tint")
             }
         }
     }
@@ -250,13 +259,13 @@ enum Preferences {
         var id: String { rawValue }
         var label: String {
             switch self {
-            case .custom:    return "Custom"
-            case .classic:   return "Classic"
-            case .minimal:   return "Minimal"
-            case .raycast:   return "Raycast"
-            case .frosted:   return "Frosted"
-            case .spotlight: return "Spotlight"
-            case .synthwave: return "Synthwave"
+            case .custom:    return String(localized: "Custom")
+            case .classic:   return String(localized: "Classic")
+            case .minimal:   return String(localized: "Minimal")
+            case .raycast:   return String(localized: "Raycast")
+            case .frosted:   return String(localized: "Frosted")
+            case .spotlight: return String(localized: "Spotlight")
+            case .synthwave: return String(localized: "Synthwave")
             }
         }
 
@@ -336,6 +345,7 @@ enum Preferences {
             defaults.set(true, forKey: Key.fitWindowGridToScreen)
         }
         defaults.removeObject(forKey: LegacyKey.tileColumns)
+        defaults.removeObject(forKey: LegacyKey.showWindowPreviews)
 
         // Minimal and Spotlight used to force a light panel even while following the system.
         // Upgrade only untouched named presets; Custom and explicitly themed presets keep their
@@ -349,8 +359,8 @@ enum Preferences {
 
         defaults.register(defaults: [
             Key.launchAtLogin: false,
-            Key.showWindowPreviews: true,
             Key.includeOtherSpaces: true,
+            Key.includeMinimizedWindows: true,
             Key.showMenuBarIcon: true,
             Key.showDockIcon: false,
             Key.switcherShowDelayMs: 150,
@@ -373,6 +383,7 @@ enum Preferences {
             Key.hotkeyModifierFlags: Int(CGEventFlags.maskCommand.rawValue),
             Key.peekOnHover: false,
             Key.peekDelayMs: 500,
+            Key.showWindowControlsOnHover: false,
             Key.screenScope: ScreenScope.mousePointer.rawValue,
             Key.currentAppHotkeyEnabled: false,
             // Defaults to ⌥+Tab (kVK_Tab = 48, Option = 0x80000)
@@ -395,8 +406,8 @@ enum Preferences {
             Key.currentAppHotkeyKeyCode,
             Key.currentAppHotkeyModifierFlags,
             Key.displayMode,
-            Key.showWindowPreviews,
             Key.includeOtherSpaces,
+            Key.includeMinimizedWindows,
             Key.restrictToActiveScreen,
             Key.screenScope,
             Key.switcherShowDelayMs,
@@ -404,6 +415,7 @@ enum Preferences {
             Key.shiftCyclesBackwards,
             Key.peekOnHover,
             Key.peekDelayMs,
+            Key.showWindowControlsOnHover,
             Key.fitWindowGridToScreen,
             Key.appearance,
             Key.accentColorHex,
@@ -434,18 +446,9 @@ enum Preferences {
     // MARK: - Side-effecting actions
 
     /// Brings `SMAppService.mainApp` into sync with the stored `launchAtLogin` flag.
-    static func syncLaunchAtLogin() {
+    @MainActor static func syncLaunchAtLogin() {
         let desired = UserDefaults.standard.bool(forKey: Key.launchAtLogin)
-        do {
-            let isEnabled = SMAppService.mainApp.status == .enabled
-            if desired && !isEnabled {
-                try SMAppService.mainApp.register()
-            } else if !desired && isEnabled {
-                try SMAppService.mainApp.unregister()
-            }
-        } catch {
-            NSLog("[Swiitch] Failed to update Launch at Login: \(error)")
-        }
+        LoginItemController.shared.setEnabled(desired)
     }
 
     /// Reads the actual SMAppService status — the truth might diverge from the stored

@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import Combine
 
 enum StartupPresentation: Equatable {
     case none
@@ -16,6 +17,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var axMonitorTimer: Timer?
     private var lastAXTrusted: Bool = false
     private var defaultsObserver: NSObjectProtocol?
+    private var capturePermissions: PermissionsMonitor?
+    private var capturePermissionObservation: AnyCancellable?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Hosted unit tests load the app executable, which also calls its delegate. Do not
@@ -40,14 +43,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // every time a contributor runs from Xcode. Manual checks remain available.
         UpdateController.shared.arm()
 
-        // Sparkle's default scheduled-check cadence is conservative (24h) and the first
-        // tick has its own startup delay. For an app users launch and leave running,
-        // explicitly kick off a silent background check ~5s after launch so updates are
-        // surfaced on the same session they shipped. Silent if nothing's new; pops the
-        // standard Sparkle "An update is available" dialog if there is.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
-            UpdateController.shared.updaterController.updater.checkForUpdatesInBackground()
-        }
+        // Sparkle schedules according to the user's preference; no forced launch check.
         #endif
 
         applyDockIconPreference()
@@ -57,9 +53,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         focusTracker.start()
 
         model = SwitcherModel(focusTracker: focusTracker)
+        WindowDiscovery.shared.start()
         model.onShow = { [weak self] in self?.showPanel() }
         model.onHide = { [weak self] in self?.hidePanel() }
         model.onUpdate = { [weak self] in self?.panel?.refresh() }
+
+        let permissions = PermissionsMonitor()
+        capturePermissions = permissions
+        capturePermissionObservation = permissions.$screenCaptureGranted.removeDuplicates().sink { [weak self] granted in
+            self?.model.updateScreenCapturePermission(granted)
+        }
+        permissions.start()
 
         hotkey = HotkeyManager(model: model)
 
@@ -97,6 +101,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         axMonitorTimer?.invalidate()
         hotkey?.uninstall()
+        WindowDiscovery.shared.stop()
+        capturePermissions?.stop()
+        capturePermissionObservation?.cancel()
         if let defaultsObserver {
             NotificationCenter.default.removeObserver(defaultsObserver)
         }
@@ -114,7 +121,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func observeDefaults() {
         var lastDock = UserDefaults.standard.bool(forKey: Preferences.Key.showDockIcon)
-        var lastLogin = UserDefaults.standard.bool(forKey: Preferences.Key.launchAtLogin)
         var lastAppearance = UserDefaults.standard.string(forKey: Preferences.Key.appearance) ?? "system"
 
         defaultsObserver = NotificationCenter.default.addObserver(
@@ -128,11 +134,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 Task { @MainActor [weak self] in
                     self?.applyDockIconPreference()
                 }
-            }
-            let login = UserDefaults.standard.bool(forKey: Preferences.Key.launchAtLogin)
-            if login != lastLogin {
-                lastLogin = login
-                Preferences.syncLaunchAtLogin()
             }
             let appearance = UserDefaults.standard.string(forKey: Preferences.Key.appearance) ?? "system"
             if appearance != lastAppearance {

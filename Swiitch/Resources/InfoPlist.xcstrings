@@ -1,0 +1,30 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    "NSAccessibilityUsageDescription": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Swiitch needs Accessibility access to switch windows across all running apps." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Swiitch skal bruge adgang til tilgængelighed for at skifte mellem vinduer i alle åbne apps." } }
+      }
+    },
+    "NSAppleEventsUsageDescription": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Swiitch uses Apple Events to coordinate window switching." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Swiitch bruger Apple Events til at styre skift mellem vinduer." } }
+      }
+    },
+    "NSScreenCaptureUsageDescription": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Swiitch captures window thumbnails so you can see what you're switching to." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Swiitch henter forhåndsvisninger af vinduer, så du kan se, hvad du skifter til." } }
+      }
+    },
+    "NSHumanReadableCopyright": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Copyright © 2026. All rights reserved." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Copyright © 2026. Alle rettigheder forbeholdes." } }
+      }
+    }
+  },
+  "version": "1.0"
+}

@@ -1,5 +1,52 @@
 import SwiftUI
 
+private enum SwitcherScrollTarget: Hashable {
+    case app(pid_t)
+    case window(CGWindowID)
+}
+
+/// Viewport-local geometry, not LazyVGrid's prefetched/on-appear cell set.
+struct ThumbnailViewportLayout: Equatable {
+    var context: SwitcherModel.ThumbnailViewportContext?
+    var bounds: CGRect?
+    var windowFrames: [CGWindowID: CGRect] = [:]
+
+    var visibleWindowIDs: Set<CGWindowID> {
+        guard let bounds, !bounds.isEmpty else { return [] }
+        return Set(windowFrames.compactMap { id, frame in
+            let overlap = bounds.intersection(frame)
+            return !overlap.isNull && overlap.width > 0 && overlap.height > 0 ? id : nil
+        })
+    }
+
+    mutating func merge(_ other: Self) {
+        context = other.context ?? context
+        bounds = other.bounds ?? bounds
+        windowFrames.merge(other.windowFrames, uniquingKeysWith: { _, newer in newer })
+    }
+}
+
+private struct ThumbnailViewportPreference: PreferenceKey {
+    static let defaultValue = ThumbnailViewportLayout()
+    static func reduce(value: inout ThumbnailViewportLayout, nextValue: () -> ThumbnailViewportLayout) {
+        value.merge(nextValue())
+    }
+}
+
+private struct ThumbnailFrameReporter: View {
+    static let coordinateSpace = "Swiitch.thumbnailViewport"
+    let id: CGWindowID
+
+    var body: some View {
+        GeometryReader { geometry in
+            Color.clear.preference(key: ThumbnailViewportPreference.self,
+                value: ThumbnailViewportLayout(windowFrames: [id: geometry.frame(in: .named(Self.coordinateSpace))]))
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+}
+
 struct SwitcherView: View {
     @ObservedObject var model: SwitcherModel
 
@@ -30,32 +77,62 @@ struct SwitcherView: View {
         Preferences.ThumbnailOverlay(rawValue: thumbnailOverlayRaw) ?? .none
     }
 
+    private var selectedScrollTarget: SwitcherScrollTarget? {
+        switch model.mode {
+        case .apps:
+            guard model.apps.indices.contains(model.selectedAppIndex) else { return nil }
+            return .app(model.apps[model.selectedAppIndex].pid)
+        case .windowsForApp:
+            guard let window = model.selectedVisibleAppWindow else { return nil }
+            return .window(window.id)
+        case .flatWindows, .currentAppWindows:
+            guard model.flatWindows.indices.contains(model.selectedFlatIndex) else { return nil }
+            return .window(model.flatWindows[model.selectedFlatIndex].id)
+        }
+    }
+
     var body: some View {
         VStack(spacing: 10) {
             // Floating search bar sits above the panel. Rendered with reserved height
             // so the panel never resizes when the filter appears/disappears.
-            FilterBadge(text: model.filterText)
-                .opacity(model.filterText.isEmpty ? 0 : 1)
-                .scaleEffect(model.filterText.isEmpty ? 0.95 : 1.0, anchor: .bottom)
-                .animation(.easeOut(duration: 0.15), value: model.filterText.isEmpty)
-                .frame(maxWidth: 380)
+            ZStack {
+                FilterBadge(text: model.filterText)
+                    .opacity(model.filterText.isEmpty || model.actionFeedback != nil ? 0 : 1)
+                    .accessibilityHidden(model.filterText.isEmpty || model.actionFeedback != nil)
+                if let message = model.actionFeedback { ActionFeedbackBadge(message: message) }
+            }
+            .frame(maxWidth: min(380, model.effectiveMaxWidth))
+            .frame(height: 44)
 
-            Group {
-                switch model.mode {
-                case .apps:
-                    AppGridView(model: model, maxWidth: model.effectiveMaxWidth)
-                        .padding(20)
-                case .windowsForApp:
-                    VStack(spacing: 0) {
-                        AppGridView(model: model, maxWidth: model.effectiveMaxWidth)
-                            .padding(.horizontal, 20)
-                            .padding(.top, 20)
-                            .padding(.bottom, 8)
-                        Divider().padding(.horizontal, 20)
-                        if let app = model.currentApp, app.windows.count > 1 {
-                            WindowGridView(
+            ScrollViewReader { proxy in
+                ScrollView(.vertical) {
+                    Group {
+                        switch model.mode {
+                        case .apps:
+                            AppGridView(model: model, maxWidth: model.effectiveMaxWidth)
+                                .padding(20)
+                        case .windowsForApp:
+                            VStack(spacing: 0) {
+                                AppGridView(model: model, maxWidth: model.effectiveMaxWidth)
+                                    .padding(.horizontal, 20)
+                                    .padding(.top, 20)
+                                    .padding(.bottom, 8)
+                                Divider().padding(.horizontal, 20)
+                                if let app = model.currentApp {
+                                    WindowGridView(
+                                        model: model,
+                                        app: app,
+                                        maxWidth: model.effectiveMaxWidth,
+                                        thumbnailSize: thumbnailSize,
+                                        overlayPosition: overlayPosition,
+                                        thumbnailOverlay: thumbnailOverlay
+                                    )
+                                    .padding(20)
+                                }
+                            }
+                        case .flatWindows, .currentAppWindows:
+                            FlatWindowGridView(
                                 model: model,
-                                app: app,
                                 maxWidth: model.effectiveMaxWidth,
                                 thumbnailSize: thumbnailSize,
                                 overlayPosition: overlayPosition,
@@ -64,22 +141,61 @@ struct SwitcherView: View {
                             .padding(20)
                         }
                     }
-                case .flatWindows:
-                    FlatWindowGridView(
-                        model: model,
-                        maxWidth: model.effectiveMaxWidth,
-                        thumbnailSize: thumbnailSize,
-                        overlayPosition: overlayPosition,
-                        thumbnailOverlay: thumbnailOverlay
-                    )
-                    .padding(20)
+                    .frame(maxWidth: .infinity)
+                }
+                .coordinateSpace(name: ThumbnailFrameReporter.coordinateSpace)
+                .background {
+                    GeometryReader { geometry in
+                        Color.clear.preference(key: ThumbnailViewportPreference.self,
+                            value: ThumbnailViewportLayout(context: model.thumbnailViewportContext,
+                                bounds: CGRect(origin: .zero, size: geometry.size)))
+                    }
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+                }
+                .onPreferenceChange(ThumbnailViewportPreference.self) { layout in
+                    guard let context = layout.context, layout.bounds != nil else { return }
+                    model.updateThumbnailViewport(layout.visibleWindowIDs, context: context)
+                }
+                .onChange(of: selectedScrollTarget) { _, target in
+                    guard let target else { return }
+                    withAnimation(.easeOut(duration: 0.12)) {
+                        proxy.scrollTo(target, anchor: .center)
+                    }
                 }
             }
+            .frame(maxHeight: SwitcherPanelSizing.maximumGridHeight(availableHeight: model.effectiveMaxHeight))
             .background(Theme.panelBackground(material: panelMaterial, cornerRadius: CGFloat(panelCornerRadius)))
         }
         .padding(20)
         .environment(\.swiitchAccent, tint)
         .tint(tint)
+        .swiitchPanelAppearance(material: panelMaterial)
+        .onChange(of: model.actionFeedback) { _, message in
+            guard let message else { return }
+            NSAccessibility.post(element: NSApplication.shared, notification: .announcementRequested, userInfo: [
+                .announcement: message,
+                .priority: NSAccessibilityPriorityLevel.medium.rawValue,
+            ])
+        }
+    }
+}
+
+/// Uses the search badge's reserved space, so failures never move the pointer targets.
+struct ActionFeedbackBadge: View {
+    let message: String
+
+    var body: some View {
+        Label(message, systemImage: "exclamationmark.circle")
+            .font(.caption)
+            .foregroundStyle(.primary)
+            .lineLimit(2)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 9)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.regularMaterial, in: Capsule())
+            .accessibilityElement(children: .combine)
+            .help(message)
     }
 }
 
@@ -156,7 +272,7 @@ private struct AppGridView: View {
     }
 
     private func appGrid(visible: [AppEntry]) -> some View {
-        let columnsCount = max(1, min(visible.count, Int(maxWidth / (cellWidth + cellSpacing))))
+        let columnsCount = SwitcherModel.appGridColumns(count: visible.count, maxWidth: maxWidth)
         let columns = Array(repeating: GridItem(.fixed(cellWidth), spacing: cellSpacing), count: columnsCount)
 
         return LazyVGrid(columns: columns, alignment: .center, spacing: 16) {
@@ -164,6 +280,7 @@ private struct AppGridView: View {
                 let absoluteIndex = model.apps.firstIndex(of: app) ?? 0
                 let isPinned = Preferences.isPinned(app.bundleIdentifier)
                 AppCell(app: app, isSelected: absoluteIndex == model.selectedAppIndex, isPinned: isPinned)
+                    .id(SwitcherScrollTarget.app(app.pid))
                     .frame(width: cellWidth)
                     .contentShape(Rectangle())
                     .onHover { hovering in
@@ -175,14 +292,18 @@ private struct AppGridView: View {
                         }
                     }
                     .onTapGesture {
-                        if model.mouseHasMoved {
-                            model.selectApp(at: absoluteIndex)
+                        model.commitApp(id: app.id)
+                    }
+                    .accessibilityAddTraits(.isButton)
+                    .accessibilityAction { model.commitApp(id: app.id) }
+                    .accessibilityActions {
+                        Button("Choose a window") {
+                            model.chooseWindows(of: app.id)
                         }
-                        model.commit()
                     }
                     .contextMenu {
                         if let bid = app.bundleIdentifier {
-                            Button(isPinned ? "Unpin from top" : "Pin to top") {
+                            Button(isPinned ? String(localized: "Unpin from top") : String(localized: "Pin to top")) {
                                 Preferences.togglePinned(bid)
                                 model.refreshAfterPinChange()
                             }
@@ -198,7 +319,7 @@ private struct AppGridView: View {
     }
 }
 
-private struct AppCell: View {
+struct AppCell: View {
     let app: AppEntry
     let isSelected: Bool
     var isPinned: Bool = false
@@ -247,13 +368,20 @@ private struct AppCell: View {
                         Spacer()
                         HStack {
                             Spacer()
-                            Text("\(app.windows.count)")
-                                .font(.caption2.monospacedDigit().bold())
+                            HStack(spacing: 3) {
+                                if isSelected {
+                                    Image(systemName: "arrow.down")
+                                        .font(.system(size: 8, weight: .bold))
+                                }
+                                Text("\(app.windows.count)")
+                                    .font(.caption2.monospacedDigit().bold())
+                            }
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 2)
                                 .background(Capsule().fill(.black.opacity(0.55)))
                                 .foregroundStyle(.white)
                                 .padding(6)
+                                .accessibilityHidden(true)
                         }
                     }
                 }
@@ -266,6 +394,15 @@ private struct AppCell: View {
                 .frame(maxWidth: 100)
                 .foregroundStyle(isSelected ? Color.primary : Color.secondary)
         }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(app.name)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .accessibilityValue(app.windows.count == 1 ? String(localized: "1 window") : String(localized: "\(app.windows.count) windows"))
+        .accessibilityHint(
+            app.windows.count > 1
+                ? String(localized: "Press Down Arrow to choose a window.")
+                : String(localized: "Press Return to switch to this app.")
+        )
     }
 }
 
@@ -279,43 +416,64 @@ private struct WindowGridView: View {
     let overlayPosition: Preferences.OverlayPosition
     let thumbnailOverlay: Preferences.ThumbnailOverlay
 
+    @AppStorage(Preferences.Key.showWindowControlsOnHover) private var showWindowControlsOnHover = false
+
     private let cellSpacing: CGFloat = 12
 
     var body: some View {
-        let metrics = model.gridMetrics(count: app.windows.count, for: .windowsForApp)
+        let visible = model.filteredAppWindows
+        if visible.isEmpty {
+            NoMatchesView(query: model.filterText)
+                .frame(maxWidth: maxWidth)
+        } else {
+            windowGrid(visible: visible)
+        }
+    }
+
+    private func windowGrid(visible: [WindowInfo]) -> some View {
+        let metrics = model.gridMetrics(count: visible.count, for: .windowsForApp)
         let columns = Array(
             repeating: GridItem(.fixed(metrics.cellWidth), spacing: cellSpacing),
             count: metrics.columns
         )
 
-        LazyVGrid(columns: columns, alignment: .center, spacing: 14) {
-            ForEach(Array(app.windows.enumerated()), id: \.element.id) { index, window in
+        return LazyVGrid(columns: columns, alignment: .center, spacing: 14) {
+            ForEach(visible) { window in
+                let index = app.windows.firstIndex(where: { $0.id == window.id }) ?? 0
                 WindowCell(
                     title: window.displayTitle,
                     thumbnail: model.thumbnails[window.id],
+                    thumbnailState: model.thumbnailState(for: window.id),
                     appIcon: app.icon,
+                    accessibilityAppName: app.name,
                     overlayPosition: overlayPosition,
                     thumbnailOverlay: thumbnailOverlay,
                     isSelected: index == model.selectedWindowIndex,
                     thumbHeight: metrics.thumbnailHeight,
-                    isOnScreen: window.isOnScreen
+                    showControlsOnHover: showWindowControlsOnHover && model.mouseHasMoved,
+                    controls: WindowControlActions(
+                        close: { _ = model.closeWindow(id: window.id) },
+                        minimize: { _ = model.minimizeWindow(id: window.id) },
+                        zoom: { _ = model.zoomWindow(id: window.id) },
+                        capabilities: model.windowCapabilities[window.id] ?? .init()
+                    ),
+                    prepareControls: { model.prepareWindowControls(id: window.id) },
+                    hoverChanged: { hovering in
+                        if hovering {
+                            model.selectWindow(at: index)
+                            model.schedulePeekIfEnabled()
+                        } else {
+                            model.cancelPendingPeek()
+                        }
+                    },
+                    commit: {
+                        model.commitWindow(id: window.id)
+                    }
                 )
+                .id(SwitcherScrollTarget.window(window.id))
                 .frame(width: metrics.cellWidth)
+                .background(ThumbnailFrameReporter(id: window.id))
                 .contentShape(Rectangle())
-                .onHover { hovering in
-                    if hovering {
-                        model.selectWindow(at: index)
-                        model.schedulePeekIfEnabled()
-                    } else {
-                        model.cancelPendingPeek()
-                    }
-                }
-                .onTapGesture {
-                    if model.mouseHasMoved {
-                        model.selectWindow(at: index)
-                    }
-                    model.commit()
-                }
             }
         }
         .frame(maxWidth: maxWidth)
@@ -330,6 +488,8 @@ private struct FlatWindowGridView: View {
     let thumbnailSize: Preferences.ThumbnailSize
     let overlayPosition: Preferences.OverlayPosition
     let thumbnailOverlay: Preferences.ThumbnailOverlay
+
+    @AppStorage(Preferences.Key.showWindowControlsOnHover) private var showWindowControlsOnHover = false
 
     private let cellSpacing: CGFloat = 12
 
@@ -356,30 +516,37 @@ private struct FlatWindowGridView: View {
                 WindowCell(
                     title: entry.window.displayTitle,
                     thumbnail: model.thumbnails[entry.id],
+                    thumbnailState: model.thumbnailState(for: entry.id),
                     appIcon: entry.appIcon,
                     overlayPosition: overlayPosition,
                     thumbnailOverlay: thumbnailOverlay,
                     secondaryLabel: entry.appName,
                     isSelected: absoluteIndex == model.selectedFlatIndex,
                     thumbHeight: metrics.thumbnailHeight,
-                    isOnScreen: entry.window.isOnScreen
+                    showControlsOnHover: showWindowControlsOnHover && model.mouseHasMoved,
+                    controls: WindowControlActions(
+                        close: { _ = model.closeWindow(id: entry.id) },
+                        minimize: { _ = model.minimizeWindow(id: entry.id) },
+                        zoom: { _ = model.zoomWindow(id: entry.id) },
+                        capabilities: model.windowCapabilities[entry.id] ?? .init()
+                    ),
+                    prepareControls: { model.prepareWindowControls(id: entry.id) },
+                    hoverChanged: { hovering in
+                        if hovering {
+                            model.selectFlatWindow(at: absoluteIndex)
+                            model.schedulePeekIfEnabled()
+                        } else {
+                            model.cancelPendingPeek()
+                        }
+                    },
+                    commit: {
+                        model.commitWindow(id: entry.id)
+                    }
                 )
+                .id(SwitcherScrollTarget.window(entry.id))
                 .frame(width: metrics.cellWidth)
+                .background(ThumbnailFrameReporter(id: entry.id))
                 .contentShape(Rectangle())
-                .onHover { hovering in
-                    if hovering {
-                        model.selectFlatWindow(at: absoluteIndex)
-                        model.schedulePeekIfEnabled()
-                    } else {
-                        model.cancelPendingPeek()
-                    }
-                }
-                .onTapGesture {
-                    if model.mouseHasMoved {
-                        model.selectFlatWindow(at: absoluteIndex)
-                    }
-                    model.commit()
-                }
             }
         }
         .frame(maxWidth: maxWidth)
@@ -388,18 +555,33 @@ private struct FlatWindowGridView: View {
 
 // MARK: - Window cell (used in both window grid views)
 
-private struct WindowCell: View {
+struct WindowControlActions {
+    let close: () -> Void
+    let minimize: () -> Void
+    let zoom: () -> Void
+    var capabilities = WindowActionCapabilities()
+}
+
+struct WindowCell: View {
     let title: String
     let thumbnail: NSImage?
+    var thumbnailState: ThumbnailState = .loading
     let appIcon: NSImage?
+    var accessibilityAppName: String? = nil
     let overlayPosition: Preferences.OverlayPosition
     var thumbnailOverlay: Preferences.ThumbnailOverlay = .none
     var secondaryLabel: String? = nil
     let isSelected: Bool
     let thumbHeight: CGFloat
-    var isOnScreen: Bool = true
+    var showControlsOnHover: Bool = false
+    var controls: WindowControlActions? = nil
+    var prepareControls: (() -> Void)? = nil
+    var hoverChanged: ((Bool) -> Void)? = nil
+    var commit: (() -> Void)? = nil
 
     @Environment(\.swiitchAccent) private var accent: Color
+    @State private var isHovering = false
+    @State private var isHoveringControls = false
 
     var body: some View {
         VStack(spacing: 6) {
@@ -424,13 +606,7 @@ private struct WindowCell: View {
                         .overlay(thumbnailOverlayLayer)
                         .transition(.opacity)
                 } else {
-                    Text(title)
-                        .font(.callout)
-                        .lineLimit(3)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 10)
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    ThumbnailPlaceholder(state: thumbnailState)
                 }
 
                 if overlayPosition != .hidden, let appIcon {
@@ -439,26 +615,22 @@ private struct WindowCell: View {
                         .interpolation(.high)
                         .frame(width: 22, height: 22)
                         .padding(6)
+                        .opacity(showsControls && overlayPosition == .topLeading ? 0 : 1)
                 }
 
-                // Off-screen / other-Space indicator. We can't tell *which* Space a
-                // window is on without private SPIs, but `isOnScreen=false` is a clear
-                // signal it's not currently visible — likely on another Space or hidden.
-                if !isOnScreen {
+                if showsControls, let controls {
                     VStack {
                         HStack {
+                            WindowTrafficLightControls(actions: controls)
+                                .onHover { isHoveringControls = $0 }
                             Spacer()
-                            Image(systemName: "rectangle.on.rectangle.angled")
-                                .font(.caption2.weight(.semibold))
-                                .foregroundStyle(.white)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 3)
-                                .background(Capsule().fill(.black.opacity(0.55)))
-                                .padding(6)
                         }
                         Spacer()
                     }
+                    .padding(7)
+                    .transition(.opacity.combined(with: .scale(scale: 0.94, anchor: .topLeading)))
                 }
+
             }
             .frame(height: thumbHeight)
 
@@ -478,6 +650,37 @@ private struct WindowCell: View {
             }
             .frame(maxWidth: .infinity)
         }
+        .onHover { hovering in
+            isHovering = hovering
+            if hovering { prepareControls?() }
+            if !hovering { isHoveringControls = false }
+            hoverChanged?(hovering)
+        }
+        .onAppear { if isSelected { prepareControls?() } }
+        .onChange(of: isSelected) { _, selected in if selected { prepareControls?() } }
+        .onTapGesture {
+            guard !isHoveringControls else { return }
+            commit?()
+        }
+        .animation(.easeOut(duration: 0.12), value: showsControls)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel([title, accessibilityAppName ?? secondaryLabel].compactMap { $0 }.joined(separator: ", "))
+        .accessibilityValue(thumbnail == nil ? thumbnailState.label : "")
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .accessibilityHint("Activate to switch to this window. Window actions are available in the Actions menu.")
+        .accessibilityAction { commit?() }
+        .accessibilityActions {
+            if let controls {
+                if controls.capabilities.close.canAttempt { Button(String(localized: "Close window"), action: controls.close) }
+                if controls.capabilities.minimize.canAttempt { Button(String(localized: "Minimize window"), action: controls.minimize) }
+                if controls.capabilities.zoom.canAttempt { Button(String(localized: "Zoom or restore window"), action: controls.zoom) }
+            }
+        }
+    }
+
+    private var showsControls: Bool {
+        showControlsOnHover && isHovering && controls != nil
     }
 
     /// Decorative layer rendered on top of the captured thumbnail. Clipped to the inner
@@ -524,5 +727,70 @@ private struct WindowCell: View {
                 .blendMode(.multiply)
                 .allowsHitTesting(false)
         }
+    }
+}
+
+struct WindowTrafficLightControls: View {
+    let actions: WindowControlActions
+
+    var body: some View {
+        HStack(spacing: 3) {
+            trafficLight(
+                color: Color(red: 1.0, green: 0.37, blue: 0.34),
+                symbol: "xmark",
+                label: String(localized: "Close window"),
+                help: actions.capabilities.close.help(for: .close),
+                enabled: actions.capabilities.close.canAttempt,
+                action: actions.close
+            )
+            trafficLight(
+                color: Color(red: 1.0, green: 0.74, blue: 0.18),
+                symbol: "minus",
+                label: String(localized: "Minimize window"),
+                help: actions.capabilities.minimize.help(for: .minimize),
+                enabled: actions.capabilities.minimize.canAttempt,
+                action: actions.minimize
+            )
+            trafficLight(
+                color: Color(red: 0.16, green: 0.78, blue: 0.25),
+                symbol: "arrow.up.left.and.arrow.down.right",
+                label: String(localized: "Zoom or restore window"),
+                help: actions.capabilities.zoom.help(for: .zoom),
+                enabled: actions.capabilities.zoom.canAttempt,
+                action: actions.zoom
+            )
+        }
+        .padding(4)
+        .background(.ultraThinMaterial, in: Capsule(style: .continuous))
+        .overlay(
+            Capsule(style: .continuous)
+                .strokeBorder(Color.primary.opacity(0.1), lineWidth: 0.5)
+        )
+        .shadow(color: .black.opacity(0.2), radius: 4, y: 2)
+    }
+
+    private func trafficLight(
+        color: Color,
+        symbol: String,
+        label: String,
+        help: String,
+        enabled: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            ZStack {
+                Circle().fill(enabled ? color : Color.secondary.opacity(0.35))
+                Image(systemName: symbol)
+                    .font(.system(size: 5.5, weight: .black))
+                    .foregroundStyle(.black.opacity(0.58))
+            }
+            .frame(width: 13, height: 13)
+            .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+        .frame(width: 17, height: 17)
+        .accessibilityLabel(label)
+        .help(help)
     }
 }

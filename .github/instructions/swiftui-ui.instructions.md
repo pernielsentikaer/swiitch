@@ -25,5 +25,6 @@ applyTo: "Swiitch/UI/**/*.swift"
 
 ## Preferences
 
-- `PreferencesView` is a `TabView` with General / Switcher / Appearance / About tabs — add new settings to the appropriate tab
+- `PreferencesView` uses a sidebar with General / Switcher / Appearance / About sections. Ongoing permission recovery belongs in General, not repeated onboarding.
 - Bind new preference controls directly to `@AppStorage(Preferences.Key.xxx)` using the keys defined in `Preferences/Preferences.swift`
+- OS-owned status (login registration, permission grants, and Sparkle settings) must be read from the responsible service, not inferred from a saved intent flag. Keep diagnostics limited to allowlisted aggregate data.

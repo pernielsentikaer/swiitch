@@ -30,13 +30,39 @@ jobs:
       - name: Build and test (Debug)
         run: |
           set -o pipefail
+          mkdir -p build
           xcodebuild \
             -project Swiitch.xcodeproj \
             -scheme Swiitch \
             -configuration Debug \
+            -destination 'platform=macOS' \
+            -resultBundlePath build/DebugTests.xcresult \
+            -onlyUsePackageVersionsFromResolvedFile \
             CODE_SIGN_IDENTITY=- \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
             DEVELOPMENT_TEAM= \
             CODE_SIGN_STYLE=Automatic \
             test | xcpretty
+
+      - name: Universal Release compilation
+        run: |
+          set -o pipefail
+          xcodebuild -project Swiitch.xcodeproj -scheme Swiitch -configuration Release \
+            -derivedDataPath build/Universal -onlyUsePackageVersionsFromResolvedFile \
+            ARCHS="arm64 x86_64" ONLY_ACTIVE_ARCH=NO \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO DEVELOPMENT_TEAM= build | xcpretty
+          lipo -verify_arch arm64 x86_64 build/Universal/Build/Products/Release/Swiitch.app/Contents/MacOS/Swiitch
+
+      - name: Verify dependency lock and release gates
+        run: |
+          cmp Package.resolved Swiitch.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
+          bash Scripts/test_release_gates.sh
+
+      - name: Preserve test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: macOS-test-results
+          path: build/DebugTests.xcresult
+          if-no-files-found: warn

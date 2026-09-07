@@ -26,7 +26,7 @@ Config/Signing.local.xcconfig
 .build/
 .swiftpm/
 Packages/
-Package.resolved
+# Package.resolved at the root is the reviewed dependency lock.
 
 # Logs
 *.log
