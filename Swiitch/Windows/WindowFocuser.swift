@@ -2,6 +2,47 @@ import AppKit
 import ApplicationServices
 
 enum WindowFocuser {
+    /// Main-thread focus requests share one fallback; background capability reads do not.
+    @MainActor static let activationRetry = ActivationRetry()
+
+    @MainActor
+    static func cancelPendingActivation() {
+        activationRetry.cancel()
+    }
+
+    /// Injectable delayed work keeps activation races testable without focusing real apps.
+    @MainActor
+    final class ActivationRetry {
+        private var generation: UInt64 = 0
+
+        /// Only retry a failed handoff from a known source, not a later app switch.
+        static func isPending(targetPID: pid_t, sourcePID: pid_t?, frontmostPID: pid_t?) -> Bool {
+            guard let frontmostPID else { return false }
+            return frontmostPID != targetPID && frontmostPID == sourcePID
+        }
+
+        func cancel() {
+            generation &+= 1
+        }
+
+        func schedule(
+            ifNeeded: @escaping @MainActor () -> Bool,
+            action: @escaping @MainActor () -> Void,
+            using enqueue: (@escaping @MainActor () -> Void) -> Void = { callback in
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { callback() }
+            }
+        ) {
+            cancel()
+            let request = generation
+            enqueue { [weak self] in
+                guard let self, self.generation == request else { return }
+                self.cancel()
+                guard ifNeeded() else { return }
+                action()
+            }
+        }
+    }
+
     /// Cached discovery is not authority to act. Revalidate the exact WindowServer ID
     /// and owner immediately before native focus/actions; closed/reused IDs fail closed.
     static func isWindowPresent(_ window: WindowInfo,
@@ -44,7 +85,9 @@ enum WindowFocuser {
     /// Activates an app — used when the user selected an app row without drilling into windows.
     /// We try to raise the app's frontmost window via AX first (so the right window comes forward
     /// in the case where the app has multiple), then activate the app process.
+    @MainActor
     static func focus(app entry: AppEntry) {
+        cancelPendingActivation()
         guard let runningApp = NSRunningApplication(processIdentifier: entry.pid) else { return }
 
         // The model orders this app's windows by most recent use (CG order for unseen windows).
@@ -58,7 +101,9 @@ enum WindowFocuser {
     /// Activates a specific window. Raise FIRST (AX), then activate the app — reversing
     /// this order is racy on macOS 14+ because accessory apps' cross-app activation can
     /// be denied intermittently.
+    @MainActor
     static func focus(window: WindowInfo) {
+        cancelPendingActivation()
         guard isWindowPresent(window),
               let runningApp = NSRunningApplication(processIdentifier: window.pid) else { return }
         let wasAlreadyActive = runningApp.isActive
@@ -68,7 +113,7 @@ enum WindowFocuser {
         // picker is open. Calling activate() again after raising another window can make
         // Chromium-family apps restore the window that was main before the picker opened.
         guard !wasAlreadyActive else { return }
-        activate(app: runningApp)
+        activate(app: runningApp, window: window)
 
         // For an inactive app, activation is still needed to move the whole process to the
         // front. Reassert the exact window afterward so activation cannot replace the user's
@@ -80,19 +125,23 @@ enum WindowFocuser {
 
     /// Undo a preview only when the original process/window identity can still be resolved.
     /// Never use the ordinary focus path's title or single-window fallback for cancellation.
+    @MainActor
     static func restoreFocus(pid: pid_t, windowID: CGWindowID) -> Bool {
+        cancelPendingActivation()
         guard pid > 0, windowID != kCGNullWindowID,
               let runningApp = NSRunningApplication(processIdentifier: pid) else { return false }
         let target = WindowInfo(id: windowID, pid: pid, title: "", bounds: .zero, isOnScreen: false)
         let wasAlreadyActive = runningApp.isActive
         guard raise(window: target, purpose: .restore) else { return false }
         guard !wasAlreadyActive else { return true }
-        activate(app: runningApp)
+        activate(app: runningApp, window: target)
         return raise(window: target, purpose: .restore)
     }
 
     /// Activates an app by pid, used as a fallback when the original window is unavailable.
+    @MainActor
     static func focus(pid: pid_t) {
+        cancelPendingActivation()
         guard let runningApp = NSRunningApplication(processIdentifier: pid) else { return }
         activate(app: runningApp)
     }
@@ -365,7 +414,8 @@ enum WindowFocuser {
             && abs(lhs.height - rhs.height) <= tolerance
     }
 
-    private static func activate(app: NSRunningApplication) {
+    @MainActor
+    private static func activate(app: NSRunningApplication, window: WindowInfo? = nil) {
         // On macOS 14+, `NSRunningApplication.activate()` from an `.accessory` (LSUIElement)
         // app is frequently denied for cross-process activation. Avoiding the workaround
         // of toggling our own activation policy (which leaks phantom Dock icons under
@@ -373,6 +423,7 @@ enum WindowFocuser {
         // `kAXFrontmostAttribute = true` on the target app's AX element forces it frontmost
         // when we hold Accessibility permission.
         let pid = app.processIdentifier
+        let originalFrontmostPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
         let axApp = AXUIElementCreateApplication(pid)
         AXUIElementSetAttributeValue(axApp, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
         AXUIElementPerformAction(axApp, kAXRaiseAction as CFString)
@@ -387,10 +438,15 @@ enum WindowFocuser {
 
         // Some applications ignore both AX activation and AppKit activation while rebuilding
         // their window bridge. Verify the outcome instead of maintaining an application list;
-        // the WindowServer fallback runs only when the requested pid still is not frontmost.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
-            guard NSWorkspace.shared.frontmostApplication?.processIdentifier != pid else { return }
+        // The fallback belongs only to the latest focus intent. Do not resurrect an exited
+        // app/closed window or steal focus if the user has moved to a third application.
+        activationRetry.schedule(ifNeeded: {
+            let frontmostPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
+            return !app.isTerminated
+                && ActivationRetry.isPending(targetPID: pid, sourcePID: originalFrontmostPID, frontmostPID: frontmostPID)
+                && (window.map { isWindowPresent($0) } ?? true)
+        }, action: {
             _ = AXPrivate.windowServerActivate(pid: pid)
-        }
+        })
     }
 }

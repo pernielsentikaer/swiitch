@@ -4,6 +4,106 @@ import XCTest
 
 @MainActor
 final class SwitcherInteractionTests: XCTestCase {
+    func testLateHoverExitCannotCancelCommittedActivationFallback() {
+        let retry = WindowFocuser.ActivationRetry()
+        let fixture = Fixture(cancelPendingFocus: { retry.cancel() })
+        fixture.model.arm(reverse: false)
+        fixture.model.commit()
+        var callback: (@MainActor () -> Void)?
+        var activations = 0
+        retry.schedule(ifNeeded: { true }, action: { activations += 1 }, using: { callback = $0 })
+        fixture.model.cancelPendingPeek()
+        fixture.model.schedulePeekIfEnabled()
+        callback?()
+        XCTAssertEqual(activations, 1, "Late hover callbacks must leave the real committed focus request intact")
+    }
+
+    func testWindowActionsCancelPendingPreviewActivation() {
+        for action in ["close", "minimize", "zoom", "hide"] {
+            let retry = WindowFocuser.ActivationRetry()
+            let fixture = Fixture(cancelPendingFocus: { retry.cancel() })
+            fixture.model.arm(reverse: false)
+            var callback: (@MainActor () -> Void)?
+            var activations = 0
+            retry.schedule(ifNeeded: { true }, action: { activations += 1 }, using: { callback = $0 })
+            switch action {
+            case "close": fixture.model.closeSelected()
+            case "minimize": _ = fixture.model.minimizeWindow(id: 12)
+            case "zoom": _ = fixture.model.zoomWindow(id: 12)
+            default: fixture.model.hideSelected()
+            }
+            callback?()
+            XCTAssertEqual(fixture.state.actions, [action])
+            XCTAssertEqual(activations, 0)
+        }
+    }
+
+    func testNewInvocationDropsPreviousActivationRetryInEveryMode() {
+        for mode in [SwitcherModel.Mode.apps, .flatWindows, .currentAppWindows] {
+            let retry = WindowFocuser.ActivationRetry()
+            let fixture = Fixture(displayMode: mode == .apps ? .apps : .windows, cancelPendingFocus: { retry.cancel() })
+            var callback: (@MainActor () -> Void)?
+            var activations = 0
+            retry.schedule(ifNeeded: { true }, action: { activations += 1 }, using: { callback = $0 })
+            if mode == .currentAppWindows { fixture.model.armForCurrentApp(reverse: false) }
+            else { fixture.model.arm(reverse: false) }
+            callback?()
+            XCTAssertEqual(activations, 0, "An older switch must not take focus during a new invocation: \(mode)")
+        }
+    }
+
+    func testPreparingInvocationCancelsRetryBeforeSnapshotCompletes() async {
+        let retry = WindowFocuser.ActivationRetry()
+        let fixture = Fixture(cancelPendingFocus: { retry.cancel() }, prepareSnapshot: { _ in await Task.yield() })
+        var callback: (@MainActor () -> Void)?
+        var activations = 0
+        retry.schedule(ifNeeded: { true }, action: { activations += 1 }, using: { callback = $0 })
+        fixture.model.prepareForArm(completion: {})
+        callback?()
+        XCTAssertEqual(activations, 0)
+        fixture.model.cancel()
+    }
+
+    func testCancelledPreviewDropsRetryEvenWhenOriginalAppIsAlreadyActive() {
+        for emptyCommit in [false, true] {
+            let retry = WindowFocuser.ActivationRetry()
+            let fixture = Fixture(cancelPendingFocus: { retry.cancel() })
+            fixture.model.arm(reverse: false)
+            fixture.model.appendFilter("Beta 21")
+            fixture.model.peekCurrent()
+            // The preview's first activation failed; only its delayed retry is pending.
+            fixture.state.frontmostPID = 101
+            fixture.state.canRestore = false
+            var callback: (@MainActor () -> Void)?
+            var activations = 0
+            retry.schedule(ifNeeded: { true }, action: { activations += 1 }, using: { callback = $0 })
+            if emptyCommit {
+                fixture.model.appendFilter(" nonexistent")
+                fixture.model.commit()
+            } else { fixture.model.cancel() }
+            callback?()
+            XCTAssertEqual(activations, 0)
+            XCTAssertTrue(fixture.state.fallbackPIDs.isEmpty, "No second activation is needed to remain in the original app")
+        }
+    }
+
+    func testSelectionChangeAndEmptyRefreshDropPendingPreviewActivation() {
+        for emptyRefresh in [false, true] {
+            let retry = WindowFocuser.ActivationRetry()
+            let fixture = Fixture(cancelPendingFocus: { retry.cancel() })
+            fixture.model.arm(reverse: false)
+            var callback: (@MainActor () -> Void)?
+            var activations = 0
+            retry.schedule(ifNeeded: { true }, action: { activations += 1 }, using: { callback = $0 })
+            if emptyRefresh {
+                fixture.state.apps = []
+                fixture.model.refreshAfterAppListPreferenceChange()
+            } else { fixture.model.advance(reverse: false) }
+            callback?()
+            XCTAssertEqual(activations, 0)
+        }
+    }
+
     func testCommittedPreviewRecordsRealVisitInEveryMode() {
         for mode in [SwitcherModel.Mode.apps, .flatWindows, .windowsForApp, .currentAppWindows] {
             let fixture = Fixture(displayMode: mode == .apps || mode == .windowsForApp ? .apps : .windows)
@@ -695,7 +795,9 @@ final class SwitcherInteractionTests: XCTestCase {
         let tracker = FocusTracker()
         let model: SwitcherModel
 
-        init(displayMode: Preferences.DisplayMode = .windows) {
+        init(displayMode: Preferences.DisplayMode = .windows,
+             cancelPendingFocus: @escaping () -> Void = {},
+             prepareSnapshot: ((EnumerateOptions) async -> Void)? = nil) {
             defaults = UserDefaults(suiteName: suite)!
             defaults.set(displayMode.rawValue, forKey: Preferences.Key.displayMode)
             defaults.set(0, forKey: Preferences.Key.switcherShowDelayMs)
@@ -737,7 +839,9 @@ final class SwitcherInteractionTests: XCTestCase {
                 },
                 frontmostPID: { state.frontmostPID },
                 frontmostBundleID: { state.bundleOverride ?? state.apps.first(where: { $0.pid == state.frontmostPID })?.bundleIdentifier },
-                focusedWindowID: { state.focusedByPID[$0] }
+                focusedWindowID: { state.focusedByPID[$0] },
+                prepareSnapshot: prepareSnapshot,
+                cancelPendingFocus: cancelPendingFocus
             ))
         }
 

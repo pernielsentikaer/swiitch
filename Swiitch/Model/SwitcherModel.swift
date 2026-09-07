@@ -59,6 +59,7 @@ final class SwitcherModel: ObservableObject {
         var scheduleCloseReconciliation: (@escaping () -> Void) -> Void
         var readWindowCapabilities: ((WindowInfo) async -> WindowActionCapabilities)?
         var performWindowAction: ((WindowAction, WindowInfo) -> WindowActionResult)?
+        var cancelPendingFocus: () -> Void
 
         init(
             enumerate: @escaping (FocusTracker, EnumerateOptions) -> [AppEntry],
@@ -68,7 +69,9 @@ final class SwitcherModel: ObservableObject {
             minimizeWindow: @escaping (WindowInfo) -> Bool = { WindowFocuser.minimize(window: $0) },
             zoomWindow: @escaping (WindowInfo) -> Bool = { WindowFocuser.zoom(window: $0) },
             hideApp: @escaping (pid_t) -> Bool,
-            focusPID: @escaping (pid_t) -> Void = { WindowFocuser.focus(pid: $0) },
+            focusPID: @escaping (pid_t) -> Void = { pid in
+                MainActor.assumeIsolated { WindowFocuser.focus(pid: pid) }
+            },
             restoreWindowFocus: @escaping (pid_t, CGWindowID) -> Bool = { _, _ in false },
             frontmostPID: @escaping () -> pid_t? = { NSWorkspace.shared.frontmostApplication?.processIdentifier },
             frontmostBundleID: @escaping () -> String? = { NSWorkspace.shared.frontmostApplication?.bundleIdentifier },
@@ -88,7 +91,8 @@ final class SwitcherModel: ObservableObject {
             },
             prepareSnapshot: ((EnumerateOptions) async -> Void)? = nil,
             readWindowCapabilities: ((WindowInfo) async -> WindowActionCapabilities)? = nil,
-            performWindowAction: ((WindowAction, WindowInfo) -> WindowActionResult)? = nil
+            performWindowAction: ((WindowAction, WindowInfo) -> WindowActionResult)? = nil,
+            cancelPendingFocus: @escaping () -> Void = {}
         ) {
             self.enumerate = enumerate
             self.prepareSnapshot = prepareSnapshot
@@ -112,6 +116,7 @@ final class SwitcherModel: ObservableObject {
             self.scheduleCloseReconciliation = scheduleCloseReconciliation
             self.readWindowCapabilities = readWindowCapabilities
             self.performWindowAction = performWindowAction
+            self.cancelPendingFocus = cancelPendingFocus
         }
 
         static let live = Dependencies(
@@ -120,14 +125,16 @@ final class SwitcherModel: ObservableObject {
                     WindowDiscovery.shared.entries(focusTracker: focusTracker, options: options)
                 }
             },
-            focusApp: { WindowFocuser.focus(app: $0) },
-            focusWindow: { WindowFocuser.focus(window: $0) },
+            focusApp: { app in MainActor.assumeIsolated { WindowFocuser.focus(app: app) } },
+            focusWindow: { window in MainActor.assumeIsolated { WindowFocuser.focus(window: window) } },
             closeWindow: { WindowFocuser.close(window: $0) },
             minimizeWindow: { WindowFocuser.minimize(window: $0) },
             zoomWindow: { WindowFocuser.zoom(window: $0) },
             hideApp: { WindowFocuser.hide(pid: $0) },
-            focusPID: { WindowFocuser.focus(pid: $0) },
-            restoreWindowFocus: { WindowFocuser.restoreFocus(pid: $0, windowID: $1) },
+            focusPID: { pid in MainActor.assumeIsolated { WindowFocuser.focus(pid: pid) } },
+            restoreWindowFocus: { pid, id in
+                MainActor.assumeIsolated { WindowFocuser.restoreFocus(pid: pid, windowID: id) }
+            },
             frontmostPID: { NSWorkspace.shared.frontmostApplication?.processIdentifier },
             frontmostBundleID: { NSWorkspace.shared.frontmostApplication?.bundleIdentifier },
             focusedWindowID: { AXPrivate.focusedWindowID(forPID: $0) },
@@ -156,7 +163,8 @@ final class SwitcherModel: ObservableObject {
             },
             prepareSnapshot: { await WindowDiscovery.shared.prepare(options: $0) },
             readWindowCapabilities: { await WindowActionCapabilityReader.shared.read($0) },
-            performWindowAction: { WindowFocuser.perform($0, window: $1) }
+            performWindowAction: { WindowFocuser.perform($0, window: $1) },
+            cancelPendingFocus: { MainActor.assumeIsolated { WindowFocuser.cancelPendingActivation() } }
         )
     }
 
@@ -245,7 +253,9 @@ final class SwitcherModel: ObservableObject {
     /// Preserve the invocation's original focus while cold background discovery runs.
     /// Warm snapshots return immediately; the input manager queues release/navigation.
     func prepareForArm(completion: @escaping () -> Void) {
-        guard !isArmed, let prepare = dependencies.prepareSnapshot else { completion(); return }
+        guard !isArmed else { completion(); return }
+        dependencies.cancelPendingFocus()
+        guard let prepare = dependencies.prepareSnapshot else { completion(); return }
         preparationGeneration &+= 1
         let generation = preparationGeneration
         capturePreArmFocus()
@@ -266,6 +276,7 @@ final class SwitcherModel: ObservableObject {
 
     func arm(reverse: Bool) {
         guard !isArmed else { return }
+        dependencies.cancelPendingFocus()
         armGeneration &+= 1
         pendingCloseWindowIDs.removeAll()
 
@@ -313,6 +324,7 @@ final class SwitcherModel: ObservableObject {
     /// the window strip for the frontmost app. Triggered by the second configurable hotkey.
     func armForCurrentApp(reverse: Bool) {
         guard !isArmed else { return }
+        dependencies.cancelPendingFocus()
         armGeneration &+= 1
         pendingCloseWindowIDs.removeAll()
 
@@ -780,6 +792,7 @@ final class SwitcherModel: ObservableObject {
     }
 
     func cancel() {
+        dependencies.cancelPendingFocus()
         preparationGeneration &+= 1
         preparationTask?.cancel()
         preparationTask = nil
@@ -832,6 +845,7 @@ final class SwitcherModel: ObservableObject {
         peekWorkItem?.cancel()
         peekWorkItem = nil
         guard isArmed else { return }
+        dependencies.cancelPendingFocus()
         guard defaults.bool(forKey: Preferences.Key.peekOnHover) else { return }
 
         let configured = defaults.integer(forKey: Preferences.Key.peekDelayMs)
@@ -843,6 +857,9 @@ final class SwitcherModel: ObservableObject {
     }
 
     func cancelPendingPeek() {
+        // SwiftUI can deliver hover-exit after commit hides the panel. That must not
+        // cancel the committed target's newly scheduled activation fallback.
+        if isArmed { dependencies.cancelPendingFocus() }
         peekWorkItem?.cancel()
         peekWorkItem = nil
     }
@@ -974,6 +991,7 @@ final class SwitcherModel: ObservableObject {
             }
         }()
         guard let pid = targetPID else { return }
+        cancelPendingPeek()
         guard dependencies.hideApp(pid) else {
             showActionFeedback(String(localized: "Couldn’t hide this app. Please try again."))
             return
@@ -1016,6 +1034,7 @@ final class SwitcherModel: ObservableObject {
 
     /// Revalidate in the backend at action time, not against a possibly stale UI hint.
     private func performWindowAction(_ action: WindowAction, target: WindowInfo) -> Bool {
+        cancelPendingPeek()
         let result: WindowActionResult
         if let perform = dependencies.performWindowAction {
             result = perform(action, target)
@@ -1164,6 +1183,7 @@ final class SwitcherModel: ObservableObject {
     }
 
     private func teardown() {
+        dependencies.cancelPendingFocus()
         capabilityTasks.values.forEach { $0.cancel() }
         capabilityTasks.removeAll()
         capabilityCheckedAt.removeAll()

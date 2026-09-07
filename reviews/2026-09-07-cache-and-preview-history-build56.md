@@ -73,3 +73,7 @@ notification timing, sleep/wake, full VoiceOver navigation, or macOS 14/Intel ru
 The separate 80 ms native-focus fallback concern remains an investigation, not a fix
 or a confirmed native reproduction in this batch. No universal zero-reload guarantee
 or measured CPU/energy savings is claimed.
+
+Follow-up: the delayed activation retry was subsequently guarded and regression-tested
+in build 57; see `2026-09-07-focus-retry-and-profile-build57.md`. A native race reproduction
+and the hardware/platform checks above remain separate from those controlled tests.

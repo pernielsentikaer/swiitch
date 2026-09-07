@@ -3,6 +3,87 @@ import AppKit
 import XCTest
 
 final class WindowActionMatchingTests: XCTestCase {
+    @MainActor
+    func testActivationFallbackRequiresUnchangedKnownSourceApp() {
+        XCTAssertTrue(WindowFocuser.ActivationRetry.isPending(targetPID: 102, sourcePID: 101, frontmostPID: 101))
+        XCTAssertFalse(WindowFocuser.ActivationRetry.isPending(targetPID: 102, sourcePID: 101, frontmostPID: 102))
+        XCTAssertFalse(WindowFocuser.ActivationRetry.isPending(targetPID: 102, sourcePID: 101, frontmostPID: 103))
+        XCTAssertFalse(WindowFocuser.ActivationRetry.isPending(targetPID: 102, sourcePID: nil, frontmostPID: nil))
+        XCTAssertFalse(WindowFocuser.ActivationRetry.isPending(targetPID: 102, sourcePID: nil, frontmostPID: 101))
+    }
+
+    @MainActor
+    func testLatestActivationRunsAtMostOnceAndChecksNeedAtExecution() {
+        let retry = WindowFocuser.ActivationRetry()
+        var callbacks: [@MainActor () -> Void] = []
+        var needed = true
+        var activations = 0
+        retry.schedule(ifNeeded: { needed }, action: { activations += 1 }, using: { callbacks.append($0) })
+        needed = false
+        callbacks[0]()
+        XCTAssertEqual(activations, 0, "An activation which succeeded during the delay must not be repeated")
+        needed = true
+        callbacks[0]()
+        XCTAssertEqual(activations, 0, "A consumed callback cannot be revived")
+        retry.schedule(ifNeeded: { needed }, action: { activations += 1 }, using: { callbacks.append($0) })
+        callbacks[1]()
+        callbacks[1]()
+        XCTAssertEqual(activations, 1, "The latest still-needed fallback must remain available, once only")
+    }
+
+    @MainActor
+    func testReleasedActivationCoordinatorDropsQueuedCallback() {
+        var retry: WindowFocuser.ActivationRetry? = .init()
+        var callback: (@MainActor () -> Void)?
+        var activations = 0
+        retry?.schedule(ifNeeded: { true }, action: { activations += 1 }, using: { callback = $0 })
+        retry = nil
+        callback?()
+        XCTAssertEqual(activations, 0)
+    }
+
+    @MainActor
+    func testEveryNativeFocusEntryCancelsRetryEvenWhenNewTargetIsInvalid() {
+        let invalid = WindowInfo(id: 0, pid: -1, title: "", bounds: .zero, isOnScreen: false)
+        let requests: [() -> Void] = [
+            { WindowFocuser.focus(window: invalid) },
+            { WindowFocuser.focus(pid: -1) },
+            { WindowFocuser.focus(app: .init(pid: -1, bundleIdentifier: nil, name: "", icon: nil, windows: [])) },
+            { _ = WindowFocuser.restoreFocus(pid: -1, windowID: 0) },
+        ]
+        for request in requests {
+            var callback: (@MainActor () -> Void)?
+            var activations = 0
+            WindowFocuser.activationRetry.schedule(ifNeeded: { true }, action: { activations += 1 }, using: { callback = $0 })
+            request()
+            callback?()
+            XCTAssertEqual(activations, 0, "Validation failures must not leave an older native focus retry alive")
+        }
+    }
+
+    @MainActor
+    func testDelayedActivationCannotOverrideNewerRequest() {
+        let retry = WindowFocuser.ActivationRetry()
+        var callbacks: [@MainActor () -> Void] = []
+        var activated: [Int] = []
+        retry.schedule(ifNeeded: { true }, action: { activated.append(1) }, using: { callbacks.append($0) })
+        retry.schedule(ifNeeded: { true }, action: { activated.append(2) }, using: { callbacks.append($0) })
+        callbacks[1]()
+        callbacks[0]()
+        XCTAssertEqual(activated, [2], "An old retry must not bring its app back over the newer target")
+    }
+
+    @MainActor
+    func testCancellationWithoutAnotherActivationInvalidatesRetry() {
+        let retry = WindowFocuser.ActivationRetry()
+        var callback: (@MainActor () -> Void)?
+        var activations = 0
+        retry.schedule(ifNeeded: { true }, action: { activations += 1 }, using: { callback = $0 })
+        retry.cancel()
+        callback?()
+        XCTAssertEqual(activations, 0, "Restoring an already-active app must not require another activation")
+    }
+
     private let target = WindowInfo(
         id: 42, pid: 101, title: "Document",
         bounds: CGRect(x: 100, y: 200, width: 900, height: 700), isOnScreen: true
