@@ -14,7 +14,7 @@ final class AccessibilityTests: XCTestCase {
             .frame(width: 260, height: 190)
         let limited = WindowCell(title: "Limited document", thumbnail: nil, thumbnailState: .unavailable,
             appIcon: nil, accessibilityAppName: "Example app", overlayPosition: .hidden,
-            isSelected: false, thumbHeight: 150, showControlsOnHover: false,
+            isMinimized: true, isSelected: false, thumbHeight: 150, showControlsOnHover: false,
             controls: .init(close: {}, minimize: {}, zoom: {},
                             capabilities: .init(close: .unsupported, minimize: .disabled, zoom: .available)), commit: {})
             .frame(width: 260, height: 190)
@@ -61,6 +61,9 @@ final class AccessibilityTests: XCTestCase {
         let limitedTarget = try XCTUnwrap(elements.first { $0.accessibilityLabel?() == "Limited document, Example app" })
         let limitedNames = limitedTarget.accessibilityCustomActions?()?.map(\.name) ?? []
         XCTAssertEqual(limitedNames, [WindowAction.zoom.title], "Unavailable actions must not be offered to VoiceOver")
+        let minimizedValue = (limitedTarget as? NSObject)?.perform(NSSelectorFromString("accessibilityValue"))?.takeUnretainedValue()
+        XCTAssertEqual(minimizedValue as? String, "\(String(localized: "Minimized")), \(ThumbnailState.unavailable.label)")
+        XCTAssertEqual(limitedTarget.accessibilityPerformPress?(), true, "Minimized is not disabled")
     }
 
     // SwiftUI's AccessibilityNode exposes the public ObjC AX selectors without

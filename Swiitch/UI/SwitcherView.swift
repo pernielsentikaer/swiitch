@@ -448,6 +448,7 @@ private struct WindowGridView: View {
                     accessibilityAppName: app.name,
                     overlayPosition: overlayPosition,
                     thumbnailOverlay: thumbnailOverlay,
+                    isMinimized: window.isMinimized == true,
                     isSelected: index == model.selectedWindowIndex,
                     thumbHeight: metrics.thumbnailHeight,
                     showControlsOnHover: showWindowControlsOnHover && model.mouseHasMoved,
@@ -521,6 +522,7 @@ private struct FlatWindowGridView: View {
                     overlayPosition: overlayPosition,
                     thumbnailOverlay: thumbnailOverlay,
                     secondaryLabel: entry.appName,
+                    isMinimized: entry.window.isMinimized == true,
                     isSelected: absoluteIndex == model.selectedFlatIndex,
                     thumbHeight: metrics.thumbnailHeight,
                     showControlsOnHover: showWindowControlsOnHover && model.mouseHasMoved,
@@ -571,6 +573,7 @@ struct WindowCell: View {
     let overlayPosition: Preferences.OverlayPosition
     var thumbnailOverlay: Preferences.ThumbnailOverlay = .none
     var secondaryLabel: String? = nil
+    var isMinimized: Bool = false
     let isSelected: Bool
     let thumbHeight: CGFloat
     var showControlsOnHover: Bool = false
@@ -604,6 +607,7 @@ struct WindowCell: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
                         .padding(4)
                         .overlay(thumbnailOverlayLayer)
+                        .opacity(isMinimized ? Theme.minimizedThumbnailOpacity : 1)
                         .transition(.opacity)
                 } else {
                     ThumbnailPlaceholder(state: thumbnailState)
@@ -640,15 +644,34 @@ struct WindowCell: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .foregroundStyle(isSelected ? Color.primary : Color.secondary)
-                if let secondaryLabel {
-                    Text(secondaryLabel)
+                if secondaryLabel != nil || isMinimized {
+                    if isMinimized {
+                        ViewThatFits(in: .horizontal) {
+                            if let secondaryLabel {
+                                HStack(spacing: 3) {
+                                    Text(secondaryLabel).foregroundStyle(.tertiary)
+                                    Text("·").foregroundStyle(.secondary)
+                                    Text("Minimized").foregroundStyle(.secondary)
+                                }
+                                .fixedSize(horizontal: true, vertical: false)
+                            }
+                            // Keep the status readable even at the grid's smallest tile size.
+                            Text("Minimized")
+                                .foregroundStyle(.secondary)
+                        }
                         .font(.caption2)
                         .lineLimit(1)
-                        .truncationMode(.tail)
-                        .foregroundStyle(.tertiary)
+                    } else if let secondaryLabel {
+                        Text(secondaryLabel)
+                            .font(.caption2)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                            .foregroundStyle(.tertiary)
+                    }
                 }
             }
             .frame(maxWidth: .infinity)
+            .frame(height: 28, alignment: .top)
         }
         .onHover { hovering in
             isHovering = hovering
@@ -665,10 +688,15 @@ struct WindowCell: View {
         .animation(.easeOut(duration: 0.12), value: showsControls)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel([title, accessibilityAppName ?? secondaryLabel].compactMap { $0 }.joined(separator: ", "))
-        .accessibilityValue(thumbnail == nil ? thumbnailState.label : "")
+        .accessibilityValue([
+            isMinimized ? String(localized: "Minimized") : nil,
+            thumbnail == nil ? thumbnailState.label : nil,
+        ].compactMap { $0 }.joined(separator: ", "))
         .accessibilityAddTraits(.isButton)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
-        .accessibilityHint("Activate to switch to this window. Window actions are available in the Actions menu.")
+        .accessibilityHint(isMinimized
+            ? String(localized: "Activate to restore and switch to this window. Window actions are available in the Actions menu.")
+            : String(localized: "Activate to switch to this window. Window actions are available in the Actions menu."))
         .accessibilityAction { commit?() }
         .accessibilityActions {
             if let controls {

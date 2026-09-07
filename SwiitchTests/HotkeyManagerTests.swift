@@ -11,6 +11,7 @@ final class HotkeyManagerTests: XCTestCase {
         var windowIDs: [CGWindowID] = []
         var closedWindowIDs: [CGWindowID] = []
         var hiddenAppPIDs: [pid_t] = []
+        var restoredWindowIDs: [CGWindowID] = []
     }
 
     private final class Fixture {
@@ -52,6 +53,7 @@ final class HotkeyManagerTests: XCTestCase {
                 closeWindow: { focus.closedWindowIDs.append($0.id); return false },
                 minimizeWindow: { _ in false }, zoomWindow: { _ in false },
                 hideApp: { focus.hiddenAppPIDs.append($0); return false }, focusPID: { _ in },
+                restoreWindowFocus: { _, id in focus.restoredWindowIDs.append(id); return true },
                 frontmostPID: { 101 }, frontmostBundleID: { "example.app" }, focusedWindowID: { _ in 1 },
                 prepareSnapshot: prepareSnapshot
             ))
@@ -166,6 +168,94 @@ final class HotkeyManagerTests: XCTestCase {
         XCTAssertFalse(fixture.model.isArmed)
         XCTAssertTrue(fixture.focus.windowIDs.isEmpty)
         XCTAssertTrue(fixture.focus.hiddenAppPIDs.isEmpty)
+    }
+
+    /// Use the current keyboard layout without changing a user's system input source.
+    private func punctuationKeys(flags: CGEventFlags) -> [(key: Int, character: String)] {
+        let keys = [kVK_ANSI_LeftBracket, kVK_ANSI_RightBracket, kVK_ANSI_Comma,
+                    kVK_ANSI_Semicolon, kVK_ANSI_Quote, kVK_ANSI_Slash, kVK_ANSI_Backslash,
+                    kVK_ANSI_Period, kVK_ANSI_Minus, kVK_ANSI_Equal,
+                    kVK_ANSI_1, kVK_ANSI_2, kVK_ANSI_3, kVK_ANSI_4, kVK_ANSI_5,
+                    kVK_ANSI_6, kVK_ANSI_7, kVK_ANSI_8, kVK_ANSI_9, kVK_ANSI_0]
+        return keys.compactMap { key in
+            let event = CGEvent(keyboardEventSource: CGEventSource(stateID: .combinedSessionState),
+                                virtualKey: CGKeyCode(key), keyDown: true)!
+            event.flags = flags
+            guard let first = NSEvent(cgEvent: event)?.charactersIgnoringModifiers?.first,
+                  first.isPunctuation || first.isSymbol else { return nil }
+            return (key, String(first))
+        }
+    }
+
+    func testPunctuationAndSymbolsStayInSearchWithEitherShortcut() async {
+        for modifier in [CGEventFlags.maskCommand, .maskAlternate] {
+            let fixture = Fixture()
+            fixture.send(flags: modifier)
+            await drain()
+            for flags in [modifier, modifier.union(.maskShift)] {
+                let candidates = punctuationKeys(flags: flags)
+                XCTAssertFalse(candidates.isEmpty)
+                for (key, character) in candidates {
+                    fixture.model.clearFilter()
+                    XCTAssertTrue(fixture.send(key, flags: flags), "Must consume \(character)")
+                    await drain()
+                    XCTAssertEqual(fixture.model.filterText, character)
+                    XCTAssertTrue(fixture.model.isArmed)
+                }
+            }
+            XCTAssertTrue(fixture.focus.hiddenAppPIDs.isEmpty)
+            XCTAssertTrue(fixture.focus.closedWindowIDs.isEmpty)
+        }
+    }
+
+    func testPunctuationRemainsQueuedDuringColdOpening() async throws {
+        let candidate = try XCTUnwrap(punctuationKeys(flags: .maskCommand).first)
+        let gate = DiscoveryGate()
+        let fixture = Fixture(prepareSnapshot: { _ in await gate.wait() })
+        fixture.send()
+        XCTAssertTrue(fixture.send(candidate.key))
+        await drain()
+        XCTAssertFalse(fixture.model.isArmed)
+        await gate.release()
+        for _ in 0..<100 where !fixture.model.isArmed {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        XCTAssertEqual(fixture.model.filterText, candidate.character)
+    }
+
+    func testPunctuationOutsideSessionAndFunctionKeysRemainPassThrough() async throws {
+        let candidate = try XCTUnwrap(punctuationKeys(flags: .maskCommand).first)
+        let fixture = Fixture()
+        XCTAssertFalse(fixture.send(candidate.key))
+        fixture.send()
+        await drain()
+        XCTAssertFalse(fixture.send(kVK_F1))
+        XCTAssertTrue(fixture.model.isArmed)
+        XCTAssertEqual(fixture.model.filterText, "")
+    }
+
+    func testReleaseAndReturnOnEmptySearchUndoPreview() async {
+        for modifier in [CGEventFlags.maskCommand, .maskAlternate] {
+            for useReturn in [false, true] {
+                let fixture = Fixture()
+                fixture.send(flags: modifier)
+                await drain()
+                fixture.model.peekCurrent()
+                XCTAssertEqual(fixture.focus.windowIDs, [2])
+                for _ in 0..<3 { fixture.send(kVK_ANSI_Z, flags: modifier) }
+                await drain()
+                XCTAssertTrue(fixture.model.filteredFlatWindows.isEmpty)
+                if useReturn { fixture.send(kVK_Return, flags: modifier) }
+                else { fixture.release() }
+                await drain()
+                XCTAssertFalse(fixture.model.isArmed)
+                XCTAssertEqual(fixture.focus.restoredWindowIDs, [1])
+                XCTAssertEqual(fixture.focus.windowIDs, [2], "An empty search cannot commit another target")
+                fixture.release()
+                await drain()
+                XCTAssertEqual(fixture.focus.restoredWindowIDs, [1], "Return then release must restore only once")
+            }
+        }
     }
 
     func testTypingChatWhileHoldingCommandDoesNotHideApp() async {

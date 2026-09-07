@@ -15,7 +15,7 @@ A native SwiftUI ⌘+Tab replacement for macOS. Lets you switch between every **
 - **Mouse and keyboard parity.** Hover to select, click to commit, arrows / Tab to navigate, ⌃⌘W to close, ⌃⌘H to hide.
 - **Optional peek** — hover (or keyboard-navigate) for a beat to bring that window forward while keeping the picker open; Esc restores the exact window you started from, or its app if that window is no longer available.
 - **Per-monitor + per-Space filtering** to match the screen you actually mean.
-- **Independent minimized-window inclusion.** Include minimized windows even with other Spaces hidden, or leave them out. The screen filter still applies; unavailable Accessibility metadata is not guessed.
+- **Minimized windows, your way.** Show last by default, keep them in recent order, or don’t show them. Cached previews stay recognizable with a subtle muted treatment and a “Minimized” label; selecting one restores it. Ordering stays stable while the picker is open. Minimized windows can be included even with other Spaces hidden; the screen filter still applies, and unknown Accessibility state is never guessed.
 - **English and Danish.** Follows macOS's app language, including settings, menus, permission descriptions, and accessibility feedback.
 - **Themeable.** Custom accent color, panel material (translucent / frosted / solid), corner radius, thumbnail size, app-icon overlay position, plus one-click presets including Classic, Minimal, Raycast, Frosted, and Spotlight.
 - **App pinning and exclusions.** Right-click any app cell to pin it or hide it from Swiitch; excluded apps can be managed in Preferences.
@@ -64,7 +64,7 @@ Swiitch uses the private `_AXUIElementGetWindow` Accessibility SPI to reliably m
 | ↓ or `` ` `` | Drill into selected app's windows; ↓ then moves one grid row |
 | ↑ | Move up one grid row; back to apps from the first row |
 | ← / → | Same as ⌘+Tab / ⌘+⇧+Tab |
-| `letters / digits / spaces` | Filter list |
+| `letters / digits / spaces / punctuation` | Filter list |
 | ⌫ | Backspace filter |
 | ⌃ ⌘ W | Close highlighted window |
 | ⌃ ⌘ H | Hide highlighted app |
@@ -77,6 +77,12 @@ Both hotkeys are user-recordable in Preferences → General → Hotkeys.
 Recording suspends ordinary switching and catches reserved chords before macOS handles them. Escape, switching away from Swiitch, or leaving General ends recording. Conflicts with the other shortcut—including its Shift-reverse chord—are rejected without replacing the saved binding.
 
 Keep holding the switcher shortcut while typing to search, including H and W. With the default ⌘Tab binding, add Control for Close/Hide. If a custom opening shortcut already requires both Control and Command, H/W remain search text instead of triggering those actions.
+
+Printable punctuation and symbols stay in search instead of reaching the app underneath.
+The existing navigation keys (including the backtick drill-in key) remain reserved;
+non-text function keys retain their normal pass-through behavior. If preview has focused
+a candidate and your search ends with no matches, releasing the shortcut or pressing
+Return restores your original window, like Escape.
 
 ## Preferences
 

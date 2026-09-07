@@ -3,6 +3,47 @@ import AppKit
 import XCTest
 
 final class FocusTrackerTests: XCTestCase {
+    func testMinimizedWindowsSortAfterNormalAndUnknownWithinEachRecentGroup() {
+        var windows = [window(1), window(2), window(3), window(4)]
+        windows[0].isMinimized = true
+        windows[2].isMinimized = true
+        windows[3].isMinimized = false
+        let tracker = FocusTracker()
+        for id: CGWindowID in [4, 3, 2, 1] { tracker.bumpWindow(id: id, pid: 101) }
+        var order = tracker.windowOrder
+        order.recordMinimizedState(in: windows)
+        XCTAssertEqual(order.sorted(windows, window: { $0 }, minimizedLast: true).map(\.id), [2, 4, 1, 3])
+        XCTAssertEqual(order.sorted(windows, window: { $0 }).map(\.id), [1, 2, 3, 4])
+    }
+
+    func testMinimizedPartitionTakesPriorityOverPinsButKeepsPinsWithinGroups() {
+        var windows = [window(1), window(2), window(3), window(4)]
+        windows[0].isMinimized = true
+        windows[2].isMinimized = true
+        var order = FocusTracker.WindowOrder()
+        order.recordMinimizedState(in: windows)
+        let sorted = order.sorted(windows, window: { $0 }, minimizedLast: true, pinnedRank: {
+            [CGWindowID(3), 4].contains($0.id) ? 0 : .max
+        })
+        XCTAssertEqual(sorted.map(\.id), [4, 2, 3, 1])
+    }
+
+    func testMinimizedSnapshotRetainsGroupsAndQualifiesReusedIDsByProcess() {
+        var normal = window(1)
+        var minimized = window(2)
+        minimized.isMinimized = true
+        var order = FocusTracker.WindowOrder()
+        order.recordMinimizedState(in: [normal, minimized])
+        normal.isMinimized = true
+        minimized.isMinimized = false
+        let reused = window(2, pid: 202)
+        order.recordMinimizedState(in: [normal, minimized, reused])
+        let sorted = order.sorted([normal, minimized, reused], window: { $0 }, minimizedLast: true)
+        XCTAssertEqual(sorted.map { FocusTracker.WindowKey(pid: $0.pid, id: $0.id) }, [
+            .init(pid: 101, id: 1), .init(pid: 202, id: 2), .init(pid: 101, id: 2),
+        ])
+    }
+
     func testVisitsReorderIndividualWindowsWithoutDuplicates() {
         let tracker = FocusTracker()
         tracker.bumpWindow(id: 1, pid: 101)

@@ -1075,7 +1075,7 @@ final class SwitcherModelTests: XCTestCase {
 
     func testMinimizedSettingReachesEnumerationWithoutChangingSpacePreference() {
         defaults.set(false, forKey: Preferences.Key.includeOtherSpaces)
-        defaults.set(true, forKey: Preferences.Key.includeMinimizedWindows)
+        defaults.set(Preferences.MinimizedWindows.showLast.rawValue, forKey: Preferences.Key.minimizedWindows)
         var captured: EnumerateOptions?
         let apps = sampleApps()
         let model = makeModel(apps: apps, enumerate: { captured = $0; return apps })
@@ -1083,7 +1083,11 @@ final class SwitcherModelTests: XCTestCase {
         XCTAssertEqual(captured?.includeMinimizedWindows, true)
         XCTAssertEqual(captured?.includeOtherSpaces, false)
         model.cancel()
-        defaults.set(false, forKey: Preferences.Key.includeMinimizedWindows)
+        defaults.set(Preferences.MinimizedWindows.recentOrder.rawValue, forKey: Preferences.Key.minimizedWindows)
+        model.arm(reverse: false)
+        XCTAssertEqual(captured?.includeMinimizedWindows, true)
+        model.cancel()
+        defaults.set(Preferences.MinimizedWindows.hide.rawValue, forKey: Preferences.Key.minimizedWindows)
         model.arm(reverse: false)
         XCTAssertEqual(captured?.includeMinimizedWindows, false)
         XCTAssertEqual(captured?.includeOtherSpaces, false)

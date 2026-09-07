@@ -221,6 +221,16 @@
         }
       }
     },
+    "Activate to restore and switch to this window. Window actions are available in the Actions menu.": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktivér for at gendanne og skifte til dette vindue. Vindueshandlinger findes i menuen Handlinger."
+          }
+        }
+      }
+    },
     "Activate to switch to this window. Window actions are available in the Actions menu.": {
       "localizations": {
         "da": {
@@ -681,6 +691,16 @@
         }
       }
     },
+    "Don’t show": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis ikke"
+          }
+        }
+      }
+    },
     "Enable Screen Recording in Swiitch Preferences → General to show previews. Window switching still works without it.": {
       "localizations": {
         "da": {
@@ -861,16 +881,6 @@
         }
       }
     },
-    "Include minimized windows": {
-      "localizations": {
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Medtag minimerede vinduer"
-          }
-        }
-      }
-    },
     "Include this app again": {
       "localizations": {
         "da": {
@@ -927,6 +937,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Åbn Swiitch ved login"
+          }
+        }
+      }
+    },
+    "Keep in recent order": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Efter seneste brug"
           }
         }
       }
@@ -1027,6 +1047,26 @@
           "stringUnit": {
             "state": "translated",
             "value": "Minimer vindue"
+          }
+        }
+      }
+    },
+    "Minimized": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minimeret"
+          }
+        }
+      }
+    },
+    "Minimized windows": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minimerede vinduer"
           }
         }
       }
@@ -1557,6 +1597,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Vis ikon i menulinjen"
+          }
+        }
+      }
+    },
+    "Show last": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis sidst"
           }
         }
       }

@@ -385,11 +385,13 @@ final class HotkeyManager {
             enqueue(for: session) { $0.model.backspaceFilter() }
             return true
         default:
-            // Letters / digits / space / hyphen: append to the filter string.
+            // Printable search text, including punctuation, belongs to Swiitch while
+            // the shortcut is held. Otherwise e.g. Command-comma leaks to the app below.
             if let ch = filterCharacter(forKeyCode: keyCode, flags: flags) {
                 enqueue(for: session) { $0.model.appendFilter(ch) }
                 return true
             }
+            // Preserve existing pass-through for non-text keys such as function keys.
             return false
         }
     }
@@ -400,9 +402,9 @@ final class HotkeyManager {
         // Use NSEvent to get the localized character — handles non-US layouts for free.
         guard let nsEvent = NSEvent(cgEvent: cgEventFromKeyCode(keyCode, flags: flags)) else { return nil }
         guard let chars = nsEvent.charactersIgnoringModifiers, let first = chars.first else { return nil }
-        // Accept letters, digits, space, dot, hyphen. Reject everything else (arrows,
-        // function keys, control chars).
-        if first.isLetter || first.isNumber || first == " " || first == "." || first == "-" {
+        // Navigation is handled above. Accept printable punctuation/symbols too, but
+        // not control characters or AppKit's private-use function-key characters.
+        if first.isLetter || first.isNumber || first.isPunctuation || first.isSymbol || first == " " {
             // Honor Shift for capital letters.
             if flags.contains(.maskShift), first.isLetter {
                 return String(first).uppercased()

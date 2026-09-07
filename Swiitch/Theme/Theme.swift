@@ -16,6 +16,9 @@ extension EnvironmentValues {
 }
 
 enum Theme {
+    /// Muting only the preview keeps minimized windows identifiable and visibly actionable.
+    static let minimizedThumbnailOpacity = 0.65
+
     /// Fixed backgrounds need matching semantic text/icon colors. Adaptive materials
     /// inherit the app/system choice, rather than imposing their own appearance.
     static func panelColorScheme(material: Preferences.PanelMaterial, inherited: ColorScheme) -> ColorScheme {

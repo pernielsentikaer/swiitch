@@ -740,6 +740,14 @@ final class SwitcherModel: ObservableObject {
         let app = mode == .apps ? selectedVisibleApp : currentApp
         let appWindow = selectedVisibleAppWindow
         let flatWindow = selectedVisibleFlatWindow
+        let hasVisibleTarget = switch mode {
+        case .apps: app != nil
+        case .windowsForApp: app != nil && appWindow != nil
+        case .flatWindows, .currentAppWindows: flatWindow != nil
+        }
+        // Releasing an empty search selects nothing. Undo any preview before teardown
+        // clears the original focus, just as Escape does; without a preview this is inert.
+        guard hasVisibleTarget else { cancel(); return }
         teardown()
 
         var focusedBundleID: String?
@@ -1460,9 +1468,12 @@ final class SwitcherModel: ObservableObject {
     /// Sort once per invocation (and reuse that snapshot after explicit list changes).
     /// App grouping is retained in Apps mode; the flat list uses global window recency.
     private func enumerateOrderedApps(options: EnumerateOptions) -> [AppEntry] {
-        dependencies.enumerate(focusTracker, options).map { entry in
+        let entries = dependencies.enumerate(focusTracker, options)
+        windowOrder.recordMinimizedState(in: entries.flatMap(\.windows))
+        let minimizedLast = Preferences.minimizedWindows(in: defaults) == .showLast
+        return entries.map { entry in
             var app = entry
-            app.windows = windowOrder.sorted(app.windows, window: { $0 })
+            app.windows = windowOrder.sorted(app.windows, window: { $0 }, minimizedLast: minimizedLast)
             return app
         }
     }
@@ -1480,7 +1491,8 @@ final class SwitcherModel: ObservableObject {
             }
         }
         let pinned = defaults.stringArray(forKey: Preferences.Key.pinnedBundleIDs) ?? []
-        return windowOrder.sorted(entries, window: { $0.window }, pinnedRank: {
+        return windowOrder.sorted(entries, window: { $0.window },
+            minimizedLast: Preferences.minimizedWindows(in: defaults) == .showLast, pinnedRank: {
             pinned.firstIndex(of: $0.bundleIdentifier ?? "") ?? .max
         })
     }
@@ -1518,7 +1530,7 @@ final class SwitcherModel: ObservableObject {
     private func currentEnumerateOptions() -> EnumerateOptions {
         EnumerateOptions(
             includeOtherSpaces: defaults.bool(forKey: Preferences.Key.includeOtherSpaces),
-            includeMinimizedWindows: defaults.object(forKey: Preferences.Key.includeMinimizedWindows) as? Bool ?? true,
+            includeMinimizedWindows: Preferences.minimizedWindows(in: defaults) != .hide,
             restrictToActiveScreen: defaults.bool(forKey: Preferences.Key.restrictToActiveScreen),
             excludedBundleIDs: Set(Preferences.excludedBundleIDs(in: defaults))
         )

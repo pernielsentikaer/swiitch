@@ -5,6 +5,27 @@ import XCTest
 
 @MainActor
 final class SwitcherPreviewTests: XCTestCase {
+    func testRenderMinimizedWindowsWithCachedPreviewsAtCompactAndNormalSizes() throws {
+        for dark in [false, true] {
+            let view = VStack(spacing: 20) {
+                ForEach([CGFloat(72), 220], id: \.self) { width in
+                    HStack(alignment: .top, spacing: 12) {
+                        ForEach(0..<3) { index in
+                            WindowCell(title: "Example document", thumbnail: Theme.previewThumbnail(index: 0),
+                                appIcon: NSImage(systemSymbolName: "app.fill", accessibilityDescription: nil),
+                                overlayPosition: .bottomLeading, secondaryLabel: "Example app",
+                                isMinimized: index != 0, isSelected: index == 2, thumbHeight: width * 0.62)
+                                .frame(width: width)
+                        }
+                    }
+                }
+            }
+            .frame(width: 740, height: 300)
+            .background(Color(nsColor: .windowBackgroundColor))
+            try attachSnapshot(view, name: "Minimized-windows-\(dark ? "dark" : "light")", dark: dark, height: 300, width: 740)
+        }
+    }
+
     func testFeedbackHeaderAndGridStayWithinPanelHeightBudget() {
         for height: CGFloat in [520, 700, 900, 1400] {
             XCTAssertEqual(SwitcherPanelSizing.maximumGridHeight(availableHeight: height)

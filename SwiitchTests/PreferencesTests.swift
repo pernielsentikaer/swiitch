@@ -23,13 +23,50 @@ final class PreferencesTests: XCTestCase {
     func testMinimizedPreferenceDefaultsAndResetsIndependentlyOfSpaces() {
         defaults.set(false, forKey: Preferences.Key.includeOtherSpaces)
         Preferences.registerDefaults(in: defaults, persistentDomainName: suiteName)
-        XCTAssertTrue(defaults.bool(forKey: Preferences.Key.includeMinimizedWindows))
+        XCTAssertEqual(Preferences.minimizedWindows(in: defaults), .showLast)
         XCTAssertFalse(defaults.bool(forKey: Preferences.Key.includeOtherSpaces))
-        defaults.set(false, forKey: Preferences.Key.includeMinimizedWindows)
+        defaults.set(Preferences.MinimizedWindows.hide.rawValue, forKey: Preferences.Key.minimizedWindows)
         Preferences.registerDefaults(in: defaults, persistentDomainName: suiteName)
-        XCTAssertFalse(defaults.bool(forKey: Preferences.Key.includeMinimizedWindows))
+        XCTAssertEqual(Preferences.minimizedWindows(in: defaults), .hide)
         Preferences.resetSettings(in: defaults)
-        XCTAssertTrue(defaults.bool(forKey: Preferences.Key.includeMinimizedWindows))
+        XCTAssertEqual(Preferences.minimizedWindows(in: defaults), .showLast)
+    }
+
+    func testLegacyMinimizedOptOutSurvivesRegisteredDefaultsAndRepeatedLaunches() {
+        Preferences.registerDefaults(in: defaults, persistentDomainName: suiteName)
+        defaults.set(false, forKey: "includeMinimizedWindows")
+        Preferences.registerDefaults(in: defaults, persistentDomainName: suiteName)
+        XCTAssertEqual(Preferences.minimizedWindows(in: defaults), .hide)
+        XCTAssertNil(defaults.persistentDomain(forName: suiteName)?["includeMinimizedWindows"])
+        Preferences.registerDefaults(in: defaults, persistentDomainName: suiteName)
+        XCTAssertEqual(Preferences.minimizedWindows(in: defaults), .hide)
+        Preferences.resetSettings(in: defaults)
+        Preferences.registerDefaults(in: defaults, persistentDomainName: suiteName)
+        XCTAssertEqual(Preferences.minimizedWindows(in: defaults), .showLast)
+    }
+
+    func testLegacyMinimizedInclusionUpgradesToShowLast() {
+        defaults.set(true, forKey: "includeMinimizedWindows")
+        Preferences.registerDefaults(in: defaults, persistentDomainName: suiteName)
+        XCTAssertEqual(Preferences.minimizedWindows(in: defaults), .showLast)
+        XCTAssertNil(defaults.persistentDomain(forName: suiteName)?["includeMinimizedWindows"])
+    }
+
+    func testExplicitMinimizedBehaviorWinsOverLegacyChoice() {
+        for behavior in Preferences.MinimizedWindows.allCases {
+            defaults.set(behavior.rawValue, forKey: Preferences.Key.minimizedWindows)
+            defaults.set(false, forKey: "includeMinimizedWindows")
+            Preferences.registerDefaults(in: defaults, persistentDomainName: suiteName)
+            XCTAssertEqual(Preferences.minimizedWindows(in: defaults), behavior)
+        }
+    }
+
+    func testMissingAndInvalidMinimizedBehaviorFallBackSafely() {
+        XCTAssertEqual(Preferences.minimizedWindows(in: defaults), .showLast)
+        defaults.set("invalid", forKey: Preferences.Key.minimizedWindows)
+        XCTAssertEqual(Preferences.minimizedWindows(in: defaults), .showLast)
+        Preferences.registerDefaults(in: defaults, persistentDomainName: suiteName)
+        XCTAssertEqual(defaults.string(forKey: Preferences.Key.minimizedWindows), "showLast")
     }
 
     func testLegacyFillLayoutMigratesToFitToScreen() {

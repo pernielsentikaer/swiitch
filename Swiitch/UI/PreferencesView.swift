@@ -249,7 +249,7 @@ private struct PermissionRow: View {
 private struct SwitcherTab: View {
     @AppStorage(Preferences.Key.displayMode) private var displayMode: String = Preferences.DisplayMode.apps.rawValue
     @AppStorage(Preferences.Key.includeOtherSpaces) private var includeOtherSpaces: Bool = true
-    @AppStorage(Preferences.Key.includeMinimizedWindows) private var includeMinimizedWindows: Bool = true
+    @AppStorage(Preferences.Key.minimizedWindows) private var minimizedWindows: String = Preferences.MinimizedWindows.showLast.rawValue
     @AppStorage(Preferences.Key.restrictToActiveScreen) private var restrictToActiveScreen: Bool = true
     @AppStorage(Preferences.Key.screenScope) private var screenScope: String = Preferences.ScreenScope.mousePointer.rawValue
     @AppStorage(Preferences.Key.switcherShowDelayMs) private var switcherShowDelayMs: Int = 150
@@ -276,7 +276,11 @@ private struct SwitcherTab: View {
                 }
                 Toggle("Only show windows on that screen", isOn: $restrictToActiveScreen)
                 Toggle("Include windows from other Spaces", isOn: $includeOtherSpaces)
-                Toggle("Include minimized windows", isOn: $includeMinimizedWindows)
+                Picker("Minimized windows", selection: $minimizedWindows) {
+                    ForEach(Preferences.MinimizedWindows.allCases) { behavior in
+                        Text(behavior.label).tag(behavior.rawValue)
+                    }
+                }
                 Text("Minimized windows can be included even when other Spaces are hidden. The screen filter still applies.")
                     .font(.caption)
                     .foregroundStyle(.secondary)

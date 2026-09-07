@@ -12,7 +12,7 @@ enum Preferences {
     enum Key {
         static let hasCompletedOnboarding = "hasCompletedOnboarding"
         static let includeOtherSpaces = "includeOtherSpaces"
-        static let includeMinimizedWindows = "includeMinimizedWindows"
+        static let minimizedWindows = "minimizedWindows" // MinimizedWindows.rawValue
         static let launchAtLogin = "launchAtLogin"
         static let showMenuBarIcon = "showMenuBarIcon"
         static let showDockIcon = "showDockIcon"
@@ -46,10 +46,31 @@ enum Preferences {
     }
 
     private enum LegacyKey {
+        static let includeMinimizedWindows = "includeMinimizedWindows"
         /// Budapest exposed the same feature as an Auto / Fill picker backed by an Int.
         static let tileColumns = "tileColumns"
         /// Apps-first mode now always supports drilling into the selected app's windows.
         static let showWindowPreviews = "showWindowPreviews"
+    }
+
+    enum MinimizedWindows: String, CaseIterable, Identifiable {
+        case showLast
+        case recentOrder
+        case hide
+
+        var id: String { rawValue }
+        var label: String {
+            switch self {
+            case .showLast: return String(localized: "Show last")
+            case .recentOrder: return String(localized: "Keep in recent order")
+            case .hide: return String(localized: "Don’t show")
+            }
+        }
+    }
+
+    static func minimizedWindows(in defaults: UserDefaults = .standard) -> MinimizedWindows {
+        let raw = defaults.string(forKey: Key.minimizedWindows) ?? ""
+        return MinimizedWindows(rawValue: raw) ?? .showLast
     }
 
     enum ScreenScope: String, CaseIterable, Identifiable {
@@ -339,6 +360,17 @@ enum Preferences {
         // fallback values and therefore cannot tell whether the user saved a preference.
         let domainName = persistentDomainName ?? Bundle.main.bundleIdentifier
         let storedValues = domainName.flatMap { defaults.persistentDomain(forName: $0) } ?? [:]
+        // Preserve an explicit opt-out, including when registered defaults already exist.
+        // Existing users who included minimized windows get the new Show last default.
+        let storedMinimizedBehavior = (storedValues[Key.minimizedWindows] as? String).flatMap(MinimizedWindows.init(rawValue:))
+        if storedMinimizedBehavior == nil {
+            if storedValues[LegacyKey.includeMinimizedWindows] as? Bool == false {
+                defaults.set(MinimizedWindows.hide.rawValue, forKey: Key.minimizedWindows)
+            } else if storedValues[Key.minimizedWindows] != nil {
+                defaults.set(MinimizedWindows.showLast.rawValue, forKey: Key.minimizedWindows)
+            }
+        }
+        defaults.removeObject(forKey: LegacyKey.includeMinimizedWindows)
         if storedValues[Key.fitWindowGridToScreen] == nil,
            let legacyTileColumns = storedValues[LegacyKey.tileColumns] as? Int,
            legacyTileColumns == -1 {
@@ -360,7 +392,7 @@ enum Preferences {
         defaults.register(defaults: [
             Key.launchAtLogin: false,
             Key.includeOtherSpaces: true,
-            Key.includeMinimizedWindows: true,
+            Key.minimizedWindows: MinimizedWindows.showLast.rawValue,
             Key.showMenuBarIcon: true,
             Key.showDockIcon: false,
             Key.switcherShowDelayMs: 150,
@@ -407,7 +439,8 @@ enum Preferences {
             Key.currentAppHotkeyModifierFlags,
             Key.displayMode,
             Key.includeOtherSpaces,
-            Key.includeMinimizedWindows,
+            Key.minimizedWindows,
+            LegacyKey.includeMinimizedWindows,
             Key.restrictToActiveScreen,
             Key.screenScope,
             Key.switcherShowDelayMs,

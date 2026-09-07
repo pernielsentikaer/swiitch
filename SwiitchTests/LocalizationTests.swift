@@ -19,7 +19,16 @@ final class LocalizationTests: XCTestCase {
         XCTAssertEqual(danish.localizedString(forKey: "General", value: nil, table: nil), "Generelt")
         XCTAssertEqual(danish.localizedString(forKey: "Current app's windows", value: nil, table: nil), "Den aktive apps vinduer")
         XCTAssertEqual(english.localizedString(forKey: "General", value: nil, table: nil), "General")
-        XCTAssertEqual(english.localizedString(forKey: "Include minimized windows", value: nil, table: nil), "Include minimized windows")
+        XCTAssertEqual(english.localizedString(forKey: "Minimized windows", value: nil, table: nil), "Minimized windows")
+        for (key, translation) in [
+            "Minimized windows": "Minimerede vinduer",
+            "Minimized": "Minimeret",
+            "Show last": "Vis sidst",
+            "Keep in recent order": "Efter seneste brug",
+            "Don’t show": "Vis ikke",
+        ] {
+            XCTAssertEqual(danish.localizedString(forKey: key, value: nil, table: nil), translation)
+        }
         for language in [danish, english] {
             let permission = language.localizedString(forKey: "NSScreenCaptureUsageDescription", value: nil, table: "InfoPlist")
             XCTAssertNotEqual(permission, "NSScreenCaptureUsageDescription")
@@ -51,6 +60,9 @@ final class LocalizationTests: XCTestCase {
         let danish = appBundle.preferredLocalizations.first == "da"
         XCTAssertEqual(PreferencesSection.general.title, danish ? "Generelt" : "General")
         XCTAssertEqual(Preferences.DisplayMode.windows.label, danish ? "Alle vinduer" : "All windows")
+        XCTAssertEqual(Preferences.MinimizedWindows.showLast.label, danish ? "Vis sidst" : "Show last")
+        XCTAssertEqual(Preferences.MinimizedWindows.recentOrder.label, danish ? "Efter seneste brug" : "Keep in recent order")
+        XCTAssertEqual(Preferences.MinimizedWindows.hide.label, danish ? "Vis ikke" : "Don’t show")
         XCTAssertEqual(WindowAction.close.title, danish ? "Luk vindue" : "Close window")
         XCTAssertEqual(WindowActionResult.failed.message(for: .close), danish
             ? "Kunne ikke lukke dette vindue. Prøv igen."

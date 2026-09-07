@@ -4,6 +4,162 @@ import XCTest
 
 @MainActor
 final class SwitcherInteractionTests: XCTestCase {
+    func testShowLastKeepsRecentOrderWithinNormalAndMinimizedGroups() {
+        let fixture = Fixture()
+        fixture.state.setMinimized(true, id: 12)
+        fixture.state.setMinimized(true, id: 21)
+        fixture.tracker.bumpWindow(id: 21, pid: 102)
+        fixture.tracker.bumpWindow(id: 12, pid: 101)
+        fixture.model.arm(reverse: false)
+        XCTAssertEqual(fixture.model.flatWindows.map(\.id), [11, 22, 31, 12, 21])
+        XCTAssertEqual(fixture.model.flatWindows[fixture.model.selectedFlatIndex].id, 22)
+    }
+
+    func testRecentOrderLeavesMinimizedWindowsInHistoryPosition() {
+        let fixture = Fixture()
+        fixture.defaults.set(Preferences.MinimizedWindows.recentOrder.rawValue, forKey: Preferences.Key.minimizedWindows)
+        fixture.state.setMinimized(true, id: 12)
+        fixture.tracker.bumpWindow(id: 12, pid: 101)
+        fixture.model.arm(reverse: false)
+        XCTAssertEqual(fixture.model.flatWindows.map(\.id), [11, 12, 21, 22, 31])
+        XCTAssertEqual(fixture.model.flatWindows[fixture.model.selectedFlatIndex].id, 12)
+    }
+
+    func testMinimizedOrderingKeepsAppsGroupedAndDoesNotDemoteMixedApp() {
+        let fixture = Fixture(displayMode: .apps)
+        fixture.state.setMinimized(true, id: 11)
+        fixture.state.focusedByPID[101] = 12
+        fixture.model.arm(reverse: false)
+        XCTAssertEqual(fixture.model.apps.map(\.pid), [101, 102, 103])
+        XCTAssertEqual(fixture.model.apps[0].windows.map(\.id), [12, 11])
+        fixture.model.chooseWindows(of: 101)
+        XCTAssertEqual(fixture.model.filteredAppWindows.map(\.id), [12, 11])
+        fixture.model.commitWindow(id: 11)
+        XCTAssertEqual(fixture.state.focusedWindows, [11], "Minimized windows remain selectable by exact identity")
+    }
+
+    func testCurrentAppScopeSortsMinimizedLastWithoutAddingOtherApps() {
+        let fixture = Fixture()
+        fixture.state.setMinimized(true, id: 11)
+        fixture.state.focusedByPID[101] = 12
+        fixture.model.armForCurrentApp(reverse: false)
+        XCTAssertEqual(fixture.model.flatWindows.map(\.id), [12, 11])
+        fixture.model.commit()
+        XCTAssertEqual(fixture.state.focusedWindows, [11])
+    }
+
+    func testDontShowFiltersMinimizedWindowsAndDropsOnlyEmptyApps() {
+        let fixture = Fixture()
+        fixture.defaults.set(Preferences.MinimizedWindows.hide.rawValue, forKey: Preferences.Key.minimizedWindows)
+        for id: CGWindowID in [12, 21, 22] { fixture.state.setMinimized(true, id: id) }
+        fixture.model.arm(reverse: false)
+        XCTAssertEqual(fixture.model.flatWindows.map(\.id), [11, 31])
+        XCTAssertEqual(fixture.model.apps.map(\.pid), [101, 103])
+        fixture.model.cancel()
+        fixture.state.frontmostPID = 102
+        fixture.model.armForCurrentApp(reverse: false)
+        XCTAssertFalse(fixture.model.isArmed, "An excluded current app must not fall back to another app")
+    }
+
+    func testMinimizationAndRestoreUpdateStateWithoutMovingTilesUntilNextInvocation() {
+        let fixture = Fixture()
+        fixture.model.arm(reverse: false)
+        fixture.model.mouseHasMoved = true
+        fixture.model.selectFlatWindow(at: 4)
+        let original = fixture.model.flatWindows.map(\.id)
+        fixture.state.setMinimized(true, id: 12)
+        fixture.model.refreshAfterAppListPreferenceChange()
+        XCTAssertEqual(fixture.model.flatWindows.map(\.id), original)
+        XCTAssertEqual(fixture.model.flatWindows.first { $0.id == 12 }?.window.isMinimized, true)
+        XCTAssertEqual(fixture.model.flatWindows[fixture.model.selectedFlatIndex].id, 31)
+        fixture.model.cancel()
+        fixture.model.arm(reverse: false)
+        XCTAssertEqual(fixture.model.flatWindows.map(\.id), [11, 21, 22, 31, 12])
+        fixture.state.setMinimized(false, id: 12)
+        fixture.model.refreshAfterAppListPreferenceChange()
+        XCTAssertEqual(fixture.model.flatWindows.last?.id, 12)
+        XCTAssertEqual(fixture.model.flatWindows.last?.window.isMinimized, false)
+        fixture.model.cancel()
+        fixture.model.arm(reverse: false)
+        XCTAssertEqual(fixture.model.flatWindows.map(\.id), original)
+    }
+
+    func testMinimizedSearchResultRemainsSelectableWithoutChangingOrder() {
+        let fixture = Fixture()
+        fixture.state.setMinimized(true, id: 12)
+        fixture.model.arm(reverse: false)
+        let original = fixture.model.flatWindows.map(\.id)
+        fixture.model.appendFilter("Alpha")
+        XCTAssertEqual(fixture.model.filteredFlatWindows.map(\.id), [11, 12])
+        XCTAssertEqual(fixture.model.flatWindows.map(\.id), original)
+        fixture.model.commitWindow(id: 12)
+        XCTAssertEqual(fixture.state.focusedWindows, [12])
+        XCTAssertEqual(fixture.tracker.mruWindows.first?.id, 12)
+    }
+
+    func testCommittingEmptySearchAfterPeekRestoresOriginalInEveryMode() {
+        for mode in [SwitcherModel.Mode.apps, .flatWindows, .currentAppWindows, .windowsForApp] {
+            let fixture = Fixture(displayMode: mode == .apps || mode == .windowsForApp ? .apps : .windows)
+            if mode == .currentAppWindows { fixture.model.armForCurrentApp(reverse: false) }
+            else { fixture.model.arm(reverse: false) }
+            if mode == .windowsForApp { fixture.model.enterWindowMode() }
+            fixture.model.peekCurrent()
+            fixture.model.appendFilter("no matching document exists")
+            fixture.model.commit()
+            XCTAssertFalse(fixture.model.isArmed)
+            XCTAssertEqual(fixture.state.restoreRequests, [.init(pid: 101, id: 11)], "\(mode)")
+            XCTAssertEqual(fixture.state.frontmostPID, 101, "\(mode)")
+            XCTAssertEqual(fixture.state.focusedByPID[101], 11, "\(mode)")
+            XCTAssertFalse(fixture.tracker.isWindowTrackingSuspended)
+        }
+    }
+
+    func testCommittingEmptySearchWithoutPeekDoesNotChangeFocus() {
+        for mode in [SwitcherModel.Mode.apps, .flatWindows, .currentAppWindows, .windowsForApp] {
+            let fixture = Fixture(displayMode: mode == .apps || mode == .windowsForApp ? .apps : .windows)
+            if mode == .currentAppWindows { fixture.model.armForCurrentApp(reverse: false) }
+            else { fixture.model.arm(reverse: false) }
+            if mode == .windowsForApp { fixture.model.enterWindowMode() }
+            let history = fixture.tracker.mruWindows
+            fixture.model.appendFilter("no matching document exists")
+            fixture.model.commit()
+            XCTAssertFalse(fixture.model.isArmed)
+            XCTAssertTrue(fixture.state.restoreRequests.isEmpty)
+            XCTAssertTrue(fixture.state.focusedWindows.isEmpty)
+            XCTAssertTrue(fixture.state.focusedApps.isEmpty)
+            XCTAssertTrue(fixture.state.fallbackPIDs.isEmpty)
+            XCTAssertEqual(fixture.tracker.mruWindows, history)
+        }
+    }
+
+    func testEmptyCommitAfterCrossAppPeekKeepsOriginalAppFallback() {
+        for missingID in [false, true] {
+            let fixture = Fixture(displayMode: .apps)
+            if missingID { fixture.state.focusedByPID[101] = nil }
+            fixture.model.arm(reverse: false)
+            fixture.model.peekCurrent()
+            fixture.state.canRestore = false
+            fixture.model.appendFilter("no matching document exists")
+            fixture.model.commit()
+            XCTAssertEqual(fixture.state.restoreRequests.count, missingID ? 0 : 1)
+            XCTAssertEqual(fixture.state.fallbackPIDs, [101])
+            XCTAssertEqual(fixture.state.frontmostPID, 101)
+            XCTAssertTrue(fixture.state.focusedWindows.isEmpty, "Never substitute an arbitrary sibling")
+        }
+    }
+
+    func testMatchingCommitAfterPeekStillSelectsResultInsteadOfRestoringOriginal() {
+        let fixture = Fixture()
+        fixture.model.arm(reverse: false)
+        fixture.model.peekCurrent()
+        fixture.model.appendFilter("Beta 21")
+        fixture.model.commit()
+        XCTAssertEqual(fixture.state.focusedWindows, [12, 21])
+        XCTAssertTrue(fixture.state.restoreRequests.isEmpty)
+        XCTAssertEqual(fixture.tracker.mruWindows.first, .init(pid: 102, id: 21))
+        XCTAssertFalse(fixture.model.isArmed)
+    }
+
     func testAccessibleDrillInTargetsExactAppWithoutHover() {
         let fixture = Fixture(displayMode: .apps)
         fixture.model.arm(reverse: false)
@@ -470,6 +626,14 @@ final class SwitcherInteractionTests: XCTestCase {
         var canRestore = true
         var actions: [String] = []
 
+        func setMinimized(_ minimized: Bool, id: CGWindowID) {
+            for appIndex in apps.indices {
+                if let index = apps[appIndex].windows.firstIndex(where: { $0.id == id }) {
+                    apps[appIndex].windows[index].isMinimized = minimized
+                }
+            }
+        }
+
         private static func app(_ pid: pid_t, _ name: String, _ ids: [CGWindowID]) -> AppEntry {
             AppEntry(pid: pid, bundleIdentifier: "com.example.\(name.lowercased())", name: name, icon: nil,
                      windows: ids.map { WindowInfo(id: $0, pid: pid, title: "\(name) \($0)", bounds: .zero, isOnScreen: true) })
@@ -494,6 +658,11 @@ final class SwitcherInteractionTests: XCTestCase {
             model = SwitcherModel(focusTracker: tracker, defaults: defaults, dependencies: .init(
                 enumerate: { _, options in
                     state.apps.filter { !options.excludedBundleIDs.contains($0.bundleIdentifier ?? "") }
+                        .compactMap { app -> AppEntry? in
+                            var entry = app
+                            entry.windows = app.windows.filter(options.includes)
+                            return app.windows.isEmpty || !entry.windows.isEmpty ? entry : nil
+                        }
                 },
                 focusApp: { app in
                     state.focusedApps.append(app.pid)

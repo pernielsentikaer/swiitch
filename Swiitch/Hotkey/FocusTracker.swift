@@ -12,18 +12,40 @@ final class FocusTracker {
     /// A value snapshot keeps an open picker's ordering independent of later focus events.
     struct WindowOrder {
         var ranks: [WindowKey: Int] = [:]
+        private var minimizedAtFirstAppearance: [WindowKey: Bool] = [:]
+
+        init(ranks: [WindowKey: Int] = [:]) {
+            self.ranks = ranks
+        }
+
+        /// Freeze each window's group for this invocation. Later state changes can update
+        /// its label without moving the tile; newly discovered windows still get a group.
+        mutating func recordMinimizedState(in windows: [WindowInfo]) {
+            for window in windows {
+                let key = WindowKey(pid: window.pid, id: window.id)
+                if minimizedAtFirstAppearance[key] == nil {
+                    minimizedAtFirstAppearance[key] = window.isMinimized == true
+                }
+            }
+        }
 
         func sorted<Item>(
             _ items: [Item],
             window: (Item) -> WindowInfo,
+            minimizedLast: Bool = false,
             pinnedRank: (Item) -> Int = { _ in .max }
         ) -> [Item] {
             items.enumerated().sorted { lhs, rhs in
+                let lWindow = window(lhs.element)
+                let rWindow = window(rhs.element)
+                if minimizedLast {
+                    let lMinimized = minimizedAtFirstAppearance[WindowKey(pid: lWindow.pid, id: lWindow.id)] ?? false
+                    let rMinimized = minimizedAtFirstAppearance[WindowKey(pid: rWindow.pid, id: rWindow.id)] ?? false
+                    if lMinimized != rMinimized { return !lMinimized }
+                }
                 let lPin = pinnedRank(lhs.element)
                 let rPin = pinnedRank(rhs.element)
                 if lPin != rPin { return lPin < rPin }
-                let lWindow = window(lhs.element)
-                let rWindow = window(rhs.element)
                 let lRank = ranks[WindowKey(pid: lWindow.pid, id: lWindow.id)] ?? .max
                 let rRank = ranks[WindowKey(pid: rWindow.pid, id: rWindow.id)] ?? .max
                 if lRank != rRank { return lRank < rRank }
