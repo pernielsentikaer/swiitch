@@ -71,7 +71,8 @@ if [ "$RELEASE_MODE" = notarized ] && [ -z "${SWIITCH_NOTARY_PROFILE:-}" ]; then
     exit 1
 fi
 
-SIGNING_OVERRIDES=(CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=YES)
+# Do not inject Xcode's development/debugger entitlement into public artifacts.
+SIGNING_OVERRIDES=(CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=YES CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO)
 if [ "$RELEASE_MODE" = unnotarized ]; then
     echo "==> Explicit unnotarized release: ad-hoc app signature; Sparkle signature required"
     echo "    macOS may require manual approval and renewed Accessibility/Screen Recording grants."
@@ -121,6 +122,15 @@ echo "==> Verifying app signature ($RELEASE_MODE)"
 codesign --verify --deep --strict --verbose=2 "$APP_PATH"
 SIGNING_INFO="$(codesign -dv --verbose=4 "$APP_PATH" 2>&1)"
 printf '%s\n' "$SIGNING_INFO" | bash Scripts/validate_release_signature.sh "$RELEASE_MODE"
+codesign -d --entitlements :- "$APP_PATH" >"$swiitch_gate_dir/entitlements.plist" 2>/dev/null
+if [ -s "$swiitch_gate_dir/entitlements.plist" ]; then
+    plutil -lint "$swiitch_gate_dir/entitlements.plist" >/dev/null
+    DEBUG_ENTITLEMENT="$(/usr/libexec/PlistBuddy -c 'Print :com.apple.security.get-task-allow' "$swiitch_gate_dir/entitlements.plist" 2>/dev/null || true)"
+    if [ -n "$DEBUG_ENTITLEMENT" ] && [ "$DEBUG_ENTITLEMENT" != false ]; then
+        echo "Release has the development debugger entitlement. Refusing to package it." >&2
+        exit 1
+    fi
+fi
 
 mkdir -p "$DIST_DIR"
 ZIP_PATH="$DIST_DIR/$ZIP_NAME"

@@ -162,6 +162,7 @@ Swiitch ships binary updates via [Sparkle](https://sparkle-project.org). The flo
    - Refuses a dirty working tree or an existing release artifact.
    - Requires an explicit positive build number greater than all versions in both the local and published appcasts. Example numbers are illustrative; choose the next valid number when releasing. A failed feed download stops the release.
    - Runs `xcodegen generate` + a dependency-locked universal (`arm64` + `x86_64`) Release build.
+   - Suppresses Xcode's development entitlement injection and rejects a public app that allows debugger attachment through `com.apple.security.get-task-allow`.
    - In the default mode, requires a Developer ID signature and hardened runtime, submits to Apple notarization, and staples the accepted ticket. It never silently falls back to another signing mode.
    - With `--unnotarized`, explicitly overrides the local signing identity for this build to ad-hoc signing, with no Team ID or hardened-runtime library validation (which cannot load Sparkle in an ad-hoc app). This does not change the Mac's security settings or `Config/Signing.local.xcconfig`. Notary credentials are neither required nor used. Development-signed test apps are never packaged as public releases.
    - Zips `Swiitch.app` to `build/dist/Swiitch-v0.2.0.zip`.
