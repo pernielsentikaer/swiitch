@@ -126,7 +126,7 @@ final class SwitcherModel: ObservableObject {
                 }
             },
             focusApp: { app in MainActor.assumeIsolated { WindowFocuser.focus(app: app) } },
-            focusWindow: { window in MainActor.assumeIsolated { WindowFocuser.focus(window: window) } },
+            focusWindow: { window in _ = MainActor.assumeIsolated { WindowFocuser.focus(window: window) } },
             closeWindow: { WindowFocuser.close(window: $0) },
             minimizeWindow: { WindowFocuser.minimize(window: $0) },
             zoomWindow: { WindowFocuser.zoom(window: $0) },

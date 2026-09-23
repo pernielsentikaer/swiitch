@@ -7,6 +7,24 @@ import XCTest
 final class WindowEnumeratorTests: XCTestCase {
     private let mainDisplayBounds = CGRect(x: 0, y: 0, width: 1440, height: 900)
 
+    func testIdentityHashPreservesFullSnapshotEquality() {
+        let original = WindowInfo(id: 1, pid: 100, title: "Document", bounds: mainDisplayBounds, isOnScreen: true)
+        let copy = WindowInfo(id: 1, pid: 100, title: "Document", bounds: mainDisplayBounds, isOnScreen: true)
+        let variants = [
+            WindowInfo(id: 2, pid: 100, title: "Document", bounds: mainDisplayBounds, isOnScreen: true),
+            WindowInfo(id: 1, pid: 101, title: "Document", bounds: mainDisplayBounds, isOnScreen: true),
+            WindowInfo(id: 1, pid: 100, title: "Renamed", bounds: mainDisplayBounds, isOnScreen: true),
+            WindowInfo(id: 1, pid: 100, title: "Document", bounds: mainDisplayBounds.offsetBy(dx: 1, dy: 0), isOnScreen: true),
+            WindowInfo(id: 1, pid: 100, title: "Document", bounds: mainDisplayBounds, isOnScreen: false),
+            WindowInfo(id: 1, pid: 100, title: "Document", bounds: mainDisplayBounds, isOnScreen: true, isMinimized: true),
+        ]
+        XCTAssertEqual(original, copy)
+        XCTAssertEqual(original.hashValue, copy.hashValue)
+        for variant in variants { XCTAssertNotEqual(original, variant) }
+        XCTAssertEqual(Set([original, copy] + variants).count, 7,
+                       "Metadata changes must remain distinct even when their stable identity hash is shared")
+    }
+
     func testDefaultHostIsRemovedWhenTheAppHasARealWindow() {
         let host = WindowInfo(
             id: 1,

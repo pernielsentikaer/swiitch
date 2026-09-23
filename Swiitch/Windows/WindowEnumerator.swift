@@ -10,6 +10,13 @@ struct WindowInfo: Identifiable, Hashable {
     /// nil means Accessibility could not confirm the state; it is not evidence of minimization.
     var isMinimized: Bool? = nil
 
+    /// Hash by stable identity. Synthesized equality still compares every snapshot
+    /// field, including CGRect, which is not Hashable in the macOS 14 SDK.
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(pid)
+    }
+
     var displayTitle: String {
         title.isEmpty ? String(localized: "Untitled") : title
     }
