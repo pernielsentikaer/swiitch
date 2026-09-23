@@ -7,6 +7,28 @@
         <language>en</language>
 
         <item>
+            <title>0.1.5</title>
+            <pubDate>Wed, 23 Sep 2026 23:36:48 +0000</pubDate>
+            <sparkle:version>60</sparkle:version>
+            <sparkle:shortVersionString>0.1.5</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[
+                <ul>
+                    <li>Universal build for Apple Silicon and Intel.</li>
+                    <li>Sidebar preferences, clearer permission recovery, adaptive layouts, and English/Danish interfaces.</li>
+                    <li>More reliable same-app switching, recent-window ordering, search, helper-window filtering, and cached thumbnails.</li>
+                    <li>Optional thumbnail controls, minimized-window choices, accessible actions, and privacy-conscious diagnostics.</li>
+                </ul>
+                <p><b>Not notarized by Apple.</b> This ad-hoc-signed app uses a separately verified Sparkle update signature. macOS may require manual first-launch approval and renewed Accessibility or Screen Recording permissions.</p>
+            ]]></description>
+            <enclosure
+                url="https://github.com/pernielsentikaer/swiitch/releases/download/v0.1.5/Swiitch-v0.1.5.zip"
+                length="3048113"
+                type="application/octet-stream"
+                sparkle:edSignature="3UjXc/XMPBoc61JGfthoOkK1W59Gxpo3B/NYWEIglu69wZZ/YHy+waiNxb2beJTqHI3zrVmD9QRVnfyoAdH1CQ==" />
+        </item>
+
+        <item>
             <title>0.1.4</title>
             <pubDate>Wed, 27 May 2026 10:50:45 +0200</pubDate>
             <sparkle:version>15</sparkle:version>
