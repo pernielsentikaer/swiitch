@@ -52,7 +52,13 @@ jobs:
             -derivedDataPath build/Universal -onlyUsePackageVersionsFromResolvedFile \
             ARCHS="arm64 x86_64" ONLY_ACTIVE_ARCH=NO \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO DEVELOPMENT_TEAM= build | xcpretty
-          lipo -verify_arch arm64 x86_64 build/Universal/Build/Products/Release/Swiitch.app/Contents/MacOS/Swiitch
+          swiitch_built_archs="$(lipo -archs build/Universal/Build/Products/Release/Swiitch.app/Contents/MacOS/Swiitch)"
+          for swiitch_required_arch in arm64 x86_64; do
+            if [[ " $swiitch_built_archs " != *" $swiitch_required_arch "* ]]; then
+              echo "::error::Missing $swiitch_required_arch (built: $swiitch_built_archs)"
+              exit 1
+            fi
+          done
 
       - name: Verify dependency lock and release gates
         run: |
