@@ -1,6 +1,5 @@
 import AppKit
 import Foundation
-import ServiceManagement
 import SwiftUI
 
 /// Preferences are stored in `UserDefaults.standard` and surfaced to SwiftUI via `@AppStorage`
@@ -11,9 +10,8 @@ import SwiftUI
 enum Preferences {
     enum Key {
         static let hasCompletedOnboarding = "hasCompletedOnboarding"
-        static let showWindowPreviews = "showWindowPreviews"
         static let includeOtherSpaces = "includeOtherSpaces"
-        static let launchAtLogin = "launchAtLogin"
+        static let minimizedWindows = "minimizedWindows" // MinimizedWindows.rawValue
         static let showMenuBarIcon = "showMenuBarIcon"
         static let showDockIcon = "showDockIcon"
         static let switcherShowDelayMs = "switcherShowDelayMs"
@@ -30,16 +28,49 @@ enum Preferences {
         static let thumbnailOverlay = "thumbnailOverlay"      // ThumbnailOverlay.rawValue
         static let shiftCyclesBackwards = "shiftCyclesBackwards"  // Bool
         static let pinnedBundleIDs = "pinnedBundleIDs"            // [String]
+        static let excludedBundleIDs = "excludedBundleIDs"        // [String]
         static let hotkeyKeyCode = "hotkeyKeyCode"                // Int (kVK_Tab default = 48)
         static let hotkeyModifierFlags = "hotkeyModifierFlags"    // Int — raw CGEventFlags value
         static let peekOnHover = "peekOnHover"                    // Bool
         static let peekDelayMs = "peekDelayMs"                    // Int (default 500)
+        static let showWindowControlsOnHover = "showWindowControlsOnHover" // Bool
         static let screenScope = "screenScope"                    // ScreenScope.rawValue
 
         // Second hotkey — opens the picker directly in "current app's windows" mode.
         static let currentAppHotkeyEnabled = "currentAppHotkeyEnabled"     // Bool
         static let currentAppHotkeyKeyCode = "currentAppHotkeyKeyCode"     // Int
         static let currentAppHotkeyModifierFlags = "currentAppHotkeyModifierFlags" // Int
+        static let fitWindowGridToScreen = "fitWindowGridToScreen"         // Bool
+    }
+
+    private enum LegacyKey {
+        static let includeMinimizedWindows = "includeMinimizedWindows"
+        /// Budapest exposed the same feature as an Auto / Fill picker backed by an Int.
+        static let tileColumns = "tileColumns"
+        /// Apps-first mode now always supports drilling into the selected app's windows.
+        static let showWindowPreviews = "showWindowPreviews"
+        /// Login-item intent used to be mirrored here; `SMAppService` is the only source of truth now.
+        static let launchAtLogin = "launchAtLogin"
+    }
+
+    enum MinimizedWindows: String, CaseIterable, Identifiable {
+        case showLast
+        case recentOrder
+        case hide
+
+        var id: String { rawValue }
+        var label: String {
+            switch self {
+            case .showLast: return String(localized: "Show last")
+            case .recentOrder: return String(localized: "Keep in recent order")
+            case .hide: return String(localized: "Don’t show")
+            }
+        }
+    }
+
+    static func minimizedWindows(in defaults: UserDefaults = .standard) -> MinimizedWindows {
+        let raw = defaults.string(forKey: Key.minimizedWindows) ?? ""
+        return MinimizedWindows(rawValue: raw) ?? .showLast
     }
 
     enum ScreenScope: String, CaseIterable, Identifiable {
@@ -49,9 +80,9 @@ enum Preferences {
         var id: String { rawValue }
         var label: String {
             switch self {
-            case .mousePointer: return "Screen with mouse pointer"
-            case .activeWindow: return "Active screen (frontmost window)"
-            case .main:         return "Main screen"
+            case .mousePointer: return String(localized: "Screen with mouse pointer")
+            case .activeWindow: return String(localized: "Active screen (frontmost window)")
+            case .main:         return String(localized: "Main screen")
             }
         }
     }
@@ -78,14 +109,51 @@ enum Preferences {
         return pinnedBundleIDs.contains(bundleID)
     }
 
+    // MARK: - Excluded apps
+
+    static var excludedBundleIDs: [String] {
+        get { excludedBundleIDs(in: .standard) }
+        set { UserDefaults.standard.set(newValue, forKey: Key.excludedBundleIDs) }
+    }
+
+    static func excludedBundleIDs(in defaults: UserDefaults) -> [String] {
+        defaults.stringArray(forKey: Key.excludedBundleIDs) ?? []
+    }
+
+    static func excludeApp(_ bundleID: String, defaults: UserDefaults = .standard) {
+        var current = excludedBundleIDs(in: defaults)
+        guard !current.contains(bundleID) else { return }
+        current.append(bundleID)
+        defaults.set(current, forKey: Key.excludedBundleIDs)
+    }
+
+    static func includeApp(_ bundleID: String, defaults: UserDefaults = .standard) {
+        let included = excludedBundleIDs(in: defaults).filter { $0 != bundleID }
+        defaults.set(included, forKey: Key.excludedBundleIDs)
+    }
+
+    static func isExcluded(_ bundleID: String?, defaults: UserDefaults = .standard) -> Bool {
+        guard let bundleID else { return false }
+        return excludedBundleIDs(in: defaults).contains(bundleID)
+    }
+
     enum DisplayMode: String, CaseIterable, Identifiable {
         case apps
         case windows
+        /// The one fallback every reader uses, so previews, tests, and injected defaults
+        /// suites agree with `registerDefaults` and the shipped release notes.
+        static let `default`: DisplayMode = .windows
         var id: String { rawValue }
         var label: String {
             switch self {
-            case .apps: return "Apps (drill into windows with ↓)"
-            case .windows: return "All windows directly"
+            case .apps: return String(localized: "Apps first")
+            case .windows: return String(localized: "All windows")
+            }
+        }
+        var description: String {
+            switch self {
+            case .apps: return String(localized: "Use Tab or ← → to switch apps. Press ↓ to choose a window.")
+            case .windows: return String(localized: "Switch directly between every open window.")
             }
         }
     }
@@ -97,9 +165,9 @@ enum Preferences {
         var id: String { rawValue }
         var label: String {
             switch self {
-            case .system: return "Follow system"
-            case .light: return "Light"
-            case .dark: return "Dark"
+            case .system: return String(localized: "Follow system")
+            case .light: return String(localized: "Light")
+            case .dark: return String(localized: "Dark")
             }
         }
     }
@@ -109,9 +177,9 @@ enum Preferences {
         var id: String { rawValue }
         var label: String {
             switch self {
-            case .small: return "Small"
-            case .medium: return "Medium"
-            case .large: return "Large"
+            case .small: return String(localized: "Small")
+            case .medium: return String(localized: "Medium")
+            case .large: return String(localized: "Large")
             }
         }
         var thumbHeight: CGFloat {
@@ -134,25 +202,28 @@ enum Preferences {
         case translucentLight  // ultraThin material — most see-through
         case translucent       // regular material — middle ground
         case frosted           // thick material — heavily blurred
+        case solid             // opaque semantic background that follows system appearance
         case solidLight        // opaque light grey
         case solidDark         // opaque near-black
         var id: String { rawValue }
         var label: String {
             switch self {
-            case .translucentLight: return "Translucent (light)"
-            case .translucent:      return "Translucent"
-            case .frosted:          return "Frosted"
-            case .solidLight:       return "Solid Light"
-            case .solidDark:        return "Solid Dark"
+            case .translucentLight: return String(localized: "Translucent (light)")
+            case .translucent:      return String(localized: "Translucent")
+            case .frosted:          return String(localized: "Frosted")
+            case .solid:            return String(localized: "Solid")
+            case .solidLight:       return String(localized: "Solid Light")
+            case .solidDark:        return String(localized: "Solid Dark")
             }
         }
         var blurb: String {
             switch self {
-            case .translucentLight: return "Most see-through. Lets the desktop / app behind show clearly."
-            case .translucent:      return "Default macOS blur. Balanced."
-            case .frosted:          return "Heavily blurred — barely shows what's behind."
-            case .solidLight:       return "Opaque light grey. No translucency."
-            case .solidDark:        return "Opaque near-black. No translucency."
+            case .translucentLight: return String(localized: "Most see-through. Lets the desktop / app behind show clearly.")
+            case .translucent:      return String(localized: "Default macOS blur. Balanced.")
+            case .frosted:          return String(localized: "Heavily blurred — barely shows what's behind.")
+            case .solid:            return String(localized: "Opaque system background. Automatically follows Light and Dark appearance.")
+            case .solidLight:       return String(localized: "Opaque light grey. No translucency.")
+            case .solidDark:        return String(localized: "Opaque near-black. No translucency.")
             }
         }
     }
@@ -162,12 +233,12 @@ enum Preferences {
         var id: String { rawValue }
         var label: String {
             switch self {
-            case .hidden:         return "Hidden"
-            case .topLeading:     return "Top Left"
-            case .topTrailing:    return "Top Right"
-            case .bottomLeading:  return "Bottom Left"
-            case .bottomTrailing: return "Bottom Right"
-            case .center:         return "Center"
+            case .hidden:         return String(localized: "Hidden")
+            case .topLeading:     return String(localized: "Top Left")
+            case .topTrailing:    return String(localized: "Top Right")
+            case .bottomLeading:  return String(localized: "Bottom Left")
+            case .bottomTrailing: return String(localized: "Bottom Right")
+            case .center:         return String(localized: "Center")
             }
         }
         var swiftAlignment: Alignment {
@@ -191,10 +262,10 @@ enum Preferences {
         var id: String { rawValue }
         var label: String {
             switch self {
-            case .none:           return "None"
-            case .gradientEdges:  return "Gradient edges"
-            case .scanlines:      return "Scanlines"
-            case .tint:           return "Color tint"
+            case .none:           return String(localized: "None")
+            case .gradientEdges:  return String(localized: "Gradient edges")
+            case .scanlines:      return String(localized: "Scanlines")
+            case .tint:           return String(localized: "Color tint")
             }
         }
     }
@@ -206,26 +277,25 @@ enum Preferences {
         case minimal   // small, clean, no overlay
         case raycast   // dark, sharper, prominent
         case frosted   // very translucent, large thumbs
-        case spotlight // light, sober
+        case spotlight // sober, system-adaptive
         case synthwave // wild — solid dark + magenta + gradient-edged thumbnails
 
         var id: String { rawValue }
         var label: String {
             switch self {
-            case .custom:    return "Custom"
-            case .classic:   return "Classic"
-            case .minimal:   return "Minimal"
-            case .raycast:   return "Raycast-style"
-            case .frosted:   return "Frosted"
-            case .spotlight: return "Spotlight-style"
-            case .synthwave: return "Synthwave"
+            case .custom:    return String(localized: "Custom")
+            case .classic:   return String(localized: "Classic")
+            case .minimal:   return String(localized: "Minimal")
+            case .raycast:   return String(localized: "Raycast")
+            case .frosted:   return String(localized: "Frosted")
+            case .spotlight: return String(localized: "Spotlight")
+            case .synthwave: return String(localized: "Synthwave")
             }
         }
 
         /// Write the preset's values into UserDefaults. The picker is just a convenience —
         /// the actual source of truth is still the individual keys.
-        func apply() {
-            let d = UserDefaults.standard
+        func apply(defaults d: UserDefaults = .standard) {
             switch self {
             case .custom:
                 return // no-op — represents "I've been tweaking it"
@@ -239,7 +309,7 @@ enum Preferences {
                 d.set(ThumbnailOverlay.none.rawValue, forKey: Key.thumbnailOverlay)
 
             case .minimal:
-                d.set(PanelMaterial.solidLight.rawValue, forKey: Key.panelMaterial)
+                d.set(PanelMaterial.solid.rawValue, forKey: Key.panelMaterial)
                 d.set(6, forKey: Key.panelCornerRadius)
                 d.set(ThumbnailSize.small.rawValue, forKey: Key.thumbnailSize)
                 d.set(OverlayPosition.hidden.rawValue, forKey: Key.overlayPosition)
@@ -263,7 +333,7 @@ enum Preferences {
                 d.set(ThumbnailOverlay.none.rawValue, forKey: Key.thumbnailOverlay)
 
             case .spotlight:
-                d.set(PanelMaterial.solidLight.rawValue, forKey: Key.panelMaterial)
+                d.set(PanelMaterial.solid.rawValue, forKey: Key.panelMaterial)
                 d.set(18, forKey: Key.panelCornerRadius)
                 d.set(ThumbnailSize.medium.rawValue, forKey: Key.thumbnailSize)
                 d.set(OverlayPosition.bottomLeading.rawValue, forKey: Key.overlayPosition)
@@ -283,14 +353,53 @@ enum Preferences {
 
     /// Registered defaults (the value `UserDefaults.bool(forKey:)` returns when the user hasn't
     /// set anything yet). Call once at launch.
-    static func registerDefaults() {
-        UserDefaults.standard.register(defaults: [
-            Key.showWindowPreviews: true,
+    static func registerDefaults(
+        in defaults: UserDefaults = .standard,
+        persistentDomainName: String? = nil
+    ) {
+        // Keep the user's Budapest "Fill" choice when moving to the clearer Boolean setting.
+        // An explicitly saved current setting wins, including an explicit `false` value.
+        // Read the persistent domain rather than `object(forKey:)`, which also sees registered
+        // fallback values and therefore cannot tell whether the user saved a preference.
+        let domainName = persistentDomainName ?? Bundle.main.bundleIdentifier
+        let storedValues = domainName.flatMap { defaults.persistentDomain(forName: $0) } ?? [:]
+        // Preserve an explicit opt-out, including when registered defaults already exist.
+        // Existing users who included minimized windows get the new Show last default.
+        let storedMinimizedBehavior = (storedValues[Key.minimizedWindows] as? String).flatMap(MinimizedWindows.init(rawValue:))
+        if storedMinimizedBehavior == nil {
+            if storedValues[LegacyKey.includeMinimizedWindows] as? Bool == false {
+                defaults.set(MinimizedWindows.hide.rawValue, forKey: Key.minimizedWindows)
+            } else if storedValues[Key.minimizedWindows] != nil {
+                defaults.set(MinimizedWindows.showLast.rawValue, forKey: Key.minimizedWindows)
+            }
+        }
+        defaults.removeObject(forKey: LegacyKey.includeMinimizedWindows)
+        if storedValues[Key.fitWindowGridToScreen] == nil,
+           let legacyTileColumns = storedValues[LegacyKey.tileColumns] as? Int,
+           legacyTileColumns == -1 {
+            defaults.set(true, forKey: Key.fitWindowGridToScreen)
+        }
+        defaults.removeObject(forKey: LegacyKey.tileColumns)
+        defaults.removeObject(forKey: LegacyKey.showWindowPreviews)
+        defaults.removeObject(forKey: LegacyKey.launchAtLogin)
+
+        // Minimal and Spotlight used to force a light panel even while following the system.
+        // Upgrade only untouched named presets; Custom and explicitly themed presets keep their
+        // saved material exactly as the user chose it.
+        let storedPreset = storedValues[Key.themePreset] as? String
+        let storedMaterial = storedValues[Key.panelMaterial] as? String
+        if (storedPreset == ThemePreset.minimal.rawValue || storedPreset == ThemePreset.spotlight.rawValue),
+           storedMaterial == PanelMaterial.solidLight.rawValue {
+            defaults.set(PanelMaterial.solid.rawValue, forKey: Key.panelMaterial)
+        }
+
+        defaults.register(defaults: [
             Key.includeOtherSpaces: true,
+            Key.minimizedWindows: MinimizedWindows.showLast.rawValue,
             Key.showMenuBarIcon: true,
             Key.showDockIcon: false,
             Key.switcherShowDelayMs: 150,
-            Key.displayMode: DisplayMode.windows.rawValue,
+            Key.displayMode: DisplayMode.default.rawValue,
             Key.maxPanelWidthPercent: 60,
             Key.restrictToActiveScreen: true,
             Key.appearance: Appearance.system.rawValue,
@@ -302,17 +411,60 @@ enum Preferences {
             Key.thumbnailOverlay: ThumbnailOverlay.none.rawValue,
             Key.themePreset: ThemePreset.classic.rawValue,
             Key.shiftCyclesBackwards: true,
+            Key.pinnedBundleIDs: [],
+            Key.excludedBundleIDs: [],
             // kVK_Tab = 48; CGEventFlags.maskCommand.rawValue = 0x100000 (1048576)
             Key.hotkeyKeyCode: 48,
             Key.hotkeyModifierFlags: Int(CGEventFlags.maskCommand.rawValue),
             Key.peekOnHover: false,
             Key.peekDelayMs: 500,
+            Key.showWindowControlsOnHover: false,
             Key.screenScope: ScreenScope.mousePointer.rawValue,
             Key.currentAppHotkeyEnabled: false,
             // Defaults to ⌥+Tab (kVK_Tab = 48, Option = 0x80000)
             Key.currentAppHotkeyKeyCode: 48,
-            Key.currentAppHotkeyModifierFlags: Int(CGEventFlags.maskAlternate.rawValue)
+            Key.currentAppHotkeyModifierFlags: Int(CGEventFlags.maskAlternate.rawValue),
+            Key.fitWindowGridToScreen: false
         ])
+    }
+
+    /// Restores user-configurable settings while keeping onboarding completion intact.
+    /// Registered defaults become visible immediately after each persistent value is removed.
+    /// The login item is OS-owned state, not a stored preference, so it is left untouched.
+    static func resetSettings(in defaults: UserDefaults = .standard) {
+        let keys = [
+            Key.showMenuBarIcon,
+            Key.showDockIcon,
+            Key.currentAppHotkeyEnabled,
+            Key.hotkeyKeyCode,
+            Key.hotkeyModifierFlags,
+            Key.currentAppHotkeyKeyCode,
+            Key.currentAppHotkeyModifierFlags,
+            Key.displayMode,
+            Key.includeOtherSpaces,
+            Key.minimizedWindows,
+            LegacyKey.includeMinimizedWindows,
+            Key.restrictToActiveScreen,
+            Key.screenScope,
+            Key.switcherShowDelayMs,
+            Key.maxPanelWidthPercent,
+            Key.shiftCyclesBackwards,
+            Key.peekOnHover,
+            Key.peekDelayMs,
+            Key.showWindowControlsOnHover,
+            Key.fitWindowGridToScreen,
+            Key.appearance,
+            Key.accentColorHex,
+            Key.thumbnailSize,
+            Key.panelMaterial,
+            Key.panelCornerRadius,
+            Key.overlayPosition,
+            Key.thumbnailOverlay,
+            Key.themePreset,
+            Key.pinnedBundleIDs,
+            Key.excludedBundleIDs,
+        ]
+        keys.forEach { defaults.removeObject(forKey: $0) }
     }
 
     static func applyAppearance() {
@@ -325,28 +477,5 @@ enum Preferences {
         case .dark:
             NSApp.appearance = NSAppearance(named: .darkAqua)
         }
-    }
-
-    // MARK: - Side-effecting actions
-
-    /// Brings `SMAppService.mainApp` into sync with the stored `launchAtLogin` flag.
-    static func syncLaunchAtLogin() {
-        let desired = UserDefaults.standard.bool(forKey: Key.launchAtLogin)
-        do {
-            let isEnabled = SMAppService.mainApp.status == .enabled
-            if desired && !isEnabled {
-                try SMAppService.mainApp.register()
-            } else if !desired && isEnabled {
-                try SMAppService.mainApp.unregister()
-            }
-        } catch {
-            NSLog("[Swiitch] Failed to update Launch at Login: \(error)")
-        }
-    }
-
-    /// Reads the actual SMAppService status — the truth might diverge from the stored
-    /// preference if the user toggled the login item via System Settings.
-    static var isLoginItemEnabled: Bool {
-        SMAppService.mainApp.status == .enabled
     }
 }

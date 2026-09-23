@@ -4,7 +4,8 @@ import CoreGraphics
 
 /// Polls the two TCC permissions Swiitch uses so UI can reflect live state.
 ///   - Accessibility (required — for the event tap + AX-driven activation).
-///   - Screen Recording (optional — only for window thumbnails).
+///   - Screen Recording (optional — for window thumbnails; without it WindowServer withholds
+///     window titles, so enumeration falls back to Accessibility titles).
 @MainActor
 final class PermissionsMonitor: ObservableObject {
     @Published private(set) var accessibilityGranted: Bool = AXIsProcessTrusted()
@@ -18,7 +19,7 @@ final class PermissionsMonitor: ObservableObject {
     func start() {
         stop()
         timer = Timer.scheduledTimer(withTimeInterval: 0.8, repeats: true) { [weak self] _ in
-            Task { @MainActor in
+            Task { @MainActor [weak self] in
                 guard let self else { return }
                 let ax = AXIsProcessTrusted()
                 if ax != self.accessibilityGranted {

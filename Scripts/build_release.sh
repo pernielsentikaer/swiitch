@@ -1,27 +1,37 @@
 #!/usr/bin/env bash
 #
-# Builds a Release-config Swiitch.app, zips it, signs the zip with Sparkle's
-# `sign_update`, and prints an <item> block you can paste into appcast.xml.
+# Builds a universal, Developer ID-signed Release app; notarizes and staples it;
+# zips it; signs the zip with Sparkle's `sign_update`; and prints an <item> block
+# you can paste into appcast.xml.
 #
 # Prerequisites:
 #   - Sparkle has been resolved by Xcode at least once (so its bin tools exist on
 #     disk under SourcePackages/artifacts/sparkle/Sparkle/bin/).
 #   - You ran `generate_keys` once and pasted the public key into Info.plist.
 #     See CONTRIBUTING.md "Releases" for the one-time key setup.
+#   - Config/Signing.local.xcconfig selects a Developer ID Application identity.
+#   - SWIITCH_NOTARY_PROFILE names credentials stored with `notarytool
+#     store-credentials`.
 #
 # Usage:
-#   Scripts/build_release.sh <version>
+#   Scripts/build_release.sh <version> <build-number>
 # Example:
-#   Scripts/build_release.sh 0.1.0
+#   Scripts/build_release.sh 0.2.0 48
 
 set -euo pipefail
 
-if [ $# -lt 1 ]; then
-    echo "Usage: $0 <version>" >&2
+if [ $# -ne 2 ]; then
+    echo "Usage: $0 <version> <build-number>" >&2
     exit 1
 fi
 
 VERSION="$1"
+BUILD_NUMBER="$2"
+if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
+    echo "Version must look like 1.2.3 or 1.2.3-beta.1 (got: $VERSION)" >&2
+    exit 1
+fi
+
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BUILD_DIR="$REPO_ROOT/build"
 RELEASE_DIR="$BUILD_DIR/Release"
@@ -30,12 +40,27 @@ ZIP_NAME="Swiitch-v${VERSION}.zip"
 
 cd "$REPO_ROOT"
 
-# Build number = total git commit count. Monotonically increases with every commit
-# so each release gets a unique, larger CFBundleVersion than the last. Without this,
-# Sparkle compares appcast `sparkle:version` against installed `CFBundleVersion` and
-# misclassifies the installed binary as "older" forever, causing an update loop.
-BUILD_NUMBER="$(git rev-list --count HEAD)"
-echo "==> Build number (git commit count): $BUILD_NUMBER"
+# Release source must be reviewed/committed, and the explicit number must exceed both
+# the local feed and the actual published feed. A failed download fails closed.
+if [ -n "$(git status --porcelain --untracked-files=normal)" ]; then
+    echo "Working tree is dirty. Commit and review the release source before packaging." >&2
+    exit 1
+fi
+bash Scripts/validate_release_number.sh "$BUILD_NUMBER" appcast.xml
+mkdir -p "$DIST_DIR"
+if [ -e "$DIST_DIR/$ZIP_NAME" ]; then
+    echo "Release artifact already exists. Refusing to overwrite it." >&2
+    exit 1
+fi
+swiitch_gate_dir="$(mktemp -d "$BUILD_DIR/release-gate.XXXXXX")"
+swiitch_feed_url="$(/usr/libexec/PlistBuddy -c 'Print :SUFeedURL' Swiitch/Resources/Info.plist)"
+curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' --max-time 20 \
+    "$swiitch_feed_url" --output "$swiitch_gate_dir/published.xml"
+bash Scripts/validate_release_number.sh "$BUILD_NUMBER" appcast.xml "$swiitch_gate_dir/published.xml"
+if [ -z "${SWIITCH_NOTARY_PROFILE:-}" ]; then
+    echo "SWIITCH_NOTARY_PROFILE must name a notarytool Keychain profile." >&2
+    exit 1
+fi
 
 echo "==> Regenerating project"
 xcodegen generate >/dev/null
@@ -46,21 +71,60 @@ xcodebuild \
     -scheme Swiitch \
     -configuration Release \
     -derivedDataPath "$BUILD_DIR/DerivedData" \
+    -onlyUsePackageVersionsFromResolvedFile \
     SYMROOT="$BUILD_DIR" \
     CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
     MARKETING_VERSION="$VERSION" \
-    build | tail -5
+    ARCHS="arm64 x86_64" \
+    ONLY_ACTIVE_ARCH=NO \
+    clean build | tail -5
 
 APP_PATH="$RELEASE_DIR/Swiitch.app"
 if [ ! -d "$APP_PATH" ]; then
     echo "Build did not produce $APP_PATH" >&2
     exit 1
 fi
+test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP_PATH/Contents/Info.plist")" = "$BUILD_NUMBER"
+test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP_PATH/Contents/Info.plist")" = "$VERSION"
+
+echo "==> Verifying universal architecture"
+BUILT_ARCHS="$(lipo -archs "$APP_PATH/Contents/MacOS/Swiitch")"
+for REQUIRED_ARCH in arm64 x86_64; do
+    if [[ " $BUILT_ARCHS " != *" $REQUIRED_ARCH "* ]]; then
+        echo "Release is missing $REQUIRED_ARCH (built: $BUILT_ARCHS)" >&2
+        exit 1
+    fi
+done
+
+echo "==> Verifying Developer ID signature + hardened runtime"
+codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+SIGNING_INFO="$(codesign -dv --verbose=4 "$APP_PATH" 2>&1)"
+if ! printf '%s\n' "$SIGNING_INFO" | grep -q '^Authority=Developer ID Application:'; then
+    echo "Release is not signed with a Developer ID Application certificate." >&2
+    echo "Refusing to publish an ad-hoc or development-signed build." >&2
+    exit 1
+fi
+if ! printf '%s\n' "$SIGNING_INFO" | grep -q 'flags=.*runtime'; then
+    echo "Release is missing the hardened-runtime signature flag." >&2
+    exit 1
+fi
 
 mkdir -p "$DIST_DIR"
 ZIP_PATH="$DIST_DIR/$ZIP_NAME"
-rm -f "$ZIP_PATH"
 
+NOTARY_ZIP="$swiitch_gate_dir/notarization.zip"
+echo "==> Submitting app for notarization"
+( cd "$RELEASE_DIR" && /usr/bin/ditto -c -k --sequesterRsrc --keepParent Swiitch.app "$NOTARY_ZIP" )
+xcrun notarytool submit "$NOTARY_ZIP" \
+    --keychain-profile "$SWIITCH_NOTARY_PROFILE" \
+    --wait
+
+echo "==> Stapling notarization ticket"
+xcrun stapler staple "$APP_PATH"
+xcrun stapler validate "$APP_PATH"
+rm -f "$NOTARY_ZIP"
+
+test ! -e "$ZIP_PATH"
 echo "==> Zipping app to $ZIP_PATH"
 ( cd "$RELEASE_DIR" && /usr/bin/ditto -c -k --sequesterRsrc --keepParent Swiitch.app "$ZIP_PATH" )
 

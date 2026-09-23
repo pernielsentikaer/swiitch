@@ -15,6 +15,14 @@ struct ShortcutRecorder: View {
     @AppStorage private var modifierRaw: Int
     @State private var recording: Bool = false
     @State private var monitor: Any?
+    @State private var recordingOwner = UUID()
+    @State private var validationMessage: String?
+    @Environment(\.isEnabled) private var isEnabled
+    @ObservedObject private var session = ShortcutRecordingSession.shared
+    @AppStorage(Preferences.Key.hotkeyKeyCode) private var primaryKey = 48
+    @AppStorage(Preferences.Key.hotkeyModifierFlags) private var primaryFlags = Int(CGEventFlags.maskCommand.rawValue)
+    @AppStorage(Preferences.Key.currentAppHotkeyKeyCode) private var secondaryKey = 48
+    @AppStorage(Preferences.Key.currentAppHotkeyModifierFlags) private var secondaryFlags = Int(CGEventFlags.maskAlternate.rawValue)
 
     init(
         keyCodeKey: String,
@@ -31,36 +39,55 @@ struct ShortcutRecorder: View {
     }
 
     var body: some View {
-        HStack(spacing: 12) {
-            Button(action: toggleRecording) {
-                HStack(spacing: 6) {
-                    Image(systemName: recording ? "keyboard.fill" : "keyboard")
-                    Text(recording
-                         ? "Press a key…"
-                         : Shortcut.label(keyCode: keyCode, flags: CGEventFlags(rawValue: UInt64(modifierRaw))))
-                        .font(.system(.callout, design: .monospaced))
+        VStack(alignment: .trailing, spacing: 4) {
+            HStack(spacing: 12) {
+                Button(action: toggleRecording) {
+                    HStack(spacing: 6) {
+                        Image(systemName: recording ? "keyboard.fill" : "keyboard")
+                        Text(recording
+                             ? String(localized: "Press a key…")
+                             : Shortcut.label(keyCode: keyCode, flags: CGEventFlags(rawValue: UInt64(modifierRaw))))
+                            .font(.system(.callout, design: .monospaced))
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .frame(minWidth: 160, alignment: .leading)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .fill(recording ? Color.accentColor.opacity(0.15) : Color.primary.opacity(0.06))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                    .strokeBorder(recording ? Color.accentColor : Color.primary.opacity(0.15), lineWidth: 1)
+                            )
+                    )
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .frame(minWidth: 160, alignment: .leading)
-                .background(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .fill(recording ? Color.accentColor.opacity(0.15) : Color.primary.opacity(0.06))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                .strokeBorder(recording ? Color.accentColor : Color.primary.opacity(0.15), lineWidth: 1)
-                        )
-                )
-            }
-            .buttonStyle(.plain)
+                .buttonStyle(.plain)
+                .accessibilityLabel(recording ? String(localized: "Recording shortcut. Press Escape to cancel.") : String(localized: "Record shortcut"))
+                .accessibilityValue(Shortcut.label(keyCode: keyCode, flags: CGEventFlags(rawValue: UInt64(modifierRaw))))
 
-            Button("Reset") {
-                keyCode = defaultKeyCode
-                modifierRaw = Int(defaultModifiers.rawValue)
+                Button("Reset") {
+                    stopRecording()
+                    save(key: defaultKeyCode, flags: defaultModifiers)
+                }
+                .controlSize(.small)
             }
-            .controlSize(.small)
+            if let validationMessage {
+                Text(validationMessage)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .onDisappear { stopRecording() }
+        .onChange(of: isEnabled) { _, enabled in
+            if !enabled { stopRecording() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in
+            stopRecording()
+        }
+        .onReceive(session.$owner) { owner in
+            if recording, owner != recordingOwner { stopRecording() }
+        }
     }
 
     private func toggleRecording() {
@@ -72,23 +99,23 @@ struct ShortcutRecorder: View {
     }
 
     private func startRecording() {
+        validationMessage = nil
+        session.begin(owner: recordingOwner) { key, flags in self.captureKey(key, flags: flags) }
         recording = true
         monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .flagsChanged]) { event in
-            if event.keyCode == UInt16(kVK_Escape) {
-                self.stopRecording()
-                return nil
-            }
             guard event.type == .keyDown else { return event }
             let cgFlags = CGEventFlags(rawValue: UInt64(event.modifierFlags.rawValue & NSEvent.ModifierFlags.deviceIndependentFlagsMask.rawValue))
-            let modifierMask: CGEventFlags = [.maskCommand, .maskAlternate, .maskControl, .maskShift]
-            let usefulFlags = cgFlags.intersection(modifierMask)
-            guard !usefulFlags.isEmpty else { return nil }
-
-            self.keyCode = Int(event.keyCode)
-            self.modifierRaw = Int(usefulFlags.rawValue)
-            self.stopRecording()
+            self.captureKey(Int(event.keyCode), flags: cgFlags)
             return nil
         }
+    }
+
+    private func captureKey(_ key: Int, flags: CGEventFlags) {
+        guard recording else { return }
+        if key == kVK_Escape { stopRecording(); return }
+        let usefulFlags = flags.intersection(Shortcut.modifierMask)
+        guard !usefulFlags.isEmpty else { return }
+        if save(key: key, flags: usefulFlags) { stopRecording() }
     }
 
     private func stopRecording() {
@@ -97,5 +124,21 @@ struct ShortcutRecorder: View {
             self.monitor = nil
         }
         recording = false
+        validationMessage = nil
+        session.end(owner: recordingOwner)
+    }
+
+    @discardableResult
+    private func save(key: Int, flags: CGEventFlags) -> Bool {
+        let other = keyCodeKey == Preferences.Key.hotkeyKeyCode
+            ? (secondaryKey, secondaryFlags) : (primaryKey, primaryFlags)
+        guard !Shortcut.conflicts((key, flags), (other.0, CGEventFlags(rawValue: UInt64(other.1)))) else {
+            validationMessage = String(localized: "Already used by the other shortcut or its Shift-reverse. Choose another combination.")
+            return false
+        }
+        keyCode = key
+        modifierRaw = Int(flags.rawValue)
+        validationMessage = nil
+        return true
     }
 }

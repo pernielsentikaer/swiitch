@@ -1,11 +1,14 @@
 name: Swiitch
 options:
+  # Keep generated projects readable by Xcode 15.4 on the macOS 14 CI runner.
+  projectFormat: xcode15_3
   bundleIdPrefix: com.swiitch
   deploymentTarget:
     macOS: "14.0"
   createIntermediateGroups: true
   developmentLanguage: en
   groupSortPosition: top
+  postGenCommand: bash Scripts/sync_package_lock.sh
 
 packages:
   Sparkle:
@@ -30,7 +33,12 @@ settings:
     CURRENT_PROJECT_VERSION: "1"
     DEAD_CODE_STRIPPING: YES
     SWIFT_STRICT_CONCURRENCY: minimal
+    SWIFT_EMIT_LOC_STRINGS: YES
     GENERATE_INFOPLIST_FILE: NO
+  configs:
+    Release:
+      ARCHS: "arm64 x86_64"
+      ONLY_ACTIVE_ARCH: NO
 
 targets:
   Swiitch:
@@ -53,3 +61,26 @@ targets:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         LD_RUNPATH_SEARCH_PATHS: "@executable_path/../Frameworks"
         COMBINE_HIDPI_IMAGES: YES
+
+  SwiitchTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - SwiitchTests
+    dependencies:
+      - target: Swiitch
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_NAME: SwiitchTests
+        PRODUCT_BUNDLE_IDENTIFIER: com.swiitch.SwiitchTests
+
+schemes:
+  Swiitch:
+    build:
+      targets:
+        Swiitch: all
+        SwiitchTests: [test]
+    test:
+      targets:
+        - SwiitchTests

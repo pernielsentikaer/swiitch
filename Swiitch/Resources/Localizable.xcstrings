@@ -1,0 +1,2096 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    "%@ is currently unavailable.": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ er ikke tilgængelig lige nu."
+          }
+        }
+      }
+    },
+    "%@ isn’t supported by this window.": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ understøttes ikke af dette vindue."
+          }
+        }
+      }
+    },
+    "%@ — Example %lld": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ — Eksempel %lld"
+          }
+        }
+      }
+    },
+    "%@ — currently unavailable.": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ — ikke tilgængelig lige nu."
+          }
+        }
+      }
+    },
+    "%@ — not supported by this window.": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ — understøttes ikke af dette vindue."
+          }
+        }
+      }
+    },
+    "%lld": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld"
+          }
+        }
+      }
+    },
+    "%lld apps": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld apps"
+          }
+        }
+      }
+    },
+    "%lld apps excluded": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld apps er udeladt"
+          }
+        }
+      }
+    },
+    "%lld columns × %lld rows · %@": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld kolonner × %lld rækker · %@"
+          }
+        }
+      }
+    },
+    "%lld ms": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld ms"
+          }
+        }
+      }
+    },
+    "%lld pt": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld pkt."
+          }
+        }
+      }
+    },
+    "%lld windows": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld vinduer"
+          }
+        }
+      }
+    },
+    "%lld%% of screen": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld%% af skærmen"
+          }
+        }
+      }
+    },
+    "1 app excluded": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 app er udeladt"
+          }
+        }
+      }
+    },
+    "1 window": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 vindue"
+          }
+        }
+      }
+    },
+    "A native ⌘+Tab replacement that lets you switch between every window — not just apps.": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En ⌘+Tab-erstatning til Mac, der lader dig skifte mellem alle vinduer — ikke kun apps."
+          }
+        }
+      }
+    },
+    "A preview could not be captured. Swiitch retries automatically; you can still switch to this window.": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forhåndsvisningen kunne ikke hentes. Swiitch prøver automatisk igen. Du kan stadig skifte til vinduet."
+          }
+        }
+      }
+    },
+    "About": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Om"
+          }
+        }
+      }
+    },
+    "Accent color": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accentfarve"
+          }
+        }
+      }
+    },
+    "Accessibility": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilgængelighed"
+          }
+        }
+      }
+    },
+    "Accessibility access": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adgang til tilgængelighed"
+          }
+        }
+      }
+    },
+    "Accessibility access is needed. Open Swiitch’s General settings.": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adgang til tilgængelighed er nødvendig. Åbn Generelt i Swiitchs indstillinger."
+          }
+        }
+      }
+    },
+    "Activate to restore and switch to this window. Window actions are available in the Actions menu.": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktivér for at gendanne og skifte til dette vindue. Vindueshandlinger findes i menuen Handlinger."
+          }
+        }
+      }
+    },
+    "Activate to switch to this window. Window actions are available in the Actions menu.": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktivér for at skifte til dette vindue. Vindueshandlinger findes i menuen Handlinger."
+          }
+        }
+      }
+    },
+    "Active screen (frontmost window)": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skærmen med det aktive vindue"
+          }
+        }
+      }
+    },
+    "Add App…": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilføj app…"
+          }
+        }
+      }
+    },
+    "Add an app to hide all of its windows from Swiitch.": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilføj en app for at skjule alle dens vinduer i Swiitch."
+          }
+        }
+      }
+    },
+    "All apps are included": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle apps vises"
+          }
+        }
+      }
+    },
+    "All visible": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle er synlige"
+          }
+        }
+      }
+    },
+    "All windows": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle vinduer"
+          }
+        }
+      }
+    },
+    "Already used by the other shortcut or its Shift-reverse. Choose another combination.": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bruges allerede af den anden genvej eller dens omvendte retning med Skift. Vælg en anden kombination."
+          }
+        }
+      }
+    },
+    "App icon overlay": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Placering af appikon"
+          }
+        }
+      }
+    },
+    "App layout preview": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forhåndsvisning af apps"
+          }
+        }
+      }
+    },
+    "Appearance": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Udseende"
+          }
+        }
+      }
+    },
+    "Applies when viewing an app’s windows.": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gælder ved visning af en apps vinduer."
+          }
+        }
+      }
+    },
+    "Approval required in System Settings → General → Login Items.": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Godkendelse kræves i Systemindstillinger → Generelt → Loginemner."
+          }
+        }
+      }
+    },
+    "Apps first": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apps først"
+          }
+        }
+      }
+    },
+    "Automatic": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatisk"
+          }
+        }
+      }
+    },
+    "Automatically check for updates": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Søg automatisk efter opdateringer"
+          }
+        }
+      }
+    },
+    "Background": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Baggrund"
+          }
+        }
+      }
+    },
+    "Bottom Left": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nederst til venstre"
+          }
+        }
+      }
+    },
+    "Bottom Right": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nederst til højre"
+          }
+        }
+      }
+    },
+    "Capturing a preview. You can switch to this window now.": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Henter forhåndsvisning. Du kan skifte til vinduet allerede nu."
+          }
+        }
+      }
+    },
+    "Center": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Midten"
+          }
+        }
+      }
+    },
+    "Check for Updates…": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Søg efter opdateringer…"
+          }
+        }
+      }
+    },
+    "Choose Apps to Exclude": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vælg apps, der skal udelades"
+          }
+        }
+      }
+    },
+    "Choose a window": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vælg et vindue"
+          }
+        }
+      }
+    },
+    "Classic": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klassisk"
+          }
+        }
+      }
+    },
+    "Click a recorder, press your shortcut. Esc cancels. The second hotkey jumps straight to the frontmost app's windows.": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klik på et genvejsfelt, og tryk på din genvej. Esc annullerer. Den anden genvej går direkte til den aktive apps vinduer."
+          }
+        }
+      }
+    },
+    "Close window": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Luk vindue"
+          }
+        }
+      }
+    },
+    "Collecting diagnostics…": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indsamler diagnostik…"
+          }
+        }
+      }
+    },
+    "Color tint": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Farvetone"
+          }
+        }
+      }
+    },
+    "Copied to clipboard.": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopieret til udklipsholderen."
+          }
+        }
+      }
+    },
+    "Copy Report": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopiér rapport"
+          }
+        }
+      }
+    },
+    "Corner radius": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hjørneradius"
+          }
+        }
+      }
+    },
+    "Couldn’t %@ this window. Please try again.": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kunne ikke %@ dette vindue. Prøv igen."
+          }
+        }
+      }
+    },
+    "Couldn’t change Launch at Login. Try again or check Login Items in System Settings.": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kunne ikke ændre Åbn ved login. Prøv igen, eller kontrollér Loginemner i Systemindstillinger."
+          }
+        }
+      }
+    },
+    "Couldn’t copy the report. Please try again.": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kunne ikke kopiere rapporten. Prøv igen."
+          }
+        }
+      }
+    },
+    "Couldn’t create the diagnostics report. Please try again.": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kunne ikke oprette diagnostikrapporten. Prøv igen."
+          }
+        }
+      }
+    },
+    "Couldn’t hide this app. Please try again.": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kunne ikke skjule denne app. Prøv igen."
+          }
+        }
+      }
+    },
+    "Couldn’t safely identify this window. Please try again.": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kunne ikke identificere vinduet med sikkerhed. Prøv igen."
+          }
+        }
+      }
+    },
+    "Current app's windows": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den aktive apps vinduer"
+          }
+        }
+      }
+    },
+    "Custom": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilpasset"
+          }
+        }
+      }
+    },
+    "Dark": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mørk"
+          }
+        }
+      }
+    },
+    "Default macOS blur. Balanced.": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standardudviskning i macOS. Balanceret."
+          }
+        }
+      }
+    },
+    "Development builds check only when you choose Check for Updates.": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Udviklingsversioner søger kun, når du vælger Søg efter opdateringer."
+          }
+        }
+      }
+    },
+    "Diagnostics": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diagnostik"
+          }
+        }
+      }
+    },
+    "Display": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Visning"
+          }
+        }
+      }
+    },
+    "Done": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK"
+          }
+        }
+      }
+    },
+    "Don’t show": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis ikke"
+          }
+        }
+      }
+    },
+    "Enable Screen Recording in Swiitch Preferences → General to show previews. Window switching still works without it.": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tillad skærmoptagelse under Generelt i Swiitchs indstillinger for at vise forhåndsvisninger. Du kan stadig skifte vinduer uden."
+          }
+        }
+      }
+    },
+    "Example items only. Does not change your open windows.": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kun eksempler. Dine åbne vinduer ændres ikke."
+          }
+        }
+      }
+    },
+    "Exclude": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Udelad"
+          }
+        }
+      }
+    },
+    "Exclude from Swiitch": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Udelad fra Swiitch"
+          }
+        }
+      }
+    },
+    "Excluded apps": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Udeladte apps"
+          }
+        }
+      }
+    },
+    "Fill Screen": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fyld skærmen"
+          }
+        }
+      }
+    },
+    "Follow system": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Følg systemet"
+          }
+        }
+      }
+    },
+    "Frosted": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Matteret"
+          }
+        }
+      }
+    },
+    "General": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Generelt"
+          }
+        }
+      }
+    },
+    "Get Started": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kom i gang"
+          }
+        }
+      }
+    },
+    "Gradient edges": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tonede kanter"
+          }
+        }
+      }
+    },
+    "Granted": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilladt"
+          }
+        }
+      }
+    },
+    "Heavily blurred — barely shows what's behind.": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kraftig udviskning — baggrunden er næsten ikke synlig."
+          }
+        }
+      }
+    },
+    "Hidden": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skjult"
+          }
+        }
+      }
+    },
+    "Hotkeys": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tastaturgenveje"
+          }
+        }
+      }
+    },
+    "Hotkeys, appearance, menu bar and Dock icons, pinned apps, and excluded apps will all be reset. Launch at Login and onboarding are left as they are.": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tastaturgenveje, udseende, menulinje- og Dock-ikoner, fastgjorte apps og udeladte apps nulstilles. Åbn ved login og introduktionen ændres ikke."
+          }
+        }
+      }
+    },
+    "Hovering — or navigating with the keyboard — to a cell will bring that window forward without dismissing the picker. Release ⌘ commits.": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hold markøren over et vindue, eller vælg det med tastaturet, for at vise det forrest uden at lukke vinduesvælgeren. Slip ⌘ for at bekræfte."
+          }
+        }
+      }
+    },
+    "Include %@ again": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis %@ igen"
+          }
+        }
+      }
+    },
+    "Include this app again": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis denne app igen"
+          }
+        }
+      }
+    },
+    "Include windows from other Spaces": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Medtag vinduer fra andre Spaces"
+          }
+        }
+      }
+    },
+    "Key %lld": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tast %lld"
+          }
+        }
+      }
+    },
+    "Keyboard shortcut temporarily unavailable. Swiitch is retrying automatically.": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tastaturgenvejen er midlertidigt utilgængelig. Swiitch prøver automatisk igen."
+          }
+        }
+      }
+    },
+    "Large": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stor"
+          }
+        }
+      }
+    },
+    "Launch Swiitch at login": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Åbn Swiitch ved login"
+          }
+        }
+      }
+    },
+    "Keep in recent order": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Efter seneste brug"
+          }
+        }
+      }
+    },
+    "Launch at login": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Åbn ved login"
+          }
+        }
+      }
+    },
+    "Layout": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Layout"
+          }
+        }
+      }
+    },
+    "Light": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lys"
+          }
+        }
+      }
+    },
+    "Loading preview…": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Henter forhåndsvisning…"
+          }
+        }
+      }
+    },
+    "Login item unavailable. Keep Swiitch in Applications and try again.": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Loginemnet er utilgængeligt. Placér Swiitch i Programmer, og prøv igen."
+          }
+        }
+      }
+    },
+    "Main screen": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hovedskærm"
+          }
+        }
+      }
+    },
+    "Maximum width": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maksimal bredde"
+          }
+        }
+      }
+    },
+    "Medium": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mellem"
+          }
+        }
+      }
+    },
+    "Minimal": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minimal"
+          }
+        }
+      }
+    },
+    "Minimize window": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minimer vindue"
+          }
+        }
+      }
+    },
+    "Minimized": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minimeret"
+          }
+        }
+      }
+    },
+    "Minimized windows": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minimerede vinduer"
+          }
+        }
+      }
+    },
+    "Minimized windows can be included even when other Spaces are hidden. The screen filter still applies.": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minimerede vinduer kan vises, selv når andre Spaces er skjult. Skærmfilteret gælder stadig."
+          }
+        }
+      }
+    },
+    "Most see-through. Lets the desktop / app behind show clearly.": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mest gennemsigtig. Skrivebordet eller appen bagved ses tydeligt."
+          }
+        }
+      }
+    },
+    "Navigation": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Navigation"
+          }
+        }
+      }
+    },
+    "No apps or windows match \"%@\"": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen apps eller vinduer matcher \"%@\""
+          }
+        }
+      }
+    },
+    "No matches": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen resultater"
+          }
+        }
+      }
+    },
+    "None": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen"
+          }
+        }
+      }
+    },
+    "Only show windows on that screen": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis kun vinduer på den skærm"
+          }
+        }
+      }
+    },
+    "Opaque light grey. No translucency.": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dækkende lysegrå. Ingen gennemsigtighed."
+          }
+        }
+      }
+    },
+    "Opaque near-black. No translucency.": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dækkende, næsten sort. Ingen gennemsigtighed."
+          }
+        }
+      }
+    },
+    "Opaque system background. Automatically follows Light and Dark appearance.": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dækkende systembaggrund. Følger automatisk lyst og mørkt udseende."
+          }
+        }
+      }
+    },
+    "Open Login Items…": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Åbn Loginemner…"
+          }
+        }
+      }
+    },
+    "Open Settings…": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Åbn indstillinger…"
+          }
+        }
+      }
+    },
+    "Optional. Enables live thumbnails of each window in the switcher.": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Valgfrit. Giver opdaterede forhåndsvisninger af hvert vindue i vinduesvælgeren."
+          }
+        }
+      }
+    },
+    "Optional. Enables live window thumbnails in the switcher.": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Valgfrit. Giver opdaterede vinduesforhåndsvisninger i vinduesvælgeren."
+          }
+        }
+      }
+    },
+    "Peek": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kig på vinduer"
+          }
+        }
+      }
+    },
+    "Peek after": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis efter"
+          }
+        }
+      }
+    },
+    "Peek window on hover": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis vinduet, når markøren holdes over det"
+          }
+        }
+      }
+    },
+    "Permissions": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilladelser"
+          }
+        }
+      }
+    },
+    "Pin to top": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fastgør øverst"
+          }
+        }
+      }
+    },
+    "Preferences": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indstillinger"
+          }
+        }
+      }
+    },
+    "Preferences…": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indstillinger…"
+          }
+        }
+      }
+    },
+    "Preset": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forudindstilling"
+          }
+        }
+      }
+    },
+    "Presets bulk-apply background, radius, thumbnail size, overlay, and accent. Tweaking any value below switches to Custom.": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forudindstillinger ændrer baggrund, hjørner, miniaturestørrelse, appikon og accentfarve samlet. Ændrer du en værdi nedenfor, skiftes der til Tilpasset."
+          }
+        }
+      }
+    },
+    "Press Down Arrow to choose a window.": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tryk på pil ned for at vælge et vindue."
+          }
+        }
+      }
+    },
+    "Press Return to switch to this app.": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tryk på Retur for at skifte til denne app."
+          }
+        }
+      }
+    },
+    "Press a key…": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tryk på en tast…"
+          }
+        }
+      }
+    },
+    "Preview unavailable": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forhåndsvisning utilgængelig"
+          }
+        }
+      }
+    },
+    "Quit Swiitch": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slut Swiitch"
+          }
+        }
+      }
+    },
+    "Raycast": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Raycast"
+          }
+        }
+      }
+    },
+    "Record shortcut": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indstil tastaturgenvej"
+          }
+        }
+      }
+    },
+    "Recording shortcut. Press Escape to cancel.": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indstiller tastaturgenvej. Tryk på Esc for at annullere."
+          }
+        }
+      }
+    },
+    "Release ⌘ before this delay to switch without showing the panel.": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slip ⌘, inden tiden er gået, for at skifte uden at vise panelet."
+          }
+        }
+      }
+    },
+    "Required to list, raise, and switch between windows in other apps.": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kræves for at finde, vise og skifte mellem vinduer i andre apps."
+          }
+        }
+      }
+    },
+    "Required. Lets Swiitch list and raise windows across other apps, and intercept ⌘+Tab.": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Påkrævet. Lader Swiitch finde og vise vinduer i andre apps og overtage ⌘+Tab."
+          }
+        }
+      }
+    },
+    "Reset": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nulstil"
+          }
+        }
+      }
+    },
+    "Reset All Settings to Defaults…": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nulstil alle indstillinger…"
+          }
+        }
+      }
+    },
+    "Reset all settings to defaults?": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nulstil alle indstillinger?"
+          }
+        }
+      }
+    },
+    "Resizes tiles to use this width while keeping every window visible on the active display.": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilpasser miniaturestørrelsen til denne bredde, så alle vinduer er synlige på den aktive skærm."
+          }
+        }
+      }
+    },
+    "Return": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retur"
+          }
+        }
+      }
+    },
+    "Review Diagnostics…": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gennemse diagnostik…"
+          }
+        }
+      }
+    },
+    "Review before sharing. Includes app/OS versions, permission states, and anonymous counts and timings. No window titles, URLs, screenshots, paths, or app list.": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gennemse før deling. Indeholder app- og systemversioner, tilladelser samt anonyme antal og tidsmålinger. Ingen vinduestitler, URL-adresser, skærmbilleder, filstier eller appliste."
+          }
+        }
+      }
+    },
+    "Sample count": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Antal eksempler"
+          }
+        }
+      }
+    },
+    "Scaled example on a %lld × %lld pt display. Dashed outline shows maximum width.": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skaleret eksempel på en skærm på %lld × %lld pkt. Den stiplede ramme viser den maksimale bredde."
+          }
+        }
+      }
+    },
+    "Scanlines": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skærmlinjer"
+          }
+        }
+      }
+    },
+    "Scope": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afgrænsning"
+          }
+        }
+      }
+    },
+    "Screen Recording": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skærmoptagelse"
+          }
+        }
+      }
+    },
+    "Screen Recording needed": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skærmoptagelse kræves"
+          }
+        }
+      }
+    },
+    "Screen with mouse pointer": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skærmen med markøren"
+          }
+        }
+      }
+    },
+    "Scrolls for more": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rul for at se flere"
+          }
+        }
+      }
+    },
+    "Shift cycles backward (without Tab)": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skift går baglæns (uden Tab)"
+          }
+        }
+      }
+    },
+    "Show Dock icon": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis ikon i Dock"
+          }
+        }
+      }
+    },
+    "Show after": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis efter"
+          }
+        }
+      }
+    },
+    "Show menu bar icon": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis ikon i menulinjen"
+          }
+        }
+      }
+    },
+    "Show last": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis sidst"
+          }
+        }
+      }
+    },
+    "Show on screen": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis på skærm"
+          }
+        }
+      }
+    },
+    "Show window controls on hover": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis vinduesknapper, når markøren holdes over"
+          }
+        }
+      }
+    },
+    "Shows close, minimize, and native zoom controls on the window under the pointer. Unavailable controls are dimmed. With the default shortcut, use ⌃⌘H to hide the selected app.": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Viser knapper til at lukke, minimere og zoome vinduet under markøren. Utilgængelige knapper er nedtonet. Med standardgenvejen kan du bruge ⌃⌘H til at skjule den valgte app."
+          }
+        }
+      }
+    },
+    "Small": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lille"
+          }
+        }
+      }
+    },
+    "Solid": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dækkende"
+          }
+        }
+      }
+    },
+    "Solid Dark": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dækkende mørk"
+          }
+        }
+      }
+    },
+    "Solid Light": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dækkende lys"
+          }
+        }
+      }
+    },
+    "Space": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mellemrum"
+          }
+        }
+      }
+    },
+    "Spotlight": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spotlight"
+          }
+        }
+      }
+    },
+    "Startup": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opstart"
+          }
+        }
+      }
+    },
+    "Swiitch": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Swiitch"
+          }
+        }
+      }
+    },
+    "Switch directly between every open window.": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skift direkte mellem alle åbne vinduer."
+          }
+        }
+      }
+    },
+    "Switcher": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vinduesvælger"
+          }
+        }
+      }
+    },
+    "Switcher panel": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vinduesvælgerens panel"
+          }
+        }
+      }
+    },
+    "Synthwave": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Synthwave"
+          }
+        }
+      }
+    },
+    "System": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "System"
+          }
+        }
+      }
+    },
+    "System appearance": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Systemets udseende"
+          }
+        }
+      }
+    },
+    "Theme": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tema"
+          }
+        }
+      }
+    },
+    "These shortcuts overlap, including Shift-reverse. Choose different combinations.": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Genvejene overlapper, også med Skift til omvendt retning. Vælg forskellige kombinationer."
+          }
+        }
+      }
+    },
+    "This window is no longer available.": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dette vindue er ikke længere tilgængeligt."
+          }
+        }
+      }
+    },
+    "Thumbnail effect": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Miniatureeffekt"
+          }
+        }
+      }
+    },
+    "Thumbnail size": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Miniaturestørrelse"
+          }
+        }
+      }
+    },
+    "Timing": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forsinkelse"
+          }
+        }
+      }
+    },
+    "Top Left": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Øverst til venstre"
+          }
+        }
+      }
+    },
+    "Top Right": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Øverst til højre"
+          }
+        }
+      }
+    },
+    "Translucent": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gennemsigtig"
+          }
+        }
+      }
+    },
+    "Translucent (light)": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gennemsigtig (let)"
+          }
+        }
+      }
+    },
+    "Unknown": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ukendt"
+          }
+        }
+      }
+    },
+    "Unpin from top": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Frigør fra toppen"
+          }
+        }
+      }
+    },
+    "Untitled": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uden titel"
+          }
+        }
+      }
+    },
+    "Updates": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opdateringer"
+          }
+        }
+      }
+    },
+    "Use Tab or ← → to switch apps. Press ↓ to choose a window.": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brug Tab eller ← → til at skifte app. Tryk på ↓ for at vælge et vindue."
+          }
+        }
+      }
+    },
+    "Uses your selected thumbnail size and wraps windows into additional rows.": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bruger den valgte miniaturestørrelse og fordeler vinduerne på flere rækker."
+          }
+        }
+      }
+    },
+    "Version %@ (%@)": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Version %@ (%@)"
+          }
+        }
+      }
+    },
+    "Visibility": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Synlighed"
+          }
+        }
+      }
+    },
+    "Welcome to Swiitch": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Velkommen til Swiitch"
+          }
+        }
+      }
+    },
+    "When on, pressing Shift while ⌘ is held cycles to the previous app/window. Same effect as ⌘+⇧+Tab, fewer keys.": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når funktionen er slået til, går Skift til den forrige app eller det forrige vindue, mens ⌘ holdes nede. Samme effekt som ⌘+⇧+Tab med færre taster."
+          }
+        }
+      }
+    },
+    "Window actions": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vindueshandlinger"
+          }
+        }
+      }
+    },
+    "Window cells": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vinduesfelter"
+          }
+        }
+      }
+    },
+    "Window grid": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vinduesgitter"
+          }
+        }
+      }
+    },
+    "Window layout preview": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forhåndsvisning af vinduer"
+          }
+        }
+      }
+    },
+    "With both icons hidden, open Swiitch from Finder or Spotlight to reach preferences.": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hvis begge ikoner er skjult, kan du åbne Swiitch fra Finder eller Spotlight for at få adgang til indstillingerne."
+          }
+        }
+      }
+    },
+    "You can also right-click an app in Swiitch and choose Exclude from Swiitch.": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Du kan også højreklikke på en app i Swiitch og vælge Udelad fra Swiitch."
+          }
+        }
+      }
+    },
+    "Zoom or restore window": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoom eller gendan vindue"
+          }
+        }
+      }
+    },
+    "close": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "lukke"
+          }
+        }
+      }
+    },
+    "minimize": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "minimere"
+          }
+        }
+      }
+    },
+    "zoom or restore": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "zoome eller gendanne"
+          }
+        }
+      }
+    },
+    "⌫ to delete": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⌫ for at slette"
+          }
+        }
+      }
+    }
+  },
+  "version": "1.0"
+}

@@ -7,9 +7,10 @@ Swiitch is a native macOS menubar utility (Swift 5.10, macOS 14+) that lets user
 ```
 SwiitchApp.swift          @main — MenuBarExtra + routes Preferences/Welcome to custom NSWindow controllers
 AppDelegate.swift         App shell, permission gating, UserDefaults observation
-Model/SwitcherModel.swift 3-mode ObservableObject state machine (apps / windowsForApp / flatWindows)
+Model/SwitcherModel.swift 4-mode ObservableObject state machine (apps / windowsForApp / flatWindows / currentAppWindows)
 Hotkey/HotkeyManager.swift CGEventTap, two configurable shortcuts
-Hotkey/FocusTracker.swift  MRU ordering via NSWorkspace activation notifications
+Hotkey/FocusTracker.swift  App/window MRU via NSWorkspace and focused-window AX notifications
+Windows/WindowDiscovery    Bounded background collection + short-lived snapshots; no mutable focus state crosses the worker boundary
 Windows/WindowEnumerator   CGWindowList + AX ghost-filter, screen-scope filtering
 Windows/WindowFocuser      AX raise + frontmost + activate, close, hide
 Windows/WindowThumbnails   ScreenCaptureKit + CGWindowList fallback (actor)
@@ -31,10 +32,10 @@ Key constraint: `_AXUIElementGetWindow` SPI in `AXPrivate.swift` is intentional.
 xcodegen generate
 
 # Build (CI-style)
-xcodebuild -project Swiitch.xcodeproj -scheme Swiitch -configuration Debug build
+xcodebuild -project Swiitch.xcodeproj -scheme Swiitch -configuration Debug test
 
 # Release
-Scripts/build_release.sh <version>
+Scripts/build_release.sh <version> <explicit-build-number>
 ```
 
 See `CONTRIBUTING.md` for local signing setup (required for stable TCC across rebuilds).
@@ -53,5 +54,7 @@ See `CONTRIBUTING.md` for the full style guide. Critical points agents must foll
 
 - `project.yml` (XcodeGen) is the source of truth for the Xcode project. **Never edit `.xcodeproj` directly.** After touching `project.yml`, run `xcodegen generate`.
 - Sparkle handles binary updates; `appcast.xml` at repo root is the feed.
+- Root `Package.resolved` is authoritative; XcodeGen copies it into the generated workspace. Use `-onlyUsePackageVersionsFromResolvedFile` for builds and update the lock deliberately.
+- Release packaging requires clean committed source and a build number above both local and published appcasts. Never publish a development/ad-hoc build or reset TCC to make an update work.
 - `build/` is gitignored — release artifacts never land in the repo.
 - `Config/Signing.local.xcconfig` is gitignored — contributors create their own from the `.example` template.

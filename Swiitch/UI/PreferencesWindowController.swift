@@ -13,6 +13,8 @@ final class PreferencesWindowController: NSObject, NSWindowDelegate {
     static let shared = PreferencesWindowController()
 
     private var window: NSWindow?
+    var onVisibilityChange: ((Bool) -> Void)?
+    var isOpen: Bool { window != nil }
 
     func show() {
         if let window {
@@ -24,25 +26,29 @@ final class PreferencesWindowController: NSObject, NSWindowDelegate {
 
         let hosting = NSHostingController(rootView: PreferencesView())
         let window = NSWindow(contentViewController: hosting)
-        window.title = "Swiitch Preferences"
-        window.styleMask = [.titled, .closable, .miniaturizable]
+        window.title = "Swiitch"
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        window.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
+        window.setContentSize(NSSize(width: 780, height: 600))
+        window.minSize = NSSize(width: 720, height: 520)
+        window.tabbingMode = .disallowed
         window.isReleasedWhenClosed = false
         window.center()
         window.delegate = self
         self.window = window
+        onVisibilityChange?(true)
 
         ensureActivatable()
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
     }
 
-    /// Ensure the app can show a real window. `.prohibited` is the only policy that
-    /// blocks key/main windows; `.accessory` is fine. We don't promote to `.regular`
-    /// — `AppDelegate.applyDockIconPreference()` owns that decision via the user's
-    /// "Show Dock icon" preference.
+    /// A regular activation policy keeps Preferences in the Dock and ⌘-Tab while it
+    /// is open. The app delegate restores the user's Dock-icon preference on close.
     private func ensureActivatable() {
-        if NSApp.activationPolicy() == .prohibited {
-            NSApp.setActivationPolicy(.accessory)
+        if NSApp.activationPolicy() != .regular {
+            NSApp.setActivationPolicy(.regular)
         }
     }
 
@@ -50,5 +56,6 @@ final class PreferencesWindowController: NSObject, NSWindowDelegate {
 
     func windowWillClose(_ notification: Notification) {
         window = nil
+        onVisibilityChange?(false)
     }
 }

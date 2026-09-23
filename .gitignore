@@ -15,6 +15,9 @@ Swiitch.xcodeproj/
 
 # Local signing overrides — never commit your cert SHA1 / team ID
 Config/Signing.local.xcconfig
+.env
+.env.*
+.dev.vars
 
 # Conductor (multi-agent workspace) internal state — screenshots, todos, etc.
 .context/
@@ -23,7 +26,7 @@ Config/Signing.local.xcconfig
 .build/
 .swiftpm/
 Packages/
-Package.resolved
+# Package.resolved at the root is the reviewed dependency lock.
 
 # Logs
 *.log

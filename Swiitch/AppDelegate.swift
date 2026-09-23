@@ -1,6 +1,14 @@
 import AppKit
 import SwiftUI
+import Combine
 
+enum StartupPresentation: Equatable {
+    case none
+    case welcome
+    case preferences
+}
+
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var panel: SwitcherPanel?
     private var model: SwitcherModel!
@@ -9,23 +17,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var axMonitorTimer: Timer?
     private var lastAXTrusted: Bool = false
     private var defaultsObserver: NSObjectProtocol?
+    private var capturePermissions: PermissionsMonitor?
+    private var capturePermissionObservation: AnyCancellable?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Hosted unit tests load the app executable, which also calls its delegate. Do not
+        // arm Sparkle, show onboarding, or install an event tap inside the test runner.
+        let isRunningTests = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+            || NSClassFromString("XCTestCase") != nil
+        guard !isRunningTests else {
+            return
+        }
+
         Preferences.registerDefaults()
         Preferences.applyAppearance()
 
-        // Touch the Sparkle updater singleton so its background-check schedule arms.
-        // The Info.plist flags `SUEnableAutomaticChecks` + `SUFeedURL` drive behavior.
-        _ = UpdateController.shared
-
-        // Sparkle's default scheduled-check cadence is conservative (24h) and the first
-        // tick has its own startup delay. For an app users launch and leave running,
-        // explicitly kick off a silent background check ~5s after launch so updates are
-        // surfaced on the same session they shipped. Silent if nothing's new; pops the
-        // standard Sparkle "An update is available" dialog if there is.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
-            UpdateController.shared.updaterController.updater.checkForUpdatesInBackground()
+        PreferencesWindowController.shared.onVisibilityChange = { [weak self] _ in
+            self?.applyDockIconPreference()
         }
+
+        #if !DEBUG
+        // Arm Sparkle so its background-check schedule starts.
+        // Debug builds intentionally skip automatic checks: their static build number is
+        // lower than published releases, which would otherwise offer a same-version update
+        // every time a contributor runs from Xcode. Manual checks remain available.
+        UpdateController.shared.arm()
+
+        // Sparkle schedules according to the user's preference; no forced launch check.
+        #endif
 
         applyDockIconPreference()
         observeDefaults()
@@ -34,9 +53,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         focusTracker.start()
 
         model = SwitcherModel(focusTracker: focusTracker)
+        WindowDiscovery.shared.start()
         model.onShow = { [weak self] in self?.showPanel() }
         model.onHide = { [weak self] in self?.hidePanel() }
         model.onUpdate = { [weak self] in self?.panel?.refresh() }
+
+        let permissions = PermissionsMonitor()
+        capturePermissions = permissions
+        capturePermissionObservation = permissions.$screenCaptureGranted.removeDuplicates().sink { [weak self] granted in
+            self?.model.updateScreenCapturePermission(granted)
+        }
+        permissions.start()
 
         hotkey = HotkeyManager(model: model)
 
@@ -51,10 +78,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         //  - Re-grant after either of the above
         startAXMonitor()
 
-        let needsOnboarding = !UserDefaults.standard.bool(forKey: Preferences.Key.hasCompletedOnboarding)
-        if needsOnboarding || !AXIsProcessTrusted() {
+        let hasCompletedOnboarding = UserDefaults.standard.bool(
+            forKey: Preferences.Key.hasCompletedOnboarding
+        )
+        switch Self.startupPresentation(
+            hasCompletedOnboarding: hasCompletedOnboarding,
+            accessibilityGranted: AXIsProcessTrusted()
+        ) {
+        case .none:
+            break
+        case .welcome:
             DispatchQueue.main.async {
                 WelcomeWindowController.shared.show()
+            }
+        case .preferences:
+            DispatchQueue.main.async {
+                PreferencesWindowController.shared.show()
             }
         }
     }
@@ -62,6 +101,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         axMonitorTimer?.invalidate()
         hotkey?.uninstall()
+        WindowDiscovery.shared.stop()
+        capturePermissions?.stop()
+        capturePermissionObservation?.cancel()
         if let defaultsObserver {
             NotificationCenter.default.removeObserver(defaultsObserver)
         }
@@ -79,7 +121,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func observeDefaults() {
         var lastDock = UserDefaults.standard.bool(forKey: Preferences.Key.showDockIcon)
-        var lastLogin = UserDefaults.standard.bool(forKey: Preferences.Key.launchAtLogin)
         var lastAppearance = UserDefaults.standard.string(forKey: Preferences.Key.appearance) ?? "system"
 
         defaultsObserver = NotificationCenter.default.addObserver(
@@ -90,12 +131,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let dock = UserDefaults.standard.bool(forKey: Preferences.Key.showDockIcon)
             if dock != lastDock {
                 lastDock = dock
-                self?.applyDockIconPreference()
-            }
-            let login = UserDefaults.standard.bool(forKey: Preferences.Key.launchAtLogin)
-            if login != lastLogin {
-                lastLogin = login
-                Preferences.syncLaunchAtLogin()
+                Task { @MainActor [weak self] in
+                    self?.applyDockIconPreference()
+                }
             }
             let appearance = UserDefaults.standard.string(forKey: Preferences.Key.appearance) ?? "system"
             if appearance != lastAppearance {
@@ -106,8 +144,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func applyDockIconPreference() {
-        let desired: NSApplication.ActivationPolicy =
-            UserDefaults.standard.bool(forKey: Preferences.Key.showDockIcon) ? .regular : .accessory
+        let desired = Self.activationPolicy(
+            showDockIcon: UserDefaults.standard.bool(forKey: Preferences.Key.showDockIcon),
+            preferencesOpen: PreferencesWindowController.shared.isOpen
+        )
         guard NSApp.activationPolicy() != desired else { return }
         NSApp.setActivationPolicy(desired)
 
@@ -118,6 +158,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if desired == .regular {
             NSApp.activate(ignoringOtherApps: true)
         }
+    }
+
+    nonisolated static func activationPolicy(
+        showDockIcon: Bool,
+        preferencesOpen: Bool
+    ) -> NSApplication.ActivationPolicy {
+        showDockIcon || preferencesOpen ? .regular : .accessory
+    }
+
+    /// First launch gets onboarding. If a completed installation later loses Accessibility
+    /// permission, General Preferences already contains the focused recovery UI; reopening the
+    /// entire Welcome flow would incorrectly make an update feel like a fresh installation.
+    nonisolated static func startupPresentation(
+        hasCompletedOnboarding: Bool,
+        accessibilityGranted: Bool
+    ) -> StartupPresentation {
+        if !hasCompletedOnboarding { return .welcome }
+        if !accessibilityGranted { return .preferences }
+        return .none
     }
 
     // MARK: - Accessibility monitor
@@ -132,7 +191,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         axMonitorTimer?.invalidate()
         axMonitorTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
-            self?.checkAXTrustTransition()
+            Task { @MainActor [weak self] in
+                self?.checkAXTrustTransition()
+            }
         }
     }
 
@@ -149,14 +210,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             // Revoked mid-session. The event tap is now dead — ⌘+Tab events won't
             // reach us. Tear it down, cancel any in-progress switcher state, and
-            // re-open Welcome so the user has a one-click path back to System Settings.
+            // Show the compact permission recovery UI so the user has a one-click path back
+            // to System Settings without being sent through onboarding again.
             hotkey.uninstall()
             model.cancel()
-            // WelcomeWindowController.show() is @MainActor-isolated; the Timer body
-            // runs on the main run loop but Swift's isolation checker needs an
-            // explicit hop.
             Task { @MainActor in
-                WelcomeWindowController.shared.show()
+                let hasCompletedOnboarding = UserDefaults.standard.bool(
+                    forKey: Preferences.Key.hasCompletedOnboarding
+                )
+                if hasCompletedOnboarding {
+                    PreferencesWindowController.shared.show()
+                } else {
+                    WelcomeWindowController.shared.show()
+                }
             }
         }
     }
