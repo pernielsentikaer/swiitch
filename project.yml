@@ -1,5 +1,7 @@
 name: Swiitch
 options:
+  # Keep generated projects readable by Xcode 15.4 on the macOS 14 CI runner.
+  projectFormat: xcode15_3
   bundleIdPrefix: com.swiitch
   deploymentTarget:
     macOS: "14.0"
