@@ -208,10 +208,9 @@ private struct GeneralTab: View {
             Button("Reset", role: .destructive) {
                 Preferences.resetSettings()
                 Preferences.applyAppearance()
-                Preferences.syncLaunchAtLogin()
             }
         } message: {
-            Text("Hotkeys, appearance, pinned apps, and excluded apps will all be reset. Onboarding will remain completed.")
+            Text("Hotkeys, appearance, menu bar and Dock icons, pinned apps, and excluded apps will all be reset. Launch at Login and onboarding are left as they are.")
         }
     }
 }
@@ -247,7 +246,7 @@ private struct PermissionRow: View {
 // MARK: - Switcher
 
 private struct SwitcherTab: View {
-    @AppStorage(Preferences.Key.displayMode) private var displayMode: String = Preferences.DisplayMode.apps.rawValue
+    @AppStorage(Preferences.Key.displayMode) private var displayMode: String = Preferences.DisplayMode.default.rawValue
     @AppStorage(Preferences.Key.includeOtherSpaces) private var includeOtherSpaces: Bool = true
     @AppStorage(Preferences.Key.minimizedWindows) private var minimizedWindows: String = Preferences.MinimizedWindows.showLast.rawValue
     @AppStorage(Preferences.Key.restrictToActiveScreen) private var restrictToActiveScreen: Bool = true

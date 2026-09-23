@@ -222,6 +222,17 @@ final class SwitcherModelTests: XCTestCase {
         XCTAssertEqual(tracker.mruWindows.map(\.id), [10, 11])
     }
 
+    func testArmWithUnusableStoredDisplayModeUsesAllWindows() {
+        // An unrecognised value exercises the model's own fallback regardless of whether
+        // another test already populated the process-wide registration domain.
+        defaults.set("not-a-mode", forKey: Preferences.Key.displayMode)
+        let model = makeModel(apps: sampleApps())
+        model.arm(reverse: false)
+        XCTAssertEqual(model.mode, .flatWindows, "The model fallback must match the registered All Windows default")
+        XCTAssertEqual(model.flatWindows.count, 3)
+        model.cancel()
+    }
+
     func testEmptyArmDoesNotSuspendFocusTracking() {
         let tracker = FocusTracker()
         let model = makeModel(apps: [], focusTracker: tracker)

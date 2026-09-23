@@ -91,28 +91,34 @@ enum WindowFocuser {
         guard let runningApp = NSRunningApplication(processIdentifier: entry.pid) else { return }
 
         // The model orders this app's windows by most recent use (CG order for unseen windows).
-        if let window = entry.windows.first {
-            focus(window: window)
-        } else {
-            activate(app: runningApp)
+        // The snapshot can be stale: a window may have closed since the last enumeration.
+        // Try each cached window in recency order and fall back to plain app activation so
+        // selecting an app row never silently does nothing.
+        for window in entry.windows {
+            if focus(window: window) { return }
         }
+        activate(app: runningApp)
     }
 
     /// Activates a specific window. Raise FIRST (AX), then activate the app — reversing
     /// this order is racy on macOS 14+ because accessory apps' cross-app activation can
     /// be denied intermittently.
+    ///
+    /// Returns `false` when the window identity can no longer be verified (closed or
+    /// reused ID, or the owning process is gone); nothing is activated in that case.
     @MainActor
-    static func focus(window: WindowInfo) {
+    @discardableResult
+    static func focus(window: WindowInfo) -> Bool {
         cancelPendingActivation()
         guard isWindowPresent(window),
-              let runningApp = NSRunningApplication(processIdentifier: window.pid) else { return }
+              let runningApp = NSRunningApplication(processIdentifier: window.pid) else { return false }
         let wasAlreadyActive = runningApp.isActive
         let didRaise = raise(window: window)
 
         // Swiitch's panel is non-activating, so the source app remains active while the
         // picker is open. Calling activate() again after raising another window can make
         // Chromium-family apps restore the window that was main before the picker opened.
-        guard !wasAlreadyActive else { return }
+        guard !wasAlreadyActive else { return true }
         activate(app: runningApp, window: window)
 
         // For an inactive app, activation is still needed to move the whole process to the
@@ -121,6 +127,7 @@ enum WindowFocuser {
         if didRaise {
             _ = raise(window: window)
         }
+        return true
     }
 
     /// Undo a preview only when the original process/window identity can still be resolved.

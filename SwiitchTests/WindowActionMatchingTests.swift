@@ -43,6 +43,17 @@ final class WindowActionMatchingTests: XCTestCase {
     }
 
     @MainActor
+    func testFocusWindowReportsWhenIdentityCannotBeVerified() {
+        // `focus(app:)` relies on this result to fall through to the next cached window or
+        // plain app activation instead of silently doing nothing for a stale snapshot.
+        let invalid = WindowInfo(id: 0, pid: -1, title: "", bounds: .zero, isOnScreen: false)
+        XCTAssertFalse(WindowFocuser.focus(window: invalid))
+        let unknownID = WindowInfo(id: .max, pid: ProcessInfo.processInfo.processIdentifier,
+                                   title: "", bounds: .zero, isOnScreen: false)
+        XCTAssertFalse(WindowFocuser.focus(window: unknownID), "A window ID WindowServer does not know must fail closed")
+    }
+
+    @MainActor
     func testEveryNativeFocusEntryCancelsRetryEvenWhenNewTargetIsInvalid() {
         let invalid = WindowInfo(id: 0, pid: -1, title: "", bounds: .zero, isOnScreen: false)
         let requests: [() -> Void] = [

@@ -35,6 +35,16 @@ enum AXPrivate {
         return _AXUIElementGetWindow(element, &wid) == .success ? wid : nil
     }
 
+    /// The window's Accessibility title, or nil when the app does not publish one.
+    /// `kCGWindowName` is withheld without Screen Recording permission, so this is the
+    /// only title source for enumeration in that state.
+    static func title(for element: AXUIElement) -> String? {
+        var value: AnyObject?
+        guard AXUIElementCopyAttributeValue(element, kAXTitleAttribute as CFString, &value) == .success,
+              let title = value as? String, !title.isEmpty else { return nil }
+        return title
+    }
+
     /// Reads an application's Accessibility windows without relying on Swift's
     /// `[AXUIElement]` bridge. Newer macOS versions can return a mutable CFArray that
     /// reports success but fails that conditional cast, making every app appear to have

@@ -58,6 +58,56 @@ final class CaptureDeadlineRunnerTests: XCTestCase {
         let value = await completion.value
         XCTAssertNil(value)
     }
+
+    func testSaturatedRunnerQueuesCallerUntilSlotFreesInsteadOfFailing() async throws {
+        let runner = CaptureDeadlineRunner(limit: 1)
+        let gate = NativeCaptureGate()
+        let blocker = Task {
+            await runner.run(timeout: 5) { await gate.wait(); return 1 }
+        }
+        try await Task.sleep(for: .milliseconds(30))
+        let queued = Task {
+            await runner.run(timeout: 1) { 2 }
+        }
+        try await Task.sleep(for: .milliseconds(30))
+        let waiting = await runner.waitingOperationCount
+        XCTAssertEqual(waiting, 1, "A saturated runner must queue, not refuse, a caller within its timeout")
+        await gate.release()
+        let first = await blocker.value
+        let second = await queued.value
+        XCTAssertEqual(first, 1)
+        XCTAssertEqual(second, 2, "The queued capture runs once the stuck slot is released")
+        let active = await runner.activeOperationCount
+        XCTAssertEqual(active, 0)
+    }
+
+    func testCancellingQueuedCallerReleasesItImmediately() async throws {
+        let runner = CaptureDeadlineRunner(limit: 1)
+        let gate = NativeCaptureGate()
+        let blocker = Task {
+            await runner.run(timeout: 5) { await gate.wait(); return 1 }
+        }
+        try await Task.sleep(for: .milliseconds(30))
+        let completion = DeadlineCompletion()
+        let queued = Task {
+            let value = await runner.run(timeout: 5) { 2 }
+            await completion.finish(value)
+        }
+        try await Task.sleep(for: .milliseconds(30))
+        queued.cancel()
+        try await Task.sleep(for: .milliseconds(50))
+        let finished = await completion.finished
+        XCTAssertTrue(finished, "A cancelled queued caller must not wait for the native slot")
+        let waiting = await runner.waitingOperationCount
+        XCTAssertEqual(waiting, 0)
+        await gate.release()
+        _ = await blocker.value
+        await queued.value
+        let value = await completion.value
+        XCTAssertNil(value)
+        let recovered = await runner.run(timeout: 1) { 3 }
+        XCTAssertEqual(recovered, 3, "A cancelled waiter must not leak a reserved slot")
+    }
 }
 
 private actor NativeCaptureGate {

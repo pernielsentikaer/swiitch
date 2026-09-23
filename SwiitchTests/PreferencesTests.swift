@@ -20,6 +20,27 @@ final class PreferencesTests: XCTestCase {
         super.tearDown()
     }
 
+    func testDisplayModeFallbackMatchesRegisteredDefault() {
+        // Readers that run before `registerDefaults` (previews, tests, injected suites)
+        // must agree with the registered value; the fallback used to drift to Apps first.
+        // The registration domain is process-wide, so do not assume it is empty here.
+        Preferences.registerDefaults(in: defaults, persistentDomainName: suiteName)
+        XCTAssertEqual(defaults.string(forKey: Preferences.Key.displayMode),
+                       Preferences.DisplayMode.default.rawValue)
+        XCTAssertEqual(Preferences.DisplayMode.default, .windows)
+    }
+
+    func testResetSettingsLeavesLoginItemIntentToTheOS() {
+        // The login item is owned by SMAppService. Reset must neither store nor replay an
+        // intent flag, and the retired flag is removed on launch so it can never be replayed.
+        defaults.set(true, forKey: "launchAtLogin")
+        Preferences.registerDefaults(in: defaults, persistentDomainName: suiteName)
+        XCTAssertNil(defaults.persistentDomain(forName: suiteName)?["launchAtLogin"])
+        XCTAssertNil(defaults.object(forKey: "launchAtLogin"), "No registered fallback may resurrect the flag")
+        Preferences.resetSettings(in: defaults)
+        XCTAssertNil(defaults.object(forKey: "launchAtLogin"))
+    }
+
     func testMinimizedPreferenceDefaultsAndResetsIndependentlyOfSpaces() {
         defaults.set(false, forKey: Preferences.Key.includeOtherSpaces)
         Preferences.registerDefaults(in: defaults, persistentDomainName: suiteName)

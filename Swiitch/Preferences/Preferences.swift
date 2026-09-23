@@ -1,6 +1,5 @@
 import AppKit
 import Foundation
-import ServiceManagement
 import SwiftUI
 
 /// Preferences are stored in `UserDefaults.standard` and surfaced to SwiftUI via `@AppStorage`
@@ -13,7 +12,6 @@ enum Preferences {
         static let hasCompletedOnboarding = "hasCompletedOnboarding"
         static let includeOtherSpaces = "includeOtherSpaces"
         static let minimizedWindows = "minimizedWindows" // MinimizedWindows.rawValue
-        static let launchAtLogin = "launchAtLogin"
         static let showMenuBarIcon = "showMenuBarIcon"
         static let showDockIcon = "showDockIcon"
         static let switcherShowDelayMs = "switcherShowDelayMs"
@@ -51,6 +49,8 @@ enum Preferences {
         static let tileColumns = "tileColumns"
         /// Apps-first mode now always supports drilling into the selected app's windows.
         static let showWindowPreviews = "showWindowPreviews"
+        /// Login-item intent used to be mirrored here; `SMAppService` is the only source of truth now.
+        static let launchAtLogin = "launchAtLogin"
     }
 
     enum MinimizedWindows: String, CaseIterable, Identifiable {
@@ -140,6 +140,9 @@ enum Preferences {
     enum DisplayMode: String, CaseIterable, Identifiable {
         case apps
         case windows
+        /// The one fallback every reader uses, so previews, tests, and injected defaults
+        /// suites agree with `registerDefaults` and the shipped release notes.
+        static let `default`: DisplayMode = .windows
         var id: String { rawValue }
         var label: String {
             switch self {
@@ -378,6 +381,7 @@ enum Preferences {
         }
         defaults.removeObject(forKey: LegacyKey.tileColumns)
         defaults.removeObject(forKey: LegacyKey.showWindowPreviews)
+        defaults.removeObject(forKey: LegacyKey.launchAtLogin)
 
         // Minimal and Spotlight used to force a light panel even while following the system.
         // Upgrade only untouched named presets; Custom and explicitly themed presets keep their
@@ -390,13 +394,12 @@ enum Preferences {
         }
 
         defaults.register(defaults: [
-            Key.launchAtLogin: false,
             Key.includeOtherSpaces: true,
             Key.minimizedWindows: MinimizedWindows.showLast.rawValue,
             Key.showMenuBarIcon: true,
             Key.showDockIcon: false,
             Key.switcherShowDelayMs: 150,
-            Key.displayMode: DisplayMode.windows.rawValue,
+            Key.displayMode: DisplayMode.default.rawValue,
             Key.maxPanelWidthPercent: 60,
             Key.restrictToActiveScreen: true,
             Key.appearance: Appearance.system.rawValue,
@@ -427,9 +430,9 @@ enum Preferences {
 
     /// Restores user-configurable settings while keeping onboarding completion intact.
     /// Registered defaults become visible immediately after each persistent value is removed.
+    /// The login item is OS-owned state, not a stored preference, so it is left untouched.
     static func resetSettings(in defaults: UserDefaults = .standard) {
         let keys = [
-            Key.launchAtLogin,
             Key.showMenuBarIcon,
             Key.showDockIcon,
             Key.currentAppHotkeyEnabled,
@@ -474,19 +477,5 @@ enum Preferences {
         case .dark:
             NSApp.appearance = NSAppearance(named: .darkAqua)
         }
-    }
-
-    // MARK: - Side-effecting actions
-
-    /// Brings `SMAppService.mainApp` into sync with the stored `launchAtLogin` flag.
-    @MainActor static func syncLaunchAtLogin() {
-        let desired = UserDefaults.standard.bool(forKey: Key.launchAtLogin)
-        LoginItemController.shared.setEnabled(desired)
-    }
-
-    /// Reads the actual SMAppService status — the truth might diverge from the stored
-    /// preference if the user toggled the login item via System Settings.
-    static var isLoginItemEnabled: Bool {
-        SMAppService.mainApp.status == .enabled
     }
 }

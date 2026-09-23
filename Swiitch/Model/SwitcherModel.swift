@@ -1472,8 +1472,8 @@ final class SwitcherModel: ObservableObject {
     // MARK: - Preference reads
 
     private func currentDisplayMode() -> Preferences.DisplayMode {
-        let raw = defaults.string(forKey: Preferences.Key.displayMode) ?? Preferences.DisplayMode.apps.rawValue
-        return Preferences.DisplayMode(rawValue: raw) ?? .apps
+        let raw = defaults.string(forKey: Preferences.Key.displayMode) ?? Preferences.DisplayMode.default.rawValue
+        return Preferences.DisplayMode(rawValue: raw) ?? .default
     }
 
     private func shouldLoadThumbnails(for displayMode: Preferences.DisplayMode) -> Bool {

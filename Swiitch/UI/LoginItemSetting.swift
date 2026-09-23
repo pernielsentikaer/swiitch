@@ -1,16 +1,16 @@
 import SwiftUI
 
-/// Shared by onboarding and General. Saved intent never overrides the displayed OS state.
+/// Shared by onboarding and General. `SMAppService` is the only source of truth; no
+/// saved intent flag exists that could later be replayed against the OS state.
 struct LoginItemSetting: View {
     let title: String
-    @AppStorage(Preferences.Key.launchAtLogin) private var desired = false
     @ObservedObject private var loginItem = LoginItemController.shared
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Toggle(title, isOn: Binding(
                 get: { loginItem.isRequested },
-                set: { desired = $0; loginItem.setEnabled($0) }
+                set: { loginItem.setEnabled($0) }
             ))
             if let message = loginItem.errorMessage {
                 Text(message).font(.caption).foregroundStyle(.secondary)

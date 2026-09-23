@@ -145,6 +145,7 @@ enum WindowEnumerator {
             let withinBudget = ProcessInfo.processInfo.systemUptime - started < metadataBudget
             let metadata = withinBudget && !Task.isCancelled
                 ? axMetadata(forPID: pid, offscreenIDs: Set(windows.filter { !$0.isOnScreen }.map(\.id)),
+                             untitledIDs: Set(windows.filter { $0.title.isEmpty }.map(\.id)),
                              deadline: started + metadataBudget) : nil
             metadataByPID[pid] = metadata
             if metadata == nil { unavailableAXCount += 1 }
@@ -155,6 +156,12 @@ enum WindowEnumerator {
             let minimized = minimizedStates(in: metadata?.offscreen ?? [], deadline: started + metadataBudget)
             let annotated = windows.map { window in
                 var window = window
+                // WindowServer omits `kCGWindowName` without Screen Recording permission.
+                // Accessibility titles keep search and title-based matching working then.
+                if window.title.isEmpty, let title = metadata?.titles[window.id] {
+                    window = WindowInfo(id: window.id, pid: window.pid, title: title,
+                                        bounds: window.bounds, isOnScreen: window.isOnScreen)
+                }
                 window.isMinimized = window.isOnScreen ? false : minimized[window.id]
                 return window
             }
@@ -216,25 +223,35 @@ enum WindowEnumerator {
     private struct AXMetadata {
         var ids: Set<CGWindowID> = []
         var offscreen: [(CGWindowID, AXUIElement)] = []
+        /// Accessibility titles for windows whose WindowServer title was empty.
+        var titles: [CGWindowID: String] = [:]
     }
 
     /// Resolve IDs before optional state reads so a slow minimized-state lookup cannot
     /// weaken ghost filtering. Both passes share the existing bounded metadata budget.
     private static func axMetadata(forPID pid: pid_t, offscreenIDs: Set<CGWindowID>,
+                                   untitledIDs: Set<CGWindowID> = [],
                                    deadline: TimeInterval) -> AXMetadata? {
         guard let windows = AXPrivate.availableWindows(forPID: pid, timeout: 0.03) else { return nil }
         guard !windows.isEmpty else { return AXMetadata() }
 
         var result = AXMetadata()
+        var untitled: [(CGWindowID, AXUIElement)] = []
         for window in windows {
             guard !Task.isCancelled, ProcessInfo.processInfo.systemUptime < deadline else { return nil }
             AXUIElementSetMessagingTimeout(window, 0.01)
             if let wid = AXPrivate.windowID(for: window) {
                 result.ids.insert(wid)
                 if offscreenIDs.contains(wid) { result.offscreen.append((wid, window)) }
+                if untitledIDs.contains(wid) { untitled.append((wid, window)) }
             }
         }
         guard !result.ids.isEmpty else { return nil }
+        // Titles are optional metadata: run out of budget here and the IDs above still stand.
+        for (wid, window) in untitled {
+            guard !Task.isCancelled, ProcessInfo.processInfo.systemUptime < deadline else { break }
+            if let title = AXPrivate.title(for: window) { result.titles[wid] = title }
+        }
         return result
     }
 

@@ -45,7 +45,7 @@ struct SwitcherPreview: View {
     /// Layout controls always preview the window grid, including when Apps is the
     /// opening mode; otherwise changing Automatic / Fill Screen would appear inert.
     var showsWindowGrid = false
-    @AppStorage(Preferences.Key.displayMode) private var displayMode = Preferences.DisplayMode.windows.rawValue
+    @AppStorage(Preferences.Key.displayMode) private var displayMode = Preferences.DisplayMode.default.rawValue
     @AppStorage(Preferences.Key.thumbnailSize) private var thumbnailSize = Preferences.ThumbnailSize.medium.rawValue
     @AppStorage(Preferences.Key.maxPanelWidthPercent) private var maximumWidthPercent = 60
     @AppStorage(Preferences.Key.fitWindowGridToScreen) private var fitAll = false

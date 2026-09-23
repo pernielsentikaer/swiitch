@@ -851,12 +851,12 @@
         }
       }
     },
-    "Hotkeys, appearance, pinned apps, and excluded apps will all be reset. Onboarding will remain completed.": {
+    "Hotkeys, appearance, menu bar and Dock icons, pinned apps, and excluded apps will all be reset. Launch at Login and onboarding are left as they are.": {
       "localizations": {
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tastaturgenveje, udseende, fastgjorte apps og udeladte apps nulstilles. Introduktionen vises ikke igen."
+            "value": "Tastaturgenveje, udseende, menulinje- og Dock-ikoner, fastgjorte apps og udeladte apps nulstilles. Åbn ved login og introduktionen ændres ikke."
           }
         }
       }
