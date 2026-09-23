@@ -55,6 +55,6 @@ See `CONTRIBUTING.md` for the full style guide. Critical points agents must foll
 - `project.yml` (XcodeGen) is the source of truth for the Xcode project. **Never edit `.xcodeproj` directly.** After touching `project.yml`, run `xcodegen generate`.
 - Sparkle handles binary updates; `appcast.xml` at repo root is the feed.
 - Root `Package.resolved` is authoritative; XcodeGen copies it into the generated workspace. Use `-onlyUsePackageVersionsFromResolvedFile` for builds and update the lock deliberately.
-- Release packaging requires clean committed source and a build number above both local and published appcasts. Never publish a development/ad-hoc build or reset TCC to make an update work.
+- Release packaging requires clean committed source and a build number above both local and published appcasts. The default mode requires Developer ID signing and notarization. The maintainer explicitly permits ad-hoc public releases with `--unnotarized`; preserve Sparkle signing and clearly disclose macOS approval/TCC limitations. Never publish a development-signed test build or reset TCC to make an update work.
 - `build/` is gitignored — release artifacts never land in the repo.
 - `Config/Signing.local.xcconfig` is gitignored — contributors create their own from the `.example` template.
