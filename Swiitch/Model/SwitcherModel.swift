@@ -878,7 +878,7 @@ final class SwitcherModel: ObservableObject {
         let generation = armGeneration
         var options = currentEnumerateOptions()
         options.forceRefresh = true
-        Task { @MainActor [weak self] in
+        Task { @MainActor [weak self, options] in
             await prepare(options)
             guard let self, self.isArmed, self.armGeneration == generation else { return }
             self.applyRefreshedAppList()

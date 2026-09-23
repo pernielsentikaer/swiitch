@@ -19,7 +19,7 @@ final class PermissionsMonitor: ObservableObject {
     func start() {
         stop()
         timer = Timer.scheduledTimer(withTimeInterval: 0.8, repeats: true) { [weak self] _ in
-            Task { @MainActor in
+            Task { @MainActor [weak self] in
                 guard let self else { return }
                 let ax = AXIsProcessTrusted()
                 if ax != self.accessibilityGranted {
