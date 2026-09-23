@@ -140,8 +140,8 @@ Swiitch ships binary updates via [Sparkle](https://sparkle-project.org). The flo
      ```
    - The private key lands in your macOS Keychain (back it up — losing it locks out future updates from existing installs).
    - The public key is printed to stdout. It's already pasted into `Swiitch/Resources/Info.plist` under `SUPublicEDKey`.
-   - Install a **Developer ID Application** certificate from the Apple Developer portal. A paid Apple Developer account is required for a Gatekeeper-compatible release. Point `Config/Signing.local.xcconfig` at that identity and its team ID.
-   - Store App Store Connect notarization credentials in the Keychain, then export the profile name for the release script:
+   - **Only for notarized releases:** install a **Developer ID Application** certificate from the Apple Developer portal and point `Config/Signing.local.xcconfig` at that identity and team ID. This requires a paid Apple Developer account. Unnotarized releases do not need this certificate.
+   - **Only for notarized releases:** store App Store Connect notarization credentials in the Keychain, then export the profile name for the release script:
      ```bash
      xcrun notarytool store-credentials "swiitch-notary" \
        --apple-id "you@example.com" \
@@ -152,30 +152,34 @@ Swiitch ships binary updates via [Sparkle](https://sparkle-project.org). The flo
 
 2. **For each release**:
    ```bash
+   # Explicit unnotarized distribution, without a Developer ID certificate:
+   Scripts/build_release.sh 0.1.5 60 --unnotarized
+
+   # Optional notarized distribution, once Developer ID/notary setup exists:
    Scripts/build_release.sh 0.2.0 48
    ```
    This:
    - Refuses a dirty working tree or an existing release artifact.
-   - Requires an explicit positive build number greater than all versions in both the local and published appcasts. The example `48` is illustrative; choose the next valid number when releasing. A failed feed download stops the release.
+   - Requires an explicit positive build number greater than all versions in both the local and published appcasts. Example numbers are illustrative; choose the next valid number when releasing. A failed feed download stops the release.
    - Runs `xcodegen generate` + a dependency-locked universal (`arm64` + `x86_64`) Release build.
-   - Refuses ad-hoc/development signatures or a build without hardened runtime.
-   - Submits the app to Apple notarization and staples the accepted ticket.
+   - In the default mode, requires a Developer ID signature and hardened runtime, submits to Apple notarization, and staples the accepted ticket. It never silently falls back to another signing mode.
+   - With `--unnotarized`, explicitly overrides the local signing identity for this build to ad-hoc signing, with no Team ID or hardened-runtime library validation (which cannot load Sparkle in an ad-hoc app). This does not change the Mac's security settings or `Config/Signing.local.xcconfig`. Notary credentials are neither required nor used. Development-signed test apps are never packaged as public releases.
    - Zips `Swiitch.app` to `build/dist/Swiitch-v0.2.0.zip`.
-   - Signs the zip with Sparkle's `sign_update` (uses the Keychain private key).
+   - Checks that the existing Sparkle public key matches the built app, signs the zip with `sign_update` using the existing Keychain key, and verifies the resulting signature. These checks are required in both modes; no replacement key is created.
    - Prints a ready-to-paste `<item>` block.
 
 3. **Publish**:
    - Tag and push: `git tag -a v0.2.0 -m "Release 0.2.0" && git push origin v0.2.0`.
-   - Draft a GitHub Release for `v0.2.0`, drag the `.zip` into the assets box.
-   - Paste the printed `<item>` block into `appcast.xml` inside `<channel>`.
+   - Draft a GitHub Release for `v0.2.0`, attach the verified `.zip`, and disclose whether it is unnotarized. Publish the release and verify that the asset is downloadable and matches the local archive before changing the feed.
+   - Paste the printed `<item>` block into `appcast.xml` inside `<channel>`. Include useful release notes and, for unnotarized releases, the first-launch/permission limitations.
    - Commit `appcast.xml` + push to `main`.
    - Existing installs receive updates according to Sparkle's schedule when automatic checks are enabled, or through Check for Updates.
 
 `appcast.xml` is served from `https://raw.githubusercontent.com/pernielsentikaer/swiitch/main/appcast.xml` — no GitHub Pages setup needed. The URL is configured in `Info.plist` under `SUFeedURL`.
 
-`build/` is gitignored — release artifacts never land in the repo. The script intentionally fails before packaging when Developer ID signing or notarization is unavailable; do not distribute an ad-hoc build as a public release.
+`build/` is gitignored — release artifacts never land in the repo. Without `--unnotarized`, missing Developer ID signing or notarization still stops the release. The explicit unnotarized mode is the maintainer's supported distribution choice when no Developer ID certificate is available. It preserves archive integrity through Sparkle, but does not provide Apple's notarization or normal Gatekeeper approval. Tell users that manual first-launch approval and renewed Accessibility/Screen Recording grants may be needed; never remove quarantine, disable Gatekeeper, or reset TCC as a release step. See [Apple's guidance](https://support.apple.com/en-us/102445) and [Sparkle's security guidance](https://sparkle-project.org/documentation/#3-segue-for-security-concerns).
 
-Run `bash Scripts/test_release_gates.sh` for read-only feed validation and an isolated dirty-repository fixture. It does not sign, notarize, contact a server, or commit to this checkout.
+Run `bash Scripts/test_release_gates.sh` for read-only feed validation, signature-policy fixtures, explicit-mode parsing, and an isolated dirty-repository fixture. It does not sign, notarize, contact a server, or commit to this checkout.
 
 ## Verification boundaries
 

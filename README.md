@@ -35,7 +35,7 @@ A native SwiftUI ⌘+Tab replacement for macOS. Lets you switch between every **
 
 Download the latest archive from [GitHub Releases](https://github.com/pernielsentikaer/swiitch/releases/latest).
 
-> **Current release note:** v0.1.4 is an early Apple-silicon-only, ad-hoc-signed build. Control-click the app and choose **Open** on first launch to approve it. Intel support and normal Gatekeeper approval require the next universal, notarized release.
+> **Signing:** Swiitch can be distributed without Apple notarization, with an ad-hoc app signature and a separate Sparkle signature protecting updates. macOS may require manual approval in **System Settings → Privacy & Security** before the first launch, and Accessibility/Screen Recording grants may need to be renewed after updates. See [Apple's guidance](https://support.apple.com/en-us/102445); do not disable Gatekeeper globally. Version 0.1.4 is Apple-silicon-only; release packaging now builds both Apple Silicon and Intel. Check each release's notes for its signing status and platform coverage.
 
 Or build from source — see [CONTRIBUTING.md](CONTRIBUTING.md#development-setup).
 

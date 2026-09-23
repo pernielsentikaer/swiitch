@@ -1,28 +1,37 @@
 #!/usr/bin/env bash
 #
-# Builds a universal, Developer ID-signed Release app; notarizes and staples it;
-# zips it; signs the zip with Sparkle's `sign_update`; and prints an <item> block
-# you can paste into appcast.xml.
+# Builds a universal Release app, signs the zip with Sparkle's `sign_update`,
+# and prints an <item> block for appcast.xml. By default the app is Developer ID
+# signed, notarized, and stapled. --unnotarized explicitly selects ad-hoc signing
+# without Apple's notarization service; Sparkle signing remains mandatory.
 #
 # Prerequisites:
 #   - Sparkle has been resolved by Xcode at least once (so its bin tools exist on
 #     disk under SourcePackages/artifacts/sparkle/Sparkle/bin/).
 #   - You ran `generate_keys` once and pasted the public key into Info.plist.
 #     See CONTRIBUTING.md "Releases" for the one-time key setup.
-#   - Config/Signing.local.xcconfig selects a Developer ID Application identity.
-#   - SWIITCH_NOTARY_PROFILE names credentials stored with `notarytool
-#     store-credentials`.
+#   - For the default notarized mode only: Config/Signing.local.xcconfig selects
+#     a Developer ID Application identity and SWIITCH_NOTARY_PROFILE names
+#     credentials stored with `notarytool store-credentials`.
 #
 # Usage:
-#   Scripts/build_release.sh <version> <build-number>
+#   Scripts/build_release.sh <version> <build-number> [--unnotarized]
 # Example:
 #   Scripts/build_release.sh 0.2.0 48
 
 set -euo pipefail
 
-if [ $# -ne 2 ]; then
-    echo "Usage: $0 <version> <build-number>" >&2
+if [ $# -lt 2 ] || [ $# -gt 3 ]; then
+    echo "Usage: $0 <version> <build-number> [--unnotarized]" >&2
     exit 1
+fi
+RELEASE_MODE=notarized
+if [ $# -eq 3 ]; then
+    if [ "$3" != --unnotarized ]; then
+        echo "Unknown release option: $3" >&2
+        exit 1
+    fi
+    RELEASE_MODE=unnotarized
 fi
 
 VERSION="$1"
@@ -57,9 +66,20 @@ swiitch_feed_url="$(/usr/libexec/PlistBuddy -c 'Print :SUFeedURL' Swiitch/Resour
 curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' --max-time 20 \
     "$swiitch_feed_url" --output "$swiitch_gate_dir/published.xml"
 bash Scripts/validate_release_number.sh "$BUILD_NUMBER" appcast.xml "$swiitch_gate_dir/published.xml"
-if [ -z "${SWIITCH_NOTARY_PROFILE:-}" ]; then
+if [ "$RELEASE_MODE" = notarized ] && [ -z "${SWIITCH_NOTARY_PROFILE:-}" ]; then
     echo "SWIITCH_NOTARY_PROFILE must name a notarytool Keychain profile." >&2
     exit 1
+fi
+
+SIGNING_OVERRIDES=(CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=YES)
+if [ "$RELEASE_MODE" = unnotarized ]; then
+    echo "==> Explicit unnotarized release: ad-hoc app signature; Sparkle signature required"
+    echo "    macOS may require manual approval and renewed Accessibility/Screen Recording grants."
+    # Never leak the maintainer's local development identity into a public build.
+    # Ad-hoc apps have no Team ID for hardened-runtime library validation, which
+    # otherwise prevents loading Sparkle. This changes this build only, not macOS
+    # security settings or the contributor's persistent signing configuration.
+    SIGNING_OVERRIDES+=(CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= PROVISIONING_PROFILE_SPECIFIER= ENABLE_HARDENED_RUNTIME=NO)
 fi
 
 echo "==> Regenerating project"
@@ -77,6 +97,7 @@ xcodebuild \
     MARKETING_VERSION="$VERSION" \
     ARCHS="arm64 x86_64" \
     ONLY_ACTIVE_ARCH=NO \
+    "${SIGNING_OVERRIDES[@]}" \
     clean build | tail -5
 
 APP_PATH="$RELEASE_DIR/Swiitch.app"
@@ -96,33 +117,26 @@ for REQUIRED_ARCH in arm64 x86_64; do
     fi
 done
 
-echo "==> Verifying Developer ID signature + hardened runtime"
+echo "==> Verifying app signature ($RELEASE_MODE)"
 codesign --verify --deep --strict --verbose=2 "$APP_PATH"
 SIGNING_INFO="$(codesign -dv --verbose=4 "$APP_PATH" 2>&1)"
-if ! printf '%s\n' "$SIGNING_INFO" | grep -q '^Authority=Developer ID Application:'; then
-    echo "Release is not signed with a Developer ID Application certificate." >&2
-    echo "Refusing to publish an ad-hoc or development-signed build." >&2
-    exit 1
-fi
-if ! printf '%s\n' "$SIGNING_INFO" | grep -q 'flags=.*runtime'; then
-    echo "Release is missing the hardened-runtime signature flag." >&2
-    exit 1
-fi
+printf '%s\n' "$SIGNING_INFO" | bash Scripts/validate_release_signature.sh "$RELEASE_MODE"
 
 mkdir -p "$DIST_DIR"
 ZIP_PATH="$DIST_DIR/$ZIP_NAME"
 
-NOTARY_ZIP="$swiitch_gate_dir/notarization.zip"
-echo "==> Submitting app for notarization"
-( cd "$RELEASE_DIR" && /usr/bin/ditto -c -k --sequesterRsrc --keepParent Swiitch.app "$NOTARY_ZIP" )
-xcrun notarytool submit "$NOTARY_ZIP" \
-    --keychain-profile "$SWIITCH_NOTARY_PROFILE" \
-    --wait
+if [ "$RELEASE_MODE" = notarized ]; then
+    NOTARY_ZIP="$swiitch_gate_dir/notarization.zip"
+    echo "==> Submitting app for notarization"
+    ( cd "$RELEASE_DIR" && /usr/bin/ditto -c -k --sequesterRsrc --keepParent Swiitch.app "$NOTARY_ZIP" )
+    xcrun notarytool submit "$NOTARY_ZIP" \
+        --keychain-profile "$SWIITCH_NOTARY_PROFILE" \
+        --wait
 
-echo "==> Stapling notarization ticket"
-xcrun stapler staple "$APP_PATH"
-xcrun stapler validate "$APP_PATH"
-rm -f "$NOTARY_ZIP"
+    echo "==> Stapling notarization ticket"
+    xcrun stapler staple "$APP_PATH"
+    xcrun stapler validate "$APP_PATH"
+fi
 
 test ! -e "$ZIP_PATH"
 echo "==> Zipping app to $ZIP_PATH"
@@ -140,6 +154,14 @@ if [ -z "$SIGN_UPDATE" ]; then
     exit 1
 fi
 
+echo "==> Checking the existing Sparkle public key"
+EXPECTED_KEY="$(/usr/libexec/PlistBuddy -c 'Print :SUPublicEDKey' "$APP_PATH/Contents/Info.plist")"
+EXISTING_KEY="$("$(dirname "$SIGN_UPDATE")/generate_keys" -p)"
+if [ -z "$EXPECTED_KEY" ] || [ "$EXISTING_KEY" != "$EXPECTED_KEY" ]; then
+    echo "Existing Sparkle key does not match the built app. Refusing to sign with a different key." >&2
+    exit 1
+fi
+
 echo "==> Signing update zip with $SIGN_UPDATE"
 SIGN_OUTPUT="$("$SIGN_UPDATE" "$ZIP_PATH")"
 # sign_update prints: sparkle:edSignature="..." length="..."
@@ -150,12 +172,14 @@ if [ -z "$ED_SIGNATURE" ]; then
     echo "Failed to parse edSignature from sign_update output: $SIGN_OUTPUT" >&2
     exit 1
 fi
+"$SIGN_UPDATE" --verify "$ZIP_PATH" "$ED_SIGNATURE"
 
 PUB_DATE="$(LC_ALL=en_US.UTF-8 date "+%a, %d %b %Y %H:%M:%S %z")"
 
 echo ""
 echo "============================================================"
 echo "Release artifact: $ZIP_PATH"
+echo "Release mode:     $RELEASE_MODE"
 echo "Size:             $SIZE bytes"
 echo ""
 echo "Paste this <item> into appcast.xml inside <channel>:"
