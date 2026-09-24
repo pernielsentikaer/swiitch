@@ -34,6 +34,10 @@ struct AppEntry: Identifiable, Hashable {
 struct EnumerateOptions {
     /// Explicit list mutations need a new collection, not the normal warm-opening cache.
     var forceRefresh: Bool = false
+    /// Periodic keep-warm work (discovery timer, idle prewarm) rather than a user opening
+    /// the picker. While the user has not used Swiitch for a while, such requests reuse a
+    /// snapshot for longer instead of polling every app's Accessibility bridge.
+    var isBackgroundRefresh: Bool = false
     /// If false, excludes offscreen windows, except confirmed minimized windows when enabled.
     var includeOtherSpaces: Bool = true
     /// Independent of Spaces. Unknown AX state is never treated as confirmed minimized.

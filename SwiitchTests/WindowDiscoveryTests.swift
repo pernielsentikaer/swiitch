@@ -158,6 +158,77 @@ final class WindowDiscoveryTests: XCTestCase {
         XCTAssertEqual(total, 2)
     }
 
+    func testIdleBackgroundRefreshReusesSnapshotButUserRequestsStayFresh() async {
+        let count = DiscoveryCount()
+        let clock = DiscoveryClock()
+        let service = WindowDiscovery(now: { clock.now }, collector: { _ in await count.add(); return Self.collection() })
+
+        // Nothing has used the picker yet: keep-warm work may reuse a snapshot for a while.
+        await service.prepare(context: context(), background: true)
+        clock.now = 5
+        await service.prepare(context: context(), background: true)
+        var total = await count.value
+        XCTAssertEqual(total, 1, "An idle background refresh must not poll every app's AX bridge again")
+        XCTAssertEqual(service.snapshotLifetime(background: true), WindowDiscovery.idleSnapshotLifetime)
+
+        // Opening the picker always gets a fresh collection and marks the user as active.
+        await service.prepare(options: .init())
+        total = await count.value
+        XCTAssertEqual(total, 2)
+        XCTAssertEqual(service.snapshotLifetime(background: true), WindowDiscovery.activeSnapshotLifetime)
+
+        // While active, background refreshes follow the short lifetime again.
+        clock.now = 7
+        await service.prepare(context: context(), background: true)
+        total = await count.value
+        XCTAssertEqual(total, 3)
+
+        // Long after the last user request the long lifetime applies again.
+        clock.now = 7 + WindowDiscovery.idleAfter + 1
+        await service.prepare(context: context(), background: true)
+        clock.now += 5
+        await service.prepare(context: context(), background: true)
+        total = await count.value
+        XCTAssertEqual(total, 4)
+        clock.now += WindowDiscovery.idleSnapshotLifetime
+        await service.prepare(context: context(), background: true)
+        total = await count.value
+        XCTAssertEqual(total, 5, "The idle lifetime still expires")
+    }
+
+    func testWaitersWithDifferentKeysNeverLoseTrackOfEachOthersRequests() async {
+        let count = DiscoveryCount()
+        let gateA = DiscoveryGate()
+        let gateC = DiscoveryGate()
+        let service = WindowDiscovery(collector: { context in
+            await count.add()
+            if context.options.excludedBundleIDs.isEmpty { await gateA.wait() }
+            if context.options.excludedBundleIDs == ["c"] { await gateC.wait() }
+            return Self.collection()
+        })
+        let a = Task { await service.prepare(context: context()) }
+        try? await Task.sleep(for: .milliseconds(20))
+        // Two more callers with two further keys both wait on A.
+        let b = Task { await service.prepare(context: context(excluded: ["b"])) }
+        let c = Task { await service.prepare(context: context(excluded: ["c"])) }
+        try? await Task.sleep(for: .milliseconds(20))
+        await gateA.release()
+        await a.value
+        // B and C may resume in either order. Do not wait for B before releasing C:
+        // if C starts first, B is legitimately queued behind C's closed gate.
+        // A fourth caller must share C's collection regardless of that ordering.
+        try? await Task.sleep(for: .milliseconds(20))
+        let d = Task { await service.prepare(context: context(excluded: ["c"])) }
+        try? await Task.sleep(for: .milliseconds(20))
+        await gateC.release()
+        await b.value
+        await c.value
+        await d.value
+        let total = await count.value
+        XCTAssertEqual(total, 3, "A, B and C each collect once; D coalesces onto C")
+        XCTAssertEqual(service.timeoutCount, 0, "Coalescing must finish without deadline recovery")
+    }
+
     func testCachedTargetMustStillHaveExactWindowServerIDAndOwner() {
         let window = WindowInfo(id: 5, pid: 10, title: "Cached", bounds: .zero, isOnScreen: false)
         func row(_ id: CGWindowID, _ pid: pid_t) -> [String: Any] {
@@ -169,6 +240,10 @@ final class WindowDiscoveryTests: XCTestCase {
         XCTAssertFalse(WindowFocuser.isWindowPresent(window, lookup: { _ in [] }))
         XCTAssertFalse(WindowFocuser.isWindowPresent(window, lookup: { _ in nil }))
     }
+}
+
+private final class DiscoveryClock: @unchecked Sendable {
+    var now: TimeInterval = 0
 }
 
 private actor DiscoveryCount {

@@ -277,6 +277,10 @@ enum WindowFocuser {
         let windows = AXPrivate.windows(forPID: window.pid)
         guard !windows.isEmpty else { return nil }
 
+        // This runs on the main actor while the user is switching. Three attribute reads
+        // per window at the default AX timeout against a beach-balling app would stall the
+        // picker; bound each element the way the enumerator and action paths already do.
+        for element in windows { AXUIElementSetMessagingTimeout(element, 0.05) }
         let candidates = windows.map {
             CandidateMetadata(
                 windowID: AXPrivate.windowID(for: $0),
@@ -432,6 +436,7 @@ enum WindowFocuser {
         let pid = app.processIdentifier
         let originalFrontmostPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
         let axApp = AXUIElementCreateApplication(pid)
+        AXUIElementSetMessagingTimeout(axApp, 0.1)
         AXUIElementSetAttributeValue(axApp, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
         AXUIElementPerformAction(axApp, kAXRaiseAction as CFString)
 

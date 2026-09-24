@@ -16,8 +16,8 @@ applyTo: "Swiitch/UI/**/*.swift"
 
 ## Theming
 
-- All colours come from `Theme/Theme.swift` — never use literal `Color(...)` values in views
-- `Theme` is read from `@AppStorage`; inject it via the environment or pass it explicitly, don't reach into `UserDefaults` directly from a view
+- Panel chrome and accent colours come from `Theme/Theme.swift` (`Theme.panelBackground`, the user's accent hex). Semantic system colours are fine in views — `Color.primary` / `.secondary` for text and hairlines, `Color.green` / `.orange` for permission status — but never hard-code brand-like RGB/hex literals in a view; add them to `Theme` (or a preset) instead
+- Appearance preferences are read with `@AppStorage(Preferences.Key…)` in the view that needs them, and passed down explicitly to subviews; don't reach into `UserDefaults.standard` directly from a view
 
 ## Filter UI
 
