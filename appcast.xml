@@ -7,6 +7,27 @@
         <language>en</language>
 
         <item>
+            <title>0.1.7</title>
+            <pubDate>Thu, 24 Sep 2026 09:39:23 +0200</pubDate>
+            <sparkle:version>62</sparkle:version>
+            <sparkle:shortVersionString>0.1.7</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[
+                <ul>
+                    <li>Main-actor isolation for picker and hotkey state.</li>
+                    <li>Shared grid calculations for the picker, keyboard navigation, and preferences preview.</li>
+                    <li>Clearer focus/discovery boundaries and safer picker cleanup, with additional regression tests.</li>
+                </ul>
+                <p><b>Not notarized by Apple.</b> This ad-hoc-signed app uses a separately verified Sparkle update signature. macOS may require manual first-launch approval and renewed Accessibility or Screen Recording permissions.</p>
+            ]]></description>
+            <enclosure
+                url="https://github.com/pernielsentikaer/swiitch/releases/download/v0.1.7/Swiitch-v0.1.7.zip"
+                length="3073433"
+                type="application/octet-stream"
+                sparkle:edSignature="b1+2gtm2WcC70ud3aN1gEpETrFP826xxQAJ/K8r8QcYySfQMVtJ0Dd7Y01GvS/A/iLBAnVts2I5ZYfKacP00Dg==" />
+        </item>
+
+        <item>
             <title>0.1.6</title>
             <pubDate>Thu, 24 Sep 2026 08:17:25 +0200</pubDate>
             <sparkle:version>61</sparkle:version>
