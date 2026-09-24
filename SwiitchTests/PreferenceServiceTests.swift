@@ -73,6 +73,19 @@ final class PreferenceServiceTests: XCTestCase {
         XCTAssertFalse(controller.automaticChecksEnabled)
     }
 
+    func testScheduledUpdateShownBehindOtherAppsBecomesAMenuBarReminder() {
+        let controller = UpdateController(backend: .init(
+            readAutomatic: { false }, writeAutomatic: { _ in }, start: {}, checkManually: {}
+        ))
+        XCTAssertNil(controller.pendingUpdateVersion)
+        controller.noteScheduledUpdate(version: "0.2.0", shownBySparkle: false)
+        XCTAssertEqual(controller.pendingUpdateVersion, "0.2.0", "An alert Sparkle does not focus must be surfaced by Swiitch")
+        controller.clearPendingUpdate()
+        XCTAssertNil(controller.pendingUpdateVersion, "User attention or a finished session clears the reminder")
+        controller.noteScheduledUpdate(version: "0.2.1", shownBySparkle: true)
+        XCTAssertNil(controller.pendingUpdateVersion, "No duplicate reminder when Sparkle shows the alert in focus")
+    }
+
     func testUpdaterStartFailureIsVisibleAndRetryable() {
         var fail = true
         var checks = 0

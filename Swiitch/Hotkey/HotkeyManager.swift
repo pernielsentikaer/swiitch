@@ -16,6 +16,9 @@ final class HotkeyManager {
     private var screensWakeObserver: NSObjectProtocol?
     private let recording: ShortcutRecordingSession
     private var recordingObserver: NSObjectProtocol?
+    /// Tracks whether `recovery` was ever created, so deinit can report a stopped status
+    /// without instantiating the lazy controller.
+    private var recoveryStarted = false
     private lazy var recovery: HotkeyRecovery = {
         let controller = HotkeyRecovery(dependencies: .init(
             trusted: { AXIsProcessTrusted() },
@@ -62,13 +65,21 @@ final class HotkeyManager {
     }
 
     deinit {
-        uninstall()
+        // Tear down system resources only. `uninstall()` would force the lazy recovery
+        // controller into existence with `[weak self]` captures of an object mid-deinit,
+        // and cancel the model as a deallocation side effect.
+        healthCheckTimer?.invalidate()
+        if let observer = wakeObserver { NSWorkspace.shared.notificationCenter.removeObserver(observer) }
+        if let observer = screensWakeObserver { NSWorkspace.shared.notificationCenter.removeObserver(observer) }
+        removeTap()
+        if recoveryStarted { recovery.stop() }
         if let recordingObserver { NotificationCenter.default.removeObserver(recordingObserver) }
     }
 
     func install() {
         if healthCheckTimer == nil { startHealthCheck() }
         if wakeObserver == nil { registerWakeObservers() }
+        recoveryStarted = true
         recovery.start()
     }
 
@@ -400,7 +411,8 @@ final class HotkeyManager {
     /// ignore Cmd / Option / Ctrl modifiers in the character mapping itself.
     private func filterCharacter(forKeyCode keyCode: Int, flags: CGEventFlags) -> String? {
         // Use NSEvent to get the localized character — handles non-US layouts for free.
-        guard let nsEvent = NSEvent(cgEvent: cgEventFromKeyCode(keyCode, flags: flags)) else { return nil }
+        guard let cgEvent = cgEventFromKeyCode(keyCode, flags: flags),
+              let nsEvent = NSEvent(cgEvent: cgEvent) else { return nil }
         guard let chars = nsEvent.charactersIgnoringModifiers, let first = chars.first else { return nil }
         // Navigation is handled above. Accept printable punctuation/symbols too, but
         // not control characters or AppKit's private-use function-key characters.
@@ -416,9 +428,13 @@ final class HotkeyManager {
 
     /// Build a fresh CGEvent with the given keycode/flags (used to invoke NSEvent's
     /// keyboard mapping without polluting the running event stream).
-    private func cgEventFromKeyCode(_ keyCode: Int, flags: CGEventFlags) -> CGEvent {
+    /// Runs inside the event-tap callback; a failed allocation must drop the character,
+    /// never crash the tap.
+    private func cgEventFromKeyCode(_ keyCode: Int, flags: CGEventFlags) -> CGEvent? {
         let src = CGEventSource(stateID: .combinedSessionState)
-        let evt = CGEvent(keyboardEventSource: src, virtualKey: CGKeyCode(keyCode), keyDown: true)!
+        guard let evt = CGEvent(keyboardEventSource: src, virtualKey: CGKeyCode(keyCode), keyDown: true) else {
+            return nil
+        }
         evt.flags = flags
         return evt
     }

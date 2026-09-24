@@ -23,6 +23,7 @@ struct ShortcutRecorder: View {
     @AppStorage(Preferences.Key.hotkeyModifierFlags) private var primaryFlags = Int(CGEventFlags.maskCommand.rawValue)
     @AppStorage(Preferences.Key.currentAppHotkeyKeyCode) private var secondaryKey = 48
     @AppStorage(Preferences.Key.currentAppHotkeyModifierFlags) private var secondaryFlags = Int(CGEventFlags.maskAlternate.rawValue)
+    @AppStorage(Preferences.Key.currentAppHotkeyEnabled) private var currentAppHotkeyEnabled = false
 
     init(
         keyCodeKey: String,
@@ -130,9 +131,12 @@ struct ShortcutRecorder: View {
 
     @discardableResult
     private func save(key: Int, flags: CGEventFlags) -> Bool {
-        let other = keyCodeKey == Preferences.Key.hotkeyKeyCode
-            ? (secondaryKey, secondaryFlags) : (primaryKey, primaryFlags)
-        guard !Shortcut.conflicts((key, flags), (other.0, CGEventFlags(rawValue: UInt64(other.1)))) else {
+        let isPrimary = keyCodeKey == Preferences.Key.hotkeyKeyCode
+        let other = isPrimary ? (secondaryKey, secondaryFlags) : (primaryKey, primaryFlags)
+        // A disabled second hotkey is not listened to, so its stored chord must not block
+        // the main shortcut; the conflict warning in General is gated the same way.
+        let otherIsActive = isPrimary ? currentAppHotkeyEnabled : true
+        guard !otherIsActive || !Shortcut.conflicts((key, flags), (other.0, CGEventFlags(rawValue: UInt64(other.1)))) else {
             validationMessage = String(localized: "Already used by the other shortcut or its Shift-reverse. Choose another combination.")
             return false
         }

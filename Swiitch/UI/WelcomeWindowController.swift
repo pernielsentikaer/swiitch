@@ -6,7 +6,6 @@ final class WelcomeWindowController: NSObject, NSWindowDelegate {
     static let shared = WelcomeWindowController()
 
     private var window: NSWindow?
-    private var permissions: PermissionsMonitor?
     var onFinish: (() -> Void)?
 
     func show() {
@@ -17,12 +16,10 @@ final class WelcomeWindowController: NSObject, NSWindowDelegate {
             return
         }
 
-        let monitor = PermissionsMonitor()
-        monitor.start()
-        self.permissions = monitor
+        PermissionsMonitor.shared.beginForegroundPolling()
 
         let root = WelcomeView(
-            permissions: monitor,
+            permissions: PermissionsMonitor.shared,
             onFinish: { [weak self] in self?.dismiss() }
         )
 
@@ -59,8 +56,7 @@ final class WelcomeWindowController: NSObject, NSWindowDelegate {
     // MARK: NSWindowDelegate
 
     func windowWillClose(_ notification: Notification) {
-        permissions?.stop()
-        permissions = nil
+        PermissionsMonitor.shared.endForegroundPolling()
         window = nil
         onFinish?()
     }

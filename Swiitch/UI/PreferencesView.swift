@@ -82,7 +82,7 @@ private struct GeneralTab: View {
     @AppStorage(Preferences.Key.hotkeyModifierFlags) private var hotkeyModifierFlags: Int = Int(CGEventFlags.maskCommand.rawValue)
     @AppStorage(Preferences.Key.currentAppHotkeyKeyCode) private var currentAppHotkeyKeyCode: Int = 48
     @AppStorage(Preferences.Key.currentAppHotkeyModifierFlags) private var currentAppHotkeyModifierFlags: Int = Int(CGEventFlags.maskAlternate.rawValue)
-    @StateObject private var permissions = PermissionsMonitor()
+    @ObservedObject private var permissions = PermissionsMonitor.shared
     @ObservedObject private var hotkeyStatus = HotkeyStatus.shared
     @ObservedObject private var updates = UpdateController.shared
     @State private var showResetConfirmation = false
@@ -198,8 +198,8 @@ private struct GeneralTab: View {
         }
         .formStyle(.grouped)
         .contentMargins(.top, -10, for: .scrollContent)
-        .onAppear { permissions.start() }
-        .onDisappear { permissions.stop() }
+        .onAppear { permissions.beginForegroundPolling() }
+        .onDisappear { permissions.endForegroundPolling() }
         .confirmationDialog(
             "Reset all settings to defaults?",
             isPresented: $showResetConfirmation,

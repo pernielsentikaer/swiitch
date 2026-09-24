@@ -451,6 +451,26 @@
         }
       }
     },
+    "The updater couldn’t start. Please try Check for Updates again.": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opdateringsværktøjet kunne ikke starte. Prøv Søg efter opdateringer igen."
+          }
+        }
+      }
+    },
+    "Update to %@ Available…": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opdatering til %@ tilgængelig…"
+          }
+        }
+      }
+    },
     "Choose Apps to Exclude": {
       "localizations": {
         "da": {

@@ -101,23 +101,36 @@ Swiitch/
   SwiitchApp.swift                @main, MenuBarExtra; AppKit owns windows
   AppDelegate.swift               app shell, permission gating, defaults observation
   Model/SwitcherModel.swift       apps / windowsForApp / flatWindows / currentAppWindows
+  Model/ThumbnailCoordinator.swift preview images, states, viewport refresh, prewarm, epochs
   Hotkey/HotkeyManager.swift      CGEventTap, two configurable shortcuts
   Hotkey/FocusTracker.swift       per-app and per-window MRU via Workspace + AX notifications
+  Hotkey/HotkeyRecovery.swift     backed-off event-tap re-enable after sleep/revocation
   Hotkey/Shortcut.swift           keycode + flags <-> human label helpers
-  Windows/WindowEnumerator.swift  CGWindowList + AX ghost-filter, screen-scope filtering
-  Windows/WindowFocuser.swift     AX raise + frontmost + activate, close, hide
+  Hotkey/ShortcutRecordingSession.swift  suspends switching while a recorder is active
+  Windows/WindowDiscovery.swift   background enumeration cache shared by picker + prewarm
+  Windows/WindowEnumerator.swift  CGWindowList + AX ghost-filter, AX title fallback, screen scope
+  Windows/WindowFocuser.swift     AX raise + frontmost + activate, close/minimize/zoom, hide
   Windows/WindowThumbnails.swift  ScreenCaptureKit + CGWindowList fallback (actor)
-  Windows/AXPrivate.swift         _AXUIElementGetWindow + optional SkyLight SPIs
+  Windows/CaptureDeadlineRunner.swift  bounded, queued native capture slots
+  Windows/AXPrivate.swift         dlsym-resolved _AXUIElementGetWindow + optional SkyLight SPIs
   UI/SwitcherPanel.swift          .nonactivatingPanel host
   UI/SwitcherView.swift           SwiftUI grid + filter badge + cells
+  UI/SwitcherPreview.swift        live layout preview used by Preferences
   UI/WelcomeView.swift / WelcomeWindowController.swift
   UI/PreferencesView.swift        sidebar (General / Switcher / Appearance / About)
+  UI/PreferencesWindowController.swift, DiagnosticsView.swift, LoginItemSetting.swift
   UI/ShortcutRecorder.swift       keyDown capture + binding
   Theme/Theme.swift, ColorHex.swift
-  Permissions/PermissionsMonitor.swift  AX + Screen Recording polling
-  Preferences/Preferences.swift   UserDefaults keys + side-effect helpers
-SwiitchTests/
-  SwitcherModelTests.swift        filtering, selection, focus, grid, and action regressions
+  Permissions/PermissionsMonitor.swift  shared AX + Screen Recording poller (slow in
+                                        background, faster only while a permission UI is visible)
+  Preferences/Preferences.swift   UserDefaults keys, migrations, defaults
+  Preferences/LoginItemController.swift  SMAppService is the only source of truth
+  Updates/UpdateController.swift  Sparkle wrapper + gentle menu-bar update reminder
+  Support/DiagnosticsReport.swift allowlisted, count-only diagnostics
+SwiitchTests/                     one file per subsystem; SwitcherModelTests and
+                                  SwitcherInteractionTests cover the state machine,
+                                  LocalizationTests the Danish catalog, and
+                                  NativeWindowScopeTests drive disposable real windows
 ```
 
 ## Where to start

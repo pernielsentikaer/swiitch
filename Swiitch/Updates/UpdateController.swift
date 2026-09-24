@@ -19,6 +19,9 @@ final class UpdateController: NSObject, ObservableObject, SPUStandardUserDriverD
     private var observation: NSKeyValueObservation?
     @Published private(set) var automaticChecksEnabled = false
     @Published private(set) var errorMessage: String?
+    /// Display version of a scheduled update Sparkle found while Swiitch was in the
+    /// background. Surfaced as a gentle reminder in the menu bar until the user looks at it.
+    @Published private(set) var pendingUpdateVersion: String?
 
     private lazy var updaterController: SPUStandardUpdaterController = {
         // Reading settings in General must not start automatic checks in a Debug build.
@@ -56,7 +59,7 @@ final class UpdateController: NSObject, ObservableObject, SPUStandardUserDriverD
             errorMessage = nil
             return true
         } catch {
-            errorMessage = "The updater couldn’t start. Please try Check for Updates again."
+            errorMessage = String(localized: "The updater couldn’t start. Please try Check for Updates again.")
             return false
         }
     }
@@ -73,6 +76,42 @@ final class UpdateController: NSObject, ObservableObject, SPUStandardUserDriverD
 
     func refreshSettings() { automaticChecksEnabled = backend.readAutomatic() }
 
-    /// A menu-bar utility can reasonably surface Sparkle's standard scheduled reminder.
+    // MARK: - Gentle scheduled reminders
+
+    /// Swiitch has no Dock icon, so a scheduled update alert shown behind other apps can go
+    /// unnoticed. Sparkle still shows the alert itself when it would be in immediate focus;
+    /// otherwise Swiitch records the update and offers it from the menu bar instead.
     nonisolated var supportsGentleScheduledUpdateReminders: Bool { true }
+
+    nonisolated func standardUserDriverShouldHandleShowingScheduledUpdate(
+        _ update: SUAppcastItem, andInImmediateFocus immediateFocus: Bool
+    ) -> Bool {
+        immediateFocus
+    }
+
+    nonisolated func standardUserDriverWillHandleShowingUpdate(
+        _ handleShowingUpdate: Bool, forUpdate update: SUAppcastItem, state: SPUUserUpdateState
+    ) {
+        let version = update.displayVersionString
+        MainActor.assumeIsolated {
+            noteScheduledUpdate(version: version, shownBySparkle: handleShowingUpdate)
+        }
+    }
+
+    nonisolated func standardUserDriverDidReceiveUserAttention(forUpdate update: SUAppcastItem) {
+        MainActor.assumeIsolated { clearPendingUpdate() }
+    }
+
+    nonisolated func standardUserDriverWillFinishUpdateSession() {
+        MainActor.assumeIsolated { clearPendingUpdate() }
+    }
+
+    /// Pure state transition, kept separate from the Sparkle callbacks for testing.
+    func noteScheduledUpdate(version: String, shownBySparkle: Bool) {
+        pendingUpdateVersion = shownBySparkle ? nil : version
+    }
+
+    func clearPendingUpdate() {
+        pendingUpdateVersion = nil
+    }
 }

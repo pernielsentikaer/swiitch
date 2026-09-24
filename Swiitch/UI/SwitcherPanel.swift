@@ -159,12 +159,15 @@ final class SwitcherPanel: NSPanel {
         let screenWidth = screen?.visibleFrame.width ?? 1440
         let percent = UserDefaults.standard.integer(forKey: Preferences.Key.maxPanelWidthPercent)
         let limits = SwitcherPanelSizing.limits(screenWidth: screenWidth, percent: percent)
-        model.effectiveMaxWidth = limits.grid
         let screenHeight = screen?.visibleFrame.height ?? 900
-        model.effectiveMaxHeight = max(
+        let maxHeight = max(
             SwitcherPanelSizing.minimumPanelHeight,
             screenHeight - SwitcherPanelSizing.verticalScreenMargin * 2
         )
+        // `@Published` fires even for unchanged values, and refresh() runs on every
+        // selection change; only publish when the limits actually moved.
+        if model.effectiveMaxWidth != limits.grid { model.effectiveMaxWidth = limits.grid }
+        if model.effectiveMaxHeight != maxHeight { model.effectiveMaxHeight = maxHeight }
 
         hostingView.layoutSubtreeIfNeeded()
         let fitting = hostingView.fittingSize

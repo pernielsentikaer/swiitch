@@ -435,13 +435,9 @@ enum WindowFocuser {
         AXUIElementSetAttributeValue(axApp, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
         AXUIElementPerformAction(axApp, kAXRaiseAction as CFString)
 
-        // Belt-and-suspenders: also call `activate()`. On macOS pre-14 this is the only
-        // thing that works; on macOS 14+ it's a no-op when AX already brought us forward.
-        if #available(macOS 14.0, *) {
-            app.activate()
-        } else {
-            app.activate(options: [.activateIgnoringOtherApps])
-        }
+        // Belt-and-suspenders: also call `activate()`; it's a no-op when AX already
+        // brought the app forward.
+        app.activate()
 
         // Some applications ignore both AX activation and AppKit activation while rebuilding
         // their window bridge. Verify the outcome instead of maintaining an application list;
