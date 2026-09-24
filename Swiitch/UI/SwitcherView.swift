@@ -275,9 +275,13 @@ private struct AppGridView: View {
         let columnsCount = SwitcherModel.appGridColumns(count: visible.count, maxWidth: maxWidth)
         let columns = Array(repeating: GridItem(.fixed(cellWidth), spacing: cellSpacing), count: columnsCount)
 
+        // Resolve absolute indices by identity once per render. `firstIndex(of:)` would
+        // compare every field of every entry, including icons and window arrays, for
+        // each cell on every thumbnail arrival.
+        let indexByPID = Dictionary(model.apps.enumerated().map { ($1.pid, $0) }, uniquingKeysWith: { first, _ in first })
         return LazyVGrid(columns: columns, alignment: .center, spacing: 16) {
             ForEach(visible, id: \.id) { app in
-                let absoluteIndex = model.apps.firstIndex(of: app) ?? 0
+                let absoluteIndex = indexByPID[app.pid] ?? 0
                 let isPinned = Preferences.isPinned(app.bundleIdentifier)
                 AppCell(app: app, isSelected: absoluteIndex == model.selectedAppIndex, isPinned: isPinned)
                     .id(SwitcherScrollTarget.app(app.pid))
@@ -437,9 +441,10 @@ private struct WindowGridView: View {
             count: metrics.columns
         )
 
+        let indexByID = Dictionary(app.windows.enumerated().map { ($1.id, $0) }, uniquingKeysWith: { first, _ in first })
         return LazyVGrid(columns: columns, alignment: .center, spacing: 14) {
             ForEach(visible) { window in
-                let index = app.windows.firstIndex(where: { $0.id == window.id }) ?? 0
+                let index = indexByID[window.id] ?? 0
                 WindowCell(
                     title: window.displayTitle,
                     thumbnail: model.thumbnails[window.id],
@@ -511,9 +516,10 @@ private struct FlatWindowGridView: View {
             count: metrics.columns
         )
 
+        let indexByID = Dictionary(model.flatWindows.enumerated().map { ($1.id, $0) }, uniquingKeysWith: { first, _ in first })
         return LazyVGrid(columns: columns, alignment: .center, spacing: 14) {
             ForEach(visible, id: \.id) { entry in
-                let absoluteIndex = model.flatWindows.firstIndex(of: entry) ?? 0
+                let absoluteIndex = indexByID[entry.id] ?? 0
                 WindowCell(
                     title: entry.window.displayTitle,
                     thumbnail: model.thumbnails[entry.id],

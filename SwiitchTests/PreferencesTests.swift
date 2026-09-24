@@ -118,12 +118,18 @@ final class PreferencesTests: XCTestCase {
     }
 
     func testDisplayModeCopyDescribesTheNavigationModel() {
-        XCTAssertEqual(Preferences.DisplayMode.apps.label, "Apps first")
+        // Resolve through the app's catalog so the test passes on a Danish host too:
+        // it pins the keys the labels use, and LocalizationTests cover the translations.
+        func copy(_ key: String) -> String {
+            Bundle(for: SwitcherModel.self).localizedString(forKey: key, value: nil, table: nil)
+        }
+        XCTAssertEqual(Preferences.DisplayMode.apps.label, copy("Apps first"))
         XCTAssertEqual(
             Preferences.DisplayMode.apps.description,
-            "Use Tab or ← → to switch apps. Press ↓ to choose a window."
+            copy("Use Tab or ← → to switch apps. Press ↓ to choose a window.")
         )
-        XCTAssertEqual(Preferences.DisplayMode.windows.label, "All windows")
+        XCTAssertEqual(Preferences.DisplayMode.windows.label, copy("All windows"))
+        XCTAssertNotEqual(copy("Apps first"), copy("All windows"))
     }
 
     func testWindowControlsAreOptInAndResettable() {

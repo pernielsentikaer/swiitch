@@ -98,10 +98,10 @@ enum WindowEnumerator {
     static func collect(context: Context, metadataBudget: TimeInterval = 0.6) -> Collection {
         let started = ProcessInfo.processInfo.systemUptime
         let options = context.options
-        let onScreen = copyWindows(option: [.optionOnScreenOnly, .excludeDesktopElements])
-        // Discover first, filter afterward: minimized windows are absent from the on-screen list.
+        // One WindowServer pass: the complete list carries `kCGWindowIsOnscreen`, so a
+        // second `.optionOnScreenOnly` copy would only duplicate work every collection.
+        // Discover everything first, filter afterward: minimized windows are off-screen.
         let all = copyWindows(option: [.optionAll, .excludeDesktopElements])
-        let onScreenIDs = Set(onScreen.compactMap { $0[kCGWindowNumber as String] as? CGWindowID })
 
         let regularApps = context.applications
         let regularPIDs = Set(regularApps.map { $0.processIdentifier })
@@ -130,7 +130,7 @@ enum WindowEnumerator {
                 pid: pidNum,
                 title: title,
                 bounds: bounds,
-                isOnScreen: onScreenIDs.contains(wid)
+                isOnScreen: (entry[kCGWindowIsOnscreen as String] as? Bool) == true
             )
             byPID[pidNum, default: []].append(info)
         }

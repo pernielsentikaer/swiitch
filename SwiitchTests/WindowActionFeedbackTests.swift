@@ -116,7 +116,9 @@ final class WindowActionFeedbackTests: XCTestCase {
         fixture.model.closeSelected()
         XCTAssertEqual(fixture.model.actionFeedback, WindowActionResult.permissionRequired.message(for: .close))
         fixture.model.hideSelected()
-        XCTAssertEqual(fixture.model.actionFeedback, "Couldn’t hide this app. Please try again.")
+        XCTAssertEqual(fixture.model.actionFeedback, Bundle(for: SwitcherModel.self).localizedString(
+            forKey: "Couldn’t hide this app. Please try again.", value: nil, table: nil
+        ))
         XCTAssertEqual(fixture.model.flatWindows.count, 1)
     }
 

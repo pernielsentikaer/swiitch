@@ -63,10 +63,10 @@ private actor ThumbnailCapturePromise {
 ///
 /// Implemented as an `actor` so the cache + in-flight bookkeeping is automatically
 /// serialized — callers from any context can safely `await` an image.
-@available(macOS 14.0, *)
 actor WindowThumbnails {
     static let shared = WindowThumbnails(permissionCheck: { CGPreflightScreenCaptureAccess() })
     private static let nativeCaptures = CaptureDeadlineRunner()
+    private static let shareableContent = ShareableContentCache<SCShareableContent> { Set($0.windows.map(\.windowID)) }
 
     private struct CacheEntry {
         let image: NSImage
@@ -424,14 +424,18 @@ actor WindowThumbnails {
         var successfulIDs: Set<CGWindowID> = []
 
         guard !Task.isCancelled, CGPreflightScreenCaptureAccess() else { return }
-        let content: SCShareableContent? = await nativeCaptures.run(timeout: 2) {
-            guard CGPreflightScreenCaptureAccess() else { return nil }
-            // Include off-screen windows so we can grab thumbnails for things the user
-            // isn't currently looking at (other Spaces, etc.).
-            return try? await SCShareableContent.excludingDesktopWindows(
-                true,
-                onScreenWindowsOnly: false
-            )
+        // Enumerating shareable content costs 100–300 ms per call; a picker refresh runs
+        // several small batches in quick succession, so share one recent listing.
+        let content = await shareableContent.content(covering: Set(windowIDs)) {
+            await nativeCaptures.run(timeout: 2) {
+                guard CGPreflightScreenCaptureAccess() else { return nil }
+                // Include off-screen windows so we can grab thumbnails for things the user
+                // isn't currently looking at (other Spaces, etc.).
+                return try? await SCShareableContent.excludingDesktopWindows(
+                    true,
+                    onScreenWindowsOnly: false
+                )
+            }
         }
         if let content {
             let requested = Set(windowIDs)
@@ -567,5 +571,65 @@ actor WindowThumbnails {
         let image = NSImage(size: NSSize(width: cgImage.width, height: cgImage.height))
         image.addRepresentation(representation)
         return image
+    }
+}
+
+/// Short-lived cache of `SCShareableContent` shared by consecutive capture batches.
+/// A listing is reused only while it is fresh and already knows every requested window;
+/// a window created after the listing forces a new fetch. Concurrent callers share one
+/// in-flight fetch instead of each paying for their own. Generic so tests can use a
+/// stand-in listing; ScreenCaptureKit's type cannot be constructed directly.
+actor ShareableContentCache<Content> {
+    private let ttl: TimeInterval
+    private let clock: () -> TimeInterval
+    private let windowIDs: (Content) -> Set<CGWindowID>
+    private var cached: (content: Content, windowIDs: Set<CGWindowID>, at: TimeInterval)?
+    private var inFlight: (id: UInt64, task: Task<Content?, Never>)?
+    private var nextFetchID: UInt64 = 0
+    private(set) var fetchCount = 0
+
+    init(ttl: TimeInterval = 1.0,
+         clock: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
+         windowIDs: @escaping (Content) -> Set<CGWindowID>) {
+        self.ttl = ttl
+        self.clock = clock
+        self.windowIDs = windowIDs
+    }
+
+    func content(
+        covering requested: Set<CGWindowID>,
+        fetch: @escaping @Sendable () async -> Content?
+    ) async -> Content? {
+        if let cached, clock() - cached.at < ttl, requested.isSubset(of: cached.windowIDs) {
+            return cached.content
+        }
+        if let inFlight {
+            let shared = await inFlight.task.value
+            if let shared, requested.isSubset(of: windowIDs(shared)) {
+                return shared
+            }
+            // Another waiter may have refreshed this listing while this actor was
+            // suspended. Reuse that result/work instead of launching a fetch per waiter.
+            if let cached, clock() - cached.at < ttl, requested.isSubset(of: cached.windowIDs) {
+                return cached.content
+            }
+            if let newer = self.inFlight, newer.id != inFlight.id {
+                return await newer.task.value
+            }
+        }
+        nextFetchID &+= 1
+        let id = nextFetchID
+        let task = Task { await fetch() }
+        inFlight = (id, task)
+        fetchCount += 1
+        let result = await task.value
+        // A late continuation from an older fetch must not overwrite a newer listing.
+        if inFlight?.id == id {
+            inFlight = nil
+            if let result {
+                cached = (result, windowIDs(result), clock())
+            }
+        }
+        return result
     }
 }

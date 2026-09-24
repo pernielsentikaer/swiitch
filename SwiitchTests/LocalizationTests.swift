@@ -20,6 +20,14 @@ final class LocalizationTests: XCTestCase {
         XCTAssertEqual(danish.localizedString(forKey: "Current app's windows", value: nil, table: nil), "Den aktive apps vinduer")
         XCTAssertEqual(english.localizedString(forKey: "General", value: nil, table: nil), "General")
         XCTAssertEqual(english.localizedString(forKey: "Minimized windows", value: nil, table: nil), "Minimized windows")
+        XCTAssertEqual(danish.localizedString(forKey: "Couldn’t hide this app. Please try again.", value: nil, table: nil),
+                       "Kunne ikke skjule denne app. Prøv igen.")
+        XCTAssertEqual(english.localizedString(forKey: "Couldn’t hide this app. Please try again.", value: nil, table: nil),
+                       "Couldn’t hide this app. Please try again.")
+        XCTAssertEqual(String(format: danish.localizedString(forKey: "Update to %@ Available…", value: nil, table: nil), "0.1.6"),
+                       "Opdatering til 0.1.6 tilgængelig…")
+        XCTAssertEqual(String(format: english.localizedString(forKey: "Update to %@ Available…", value: nil, table: nil), "0.1.6"),
+                       "Update to 0.1.6 Available…")
         for (key, translation) in [
             "Minimized windows": "Minimerede vinduer",
             "Minimized": "Minimeret",

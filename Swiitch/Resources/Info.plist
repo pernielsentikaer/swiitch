@@ -36,8 +36,8 @@
     <string>AppIcon</string>
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
-    <!-- Sparkle auto-update configuration. SUPublicEDKey must be filled in with the
-         output of `generate_keys` from the Sparkle SPM checkout — see CONTRIBUTING. -->
+    <!-- Sparkle auto-update configuration. SUPublicEDKey is the public half of the
+         key pair created with Sparkle's `generate_keys` — see CONTRIBUTING "Releases". -->
     <key>SUFeedURL</key>
     <string>https://raw.githubusercontent.com/pernielsentikaer/swiitch/main/appcast.xml</string>
     <key>SUPublicEDKey</key>

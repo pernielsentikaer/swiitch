@@ -14,11 +14,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var model: SwitcherModel!
     private var hotkey: HotkeyManager!
     private var focusTracker: FocusTracker!
-    private var axMonitorTimer: Timer?
     private var lastAXTrusted: Bool = false
     private var defaultsObserver: NSObjectProtocol?
-    private var capturePermissions: PermissionsMonitor?
-    private var capturePermissionObservation: AnyCancellable?
+    private var permissionObservations: [AnyCancellable] = []
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Hosted unit tests load the app executable, which also calls its delegate. Do not
@@ -58,13 +56,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.onHide = { [weak self] in self?.hidePanel() }
         model.onUpdate = { [weak self] in self?.panel?.refresh() }
 
-        let permissions = PermissionsMonitor()
-        capturePermissions = permissions
-        capturePermissionObservation = permissions.$screenCaptureGranted.removeDuplicates().sink { [weak self] granted in
-            self?.model.updateScreenCapturePermission(granted)
-        }
-        permissions.start()
-
         hotkey = HotkeyManager(model: model)
 
         WelcomeWindowController.shared.onFinish = { [weak self] in
@@ -99,11 +90,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        axMonitorTimer?.invalidate()
+        PermissionsMonitor.shared.stop()
+        permissionObservations.removeAll()
         hotkey?.uninstall()
         WindowDiscovery.shared.stop()
-        capturePermissions?.stop()
-        capturePermissionObservation?.cancel()
         if let defaultsObserver {
             NotificationCenter.default.removeObserver(defaultsObserver)
         }
@@ -181,24 +171,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Accessibility monitor
 
-    /// Polls `AXIsProcessTrusted()` and reacts to transitions. Cheap call (TCC client
-    /// caches the answer), and 2s is fast enough that a revocation while the user is
-    /// actively using Swiitch is noticed before they retry ⌘+Tab a few times in vain.
+    /// Reacts to Accessibility transitions reported by the shared `PermissionsMonitor`,
+    /// which also feeds Screen Recording state to the model. One poller serves both.
     private func startAXMonitor() {
-        lastAXTrusted = AXIsProcessTrusted()
+        let permissions = PermissionsMonitor.shared
+        permissions.refresh()
+        lastAXTrusted = permissions.accessibilityGranted
         if lastAXTrusted {
             hotkey.install()
         }
-        axMonitorTimer?.invalidate()
-        axMonitorTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.checkAXTrustTransition()
-            }
-        }
+        permissionObservations = [
+            permissions.$accessibilityGranted.removeDuplicates().sink { [weak self] granted in
+                self?.checkAXTrustTransition(granted)
+            },
+            permissions.$screenCaptureGranted.removeDuplicates().sink { [weak self] granted in
+                self?.model.updateScreenCapturePermission(granted)
+            },
+        ]
+        permissions.start()
     }
 
-    private func checkAXTrustTransition() {
-        let now = AXIsProcessTrusted()
+    private func checkAXTrustTransition(_ now: Bool) {
         guard now != lastAXTrusted else { return }
         lastAXTrusted = now
 

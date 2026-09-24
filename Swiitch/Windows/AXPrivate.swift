@@ -2,16 +2,25 @@ import ApplicationServices
 import Carbon.HIToolbox
 import Darwin
 
-/// Private Accessibility SPI: maps an AXUIElement representing a window to its CGWindowID.
-/// Note: this is private SPI. Not allowed for Mac App Store distribution,
-/// but fine for Developer ID / direct distribution.
-@_silgen_name("_AXUIElementGetWindow")
-private func _AXUIElementGetWindow(_ element: AXUIElement, _ windowID: UnsafeMutablePointer<CGWindowID>) -> AXError
-
-@_silgen_name("GetProcessForPID")
-private func GetProcessForPID(_ pid: pid_t, _ psn: UnsafeMutablePointer<ProcessSerialNumber>) -> OSStatus
-
 enum AXPrivate {
+    /// Private Accessibility SPI: maps an AXUIElement representing a window to its CGWindowID.
+    /// Not allowed for Mac App Store distribution, fine for direct distribution. Resolved at
+    /// runtime rather than bound by the linker so a future macOS that renames or removes
+    /// it leaves `windowID(for:)` returning nil instead of aborting at launch; every
+    /// consumer already treats a missing ID as "unknown".
+    private typealias GetWindow = @convention(c) (AXUIElement, UnsafeMutablePointer<CGWindowID>) -> AXError
+    private static let getWindow: GetWindow? = {
+        guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "_AXUIElementGetWindow") else { return nil }
+        return unsafeBitCast(symbol, to: GetWindow.self)
+    }()
+
+    /// Deprecated Carbon call, still exported. Resolved the same way for the same reason.
+    private typealias GetProcess = @convention(c) (pid_t, UnsafeMutablePointer<ProcessSerialNumber>) -> OSStatus
+    private static let getProcessForPID: GetProcess? = {
+        guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "GetProcessForPID") else { return nil }
+        return unsafeBitCast(symbol, to: GetProcess.self)
+    }()
+
     private typealias SetFrontProcess = @convention(c) (
         UnsafePointer<ProcessSerialNumber>,
         CGWindowID,
@@ -31,8 +40,9 @@ enum AXPrivate {
     }()
 
     static func windowID(for element: AXUIElement) -> CGWindowID? {
+        guard let getWindow else { return nil }
         var wid: CGWindowID = 0
-        return _AXUIElementGetWindow(element, &wid) == .success ? wid : nil
+        return getWindow(element, &wid) == .success ? wid : nil
     }
 
     /// The window's Accessibility title, or nil when the app does not publish one.
@@ -125,7 +135,7 @@ enum AXPrivate {
     static func windowServerActivate(pid: pid_t) -> Bool {
         guard let setFrontProcess else { return false }
         var psn = ProcessSerialNumber(highLongOfPSN: 0, lowLongOfPSN: 0)
-        guard GetProcessForPID(pid, &psn) == noErr else { return false }
+        guard let getProcessForPID, getProcessForPID(pid, &psn) == noErr else { return false }
         let allWindowsAndUserGenerated: UInt32 = 0x100 | 0x200
         return setFrontProcess(&psn, 0, allWindowsAndUserGenerated) == .success
     }

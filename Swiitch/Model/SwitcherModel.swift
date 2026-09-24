@@ -19,8 +19,6 @@ final class SwitcherModel: ObservableObject {
         let query: String
     }
 
-    private var thumbnailViewport: (context: ThumbnailViewportContext, ids: Set<CGWindowID>)?
-
     struct FlatWindowEntry: Identifiable, Hashable {
         let id: CGWindowID
         let window: WindowInfo
@@ -175,9 +173,11 @@ final class SwitcherModel: ObservableObject {
     @Published private(set) var selectedWindowIndex: Int = 0
     @Published private(set) var selectedFlatIndex: Int = 0
     @Published private(set) var isArmed: Bool = false
-    @Published private(set) var thumbnails: [CGWindowID: NSImage] = [:]
-    @Published private(set) var thumbnailStates: [CGWindowID: ThumbnailState] = [:]
-    @Published private(set) var screenCaptureGranted: Bool
+    /// Preview state lives in `ThumbnailCoordinator`; the model republishes its changes so
+    /// existing observers of the model keep working.
+    var thumbnails: [CGWindowID: NSImage] { previews.thumbnails }
+    var thumbnailStates: [CGWindowID: ThumbnailState] { previews.thumbnailStates }
+    var screenCaptureGranted: Bool { previews.screenCaptureGranted }
     @Published private(set) var windowCapabilities: [CGWindowID: WindowActionCapabilities] = [:]
     @Published private(set) var actionFeedback: String?
     /// The usable grid width after the panel subtracts its horizontal padding from the
@@ -202,8 +202,8 @@ final class SwitcherModel: ObservableObject {
     private let dependencies: Dependencies
     private var showTimer: Timer?
     private var panelShown: Bool = false
-    private var prewarmTimer: Timer?
-    private var refreshTimer: Timer?
+    private let previews: ThumbnailCoordinator
+    private var previewObservation: AnyCancellable?
     private var hasArmedOnce = false
     private var peekWorkItem: DispatchWorkItem?
     private var preArmFrontmostPID: pid_t?
@@ -213,12 +213,6 @@ final class SwitcherModel: ObservableObject {
     private var pendingCloseWindowIDs: Set<CGWindowID> = []
     private var armGeneration: UInt64 = 0
     private var windowOrder = FocusTracker.WindowOrder()
-    private var thumbnailEpoch: UInt64 = 0
-    private var pendingThumbnailIDs: Set<CGWindowID> = []
-    private var permissionRevision: UInt64 = 0
-    private var permissionTransition: Task<Void, Never>?
-    private var updatingCapturePermission = false
-    private var prewarmInFlight = false
     private var preparationTask: Task<Void, Never>?
     private var preparationGeneration: UInt64 = 0
     private var hasPreparedFocus = false
@@ -235,7 +229,31 @@ final class SwitcherModel: ObservableObject {
         self.focusTracker = focusTracker
         self.defaults = defaults
         self.dependencies = dependencies
-        self.screenCaptureGranted = dependencies.screenCaptureGranted()
+        previews = ThumbnailCoordinator(dependencies: dependencies)
+        previews.scope = { [weak self] in self?.thumbnailScope ?? .init() }
+        previews.prewarmSource = .init(
+            excludedBundleIDs: { [weak self] in self?.currentEnumerateOptions().excludedBundleIDs ?? [] },
+            loadsThumbnails: { [weak self] in
+                guard let self else { return false }
+                return self.shouldLoadThumbnails(for: self.currentDisplayMode())
+            },
+            prepareAllLive: { [weak self] excluded in
+                await self?.dependencies.prepareSnapshot?(EnumerateOptions(excludedBundleIDs: excluded))
+            },
+            allLiveWindowIDs: { [weak self] excluded in
+                guard let self else { return [] }
+                let liveApps = self.dependencies.enumerate(self.focusTracker, EnumerateOptions(excludedBundleIDs: excluded))
+                return Set(liveApps.flatMap { $0.windows.map(\.id) })
+            },
+            scopedWindowIDs: { [weak self] in
+                guard let self else { return [] }
+                return self.dependencies.enumerate(self.focusTracker, self.currentEnumerateOptions())
+                    .flatMap(\.windows).map(\.id)
+            }
+        )
+        previewObservation = previews.objectWillChange.sink { [weak self] _ in
+            self?.objectWillChange.send()
+        }
     }
 
     deinit {
@@ -243,8 +261,6 @@ final class SwitcherModel: ObservableObject {
         feedbackTask?.cancel()
         if isArmed { focusTracker.isTrackingSuspended = false }
         showTimer?.invalidate()
-        prewarmTimer?.invalidate()
-        refreshTimer?.invalidate()
         peekWorkItem?.cancel()
     }
 
@@ -306,12 +322,12 @@ final class SwitcherModel: ObservableObject {
 
         if shouldLoadThumbnails(for: displayMode) {
             let allWindows = apps.flatMap { $0.windows }
-            requestInitialThumbnails(for: allWindows)
+            previews.requestInitial(for: allWindows)
         }
-        startRefreshTimer()
+        previews.startRefreshTimer()
         if !hasArmedOnce {
             hasArmedOnce = true
-            startPrewarmTimer()
+            previews.startPrewarmTimer()
         }
 
         // Also schedule peek for the initial selection — `.onHover` won't fire if the
@@ -353,11 +369,11 @@ final class SwitcherModel: ObservableObject {
         isArmed = true
         scheduleShow()
 
-        requestInitialThumbnails(for: app.windows)
-        startRefreshTimer()
+        previews.requestInitial(for: app.windows)
+        previews.startRefreshTimer()
         if !hasArmedOnce {
             hasArmedOnce = true
-            startPrewarmTimer()
+            previews.startPrewarmTimer()
         }
 
         schedulePeekIfEnabled()
@@ -548,7 +564,7 @@ final class SwitcherModel: ObservableObject {
         showTimer?.invalidate()
         presentPanelIfNeeded()
         onUpdate?()
-        requestInitialThumbnails(for: app.windows)
+        previews.requestInitial(for: app.windows)
     }
 
     func exitWindowMode() {
@@ -1102,34 +1118,8 @@ final class SwitcherModel: ObservableObject {
     }
 
     private func refreshThumbnailAfterWindowAction(_ window: WindowInfo) {
-        if let invalidateThumbnail = dependencies.invalidateThumbnail {
-            Task { await invalidateThumbnail(window.id) }
-        }
-        Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 150_000_000)
-            await self?.fetchThumbnails(for: [window], fresh: true)
-        }
+        previews.refreshAfterAction(window)
         onUpdate?()
-    }
-
-    private func removeWindow(id: CGWindowID) {
-        for i in apps.indices {
-            apps[i].windows.removeAll { $0.id == id }
-        }
-        apps.removeAll { $0.windows.isEmpty }
-        flatWindows.removeAll { $0.id == id }
-        thumbnails.removeValue(forKey: id)
-        thumbnailStates.removeValue(forKey: id)
-        if let invalidateThumbnail = dependencies.invalidateThumbnail {
-            Task { await invalidateThumbnail(id) }
-        }
-
-        if (mode == .currentAppWindows && flatWindows.isEmpty)
-            || (apps.isEmpty && flatWindows.isEmpty) {
-            teardown()
-            return
-        }
-        clampSelectionAfterRemoval()
     }
 
     private func removeApp(pid: pid_t) {
@@ -1140,13 +1130,7 @@ final class SwitcherModel: ObservableObject {
         apps.removeAll { $0.pid == pid }
         flatWindows.removeAll { $0.window.pid == pid }
         if removedDrilledApp { exitWindowMode() }
-        thumbnails = thumbnails.filter { !removedWindowIDs.contains($0.key) }
-        thumbnailStates = thumbnailStates.filter { !removedWindowIDs.contains($0.key) }
-        if let invalidateThumbnail = dependencies.invalidateThumbnail {
-            for id in removedWindowIDs {
-                Task { await invalidateThumbnail(id) }
-            }
-        }
+        previews.remove(windowIDs: removedWindowIDs)
         if (mode == .currentAppWindows && flatWindows.isEmpty)
             || (apps.isEmpty && flatWindows.isEmpty) {
             teardown()
@@ -1192,7 +1176,7 @@ final class SwitcherModel: ObservableObject {
         showActionFeedback(nil)
         focusTracker.isTrackingSuspended = false
         cancelShowTimer()
-        stopRefreshTimer()
+        previews.reset()
         peekWorkItem?.cancel()
         peekWorkItem = nil
         isArmed = false
@@ -1202,11 +1186,6 @@ final class SwitcherModel: ObservableObject {
         selectedWindowIndex = 0
         selectedFlatIndex = 0
         mode = .apps
-        thumbnails = [:]
-        thumbnailStates = [:]
-        thumbnailViewport = nil
-        thumbnailEpoch &+= 1
-        pendingThumbnailIDs.removeAll()
         mouseHasMoved = false
         filterText = ""
         preArmFrontmostPID = nil
@@ -1234,7 +1213,7 @@ final class SwitcherModel: ObservableObject {
             return
         }
 
-        showTimer = Timer.scheduledTimer(withTimeInterval: TimeInterval(delay) / 1000.0, repeats: false) { [weak self] _ in
+        showTimer = Self.scheduleTimer(interval: TimeInterval(delay) / 1000.0, repeats: false) { [weak self] in
             self?.presentPanelIfNeeded()
         }
     }
@@ -1250,12 +1229,27 @@ final class SwitcherModel: ObservableObject {
         showTimer = nil
     }
 
-    // MARK: - Thumbnails
+    // MARK: - Thumbnails (forwarded to ThumbnailCoordinator)
+
+    /// Snapshot of everything the preview pipeline needs to validate its work against
+    /// the invocation, scope, and query that the UI is currently showing.
+    private var thumbnailScope: ThumbnailCoordinator.Scope {
+        .init(
+            isArmed: isArmed,
+            generation: armGeneration,
+            panelShown: panelShown,
+            loadsThumbnails: shouldLoadThumbnailsForCurrentMode,
+            windows: currentThumbnailWindows,
+            refreshCandidates: thumbnailRefreshCandidates,
+            highlightedWindowID: highlightedWindowID,
+            mode: mode,
+            appPID: mode == .windowsForApp ? currentApp?.pid : nil,
+            query: filterText
+        )
+    }
 
     func thumbnailState(for id: CGWindowID) -> ThumbnailState {
-        if !screenCaptureGranted { return .permissionRequired }
-        if thumbnails[id] != nil { return .ready }
-        return thumbnailStates[id] ?? .loading
+        previews.state(for: id)
     }
 
     private var currentThumbnailWindows: [WindowInfo] {
@@ -1266,182 +1260,44 @@ final class SwitcherModel: ObservableObject {
         }
     }
 
+    private var thumbnailRefreshCandidates: [WindowInfo] {
+        switch mode {
+        case .apps: return []
+        case .windowsForApp: return filteredAppWindows
+        case .flatWindows, .currentAppWindows: return filteredFlatWindows.map(\.window)
+        }
+    }
+
     var thumbnailViewportContext: ThumbnailViewportContext {
-        .init(generation: armGeneration, epoch: thumbnailEpoch, mode: mode,
-              appPID: mode == .windowsForApp ? currentApp?.pid : nil, query: filterText)
+        previews.viewportContext(for: thumbnailScope)
     }
 
     /// Until layout has reported a viewport, use the search-filtered scope. Once known,
     /// refresh intersecting tiles plus the selected target while it scrolls into view.
     var thumbnailRefreshWindows: [WindowInfo] {
-        let candidates: [WindowInfo] = switch mode {
-        case .apps: []
-        case .windowsForApp: filteredAppWindows
-        case .flatWindows, .currentAppWindows: filteredFlatWindows.map(\.window)
-        }
-        guard let viewport = thumbnailViewport, viewport.context == thumbnailViewportContext else {
-            return candidates
-        }
-        return candidates.filter { viewport.ids.contains($0.id) || $0.id == highlightedWindowID }
+        previews.refreshWindows
     }
 
     @MainActor
     func updateThumbnailViewport(_ ids: Set<CGWindowID>, context: ThumbnailViewportContext) {
-        guard isArmed, context == thumbnailViewportContext else { return }
-        let scopedIDs = ids.intersection(currentThumbnailWindows.map(\.id))
-        let previous = thumbnailViewport.flatMap { $0.context == context ? $0.ids : nil } ?? []
-        thumbnailViewport = (context, scopedIDs)
-        let added = scopedIDs.subtracting(previous)
-        guard !added.isEmpty else { return }
-        Task { @MainActor [weak self] in
-            guard let self, self.isArmed, self.thumbnailViewportContext == context else { return }
-            let windows = self.thumbnailRefreshWindows.filter { added.contains($0.id) }
-            // Reuse cached images immediately; only missing/stale entries need capture.
-            await self.fetchThumbnails(for: windows, fresh: false)
-        }
+        previews.updateViewport(ids, context: context)
     }
 
     @MainActor
     func refreshVisibleThumbnails() async {
-        guard isArmed, panelShown, shouldLoadThumbnailsForCurrentMode else { return }
-        await fetchThumbnails(for: thumbnailRefreshWindows, fresh: true)
+        await previews.refreshVisible()
     }
 
-    /// UI revocation is immediate. Cache transitions are serialized so rapid deny/grant
-    /// changes cannot let an older clear wipe a newer capture. No permission prompt here.
+    /// UI revocation is immediate; cache transitions are serialized inside the coordinator.
     @MainActor
     func updateScreenCapturePermission(_ granted: Bool) {
-        guard screenCaptureGranted != granted else { return }
-        screenCaptureGranted = granted
-        thumbnailEpoch &+= 1
-        pendingThumbnailIDs.removeAll()
-        thumbnails.removeAll()
-        thumbnailStates.removeAll()
-        permissionRevision &+= 1
-        let revision = permissionRevision
-        updatingCapturePermission = true
-        let previous = permissionTransition
-        let updateCache = dependencies.setThumbnailCaptureAllowed
-        permissionTransition = Task { @MainActor [weak self] in
-            await previous?.value
-            await updateCache?(granted)
-            guard let self, self.permissionRevision == revision else { return }
-            self.updatingCapturePermission = false
-            if granted, self.isArmed {
-                await self.fetchInitialThumbnails(for: self.currentThumbnailWindows)
-            }
-        }
+        previews.updatePermission(granted)
     }
 
-    private func requestInitialThumbnails(for windows: [WindowInfo]) {
-        let arm = armGeneration
-        Task { @MainActor [weak self] in
-            guard let self, self.isArmed, self.armGeneration == arm else { return }
-            await self.fetchInitialThumbnails(for: windows)
-        }
-    }
-
-    private func startRefreshTimer() {
-        refreshTimer?.invalidate()
-        refreshTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
-            Task { [weak self] in
-                await self?.refreshVisibleThumbnails()
-            }
-        }
-    }
-
-    private func stopRefreshTimer() {
-        refreshTimer?.invalidate()
-        refreshTimer = nil
-    }
-
-    private func startPrewarmTimer() {
-        prewarmTimer?.invalidate()
-        prewarmTimer = Timer.scheduledTimer(withTimeInterval: 4.0, repeats: true) { [weak self] _ in
-            guard let self else { return }
-            if self.isArmed { return }
-            Task { [weak self] in
-                await self?.prewarmCache()
-            }
-        }
-    }
-
-    /// Retain every live, non-excluded preview; only capture missing previews in the
-    /// current display/Spaces/minimized scope. Both lists are cached discovery reads.
+    /// Retain every live, non-excluded preview; capture missing previews in the current scope.
     @MainActor
     func prewarmCache() async {
-        guard #available(macOS 14.0, *) else { return }
-        guard screenCaptureGranted, !updatingCapturePermission, !isArmed, !prewarmInFlight else { return }
-        guard let retainThumbnails = dependencies.retainThumbnails,
-              let thumbnails = dependencies.thumbnails else { return }
-        guard shouldLoadThumbnails(for: currentDisplayMode()) else { return }
-        prewarmInFlight = true
-        defer { prewarmInFlight = false }
-        let epoch = thumbnailEpoch
-        let excluded = currentEnumerateOptions().excludedBundleIDs
-        let allLiveOptions = EnumerateOptions(excludedBundleIDs: excluded)
-        await dependencies.prepareSnapshot?(allLiveOptions)
-        guard canContinuePrewarming(epoch: epoch, excluded: excluded) else { return }
-        // Discovery already caches all Spaces/displays; this is an unscoped read of that
-        // snapshot, not a second AX scan. Scope changes must not masquerade as closed IDs.
-        let liveApps = dependencies.enumerate(focusTracker, allLiveOptions)
-        let liveIDs = Set(liveApps.flatMap { $0.windows.map(\.id) })
-        await retainThumbnails(liveIDs)
-        guard canContinuePrewarming(epoch: epoch, excluded: excluded) else { return }
-        // Re-read after the actor hop so a changed screen/scope never warms the old set.
-        let windows = dependencies.enumerate(focusTracker, currentEnumerateOptions()).flatMap(\.windows)
-        _ = await thumbnails(windows.map(\.id), false, nil)
-    }
-
-    @MainActor
-    private func canContinuePrewarming(epoch: UInt64, excluded: Set<String>) -> Bool {
-        !Task.isCancelled && screenCaptureGranted && !updatingCapturePermission && !isArmed
-            && thumbnailEpoch == epoch && shouldLoadThumbnails(for: currentDisplayMode())
-            && currentEnumerateOptions().excludedBundleIDs == excluded
-    }
-
-    @MainActor
-    private func fetchInitialThumbnails(for windows: [WindowInfo]) async {
-        guard isArmed, screenCaptureGranted, !updatingCapturePermission else { return }
-        let epoch = thumbnailEpoch
-        let arm = armGeneration
-        if let cancelThumbnailCaptures = dependencies.cancelThumbnailCaptures {
-            await cancelThumbnailCaptures()
-        }
-        guard isArmed, armGeneration == arm, thumbnailEpoch == epoch else { return }
-        await fetchThumbnails(for: windows, fresh: false)
-    }
-
-    @MainActor
-    private func fetchThumbnails(for windows: [WindowInfo], fresh: Bool) async {
-        guard #available(macOS 14.0, *) else { return }
-        guard isArmed, screenCaptureGranted, !updatingCapturePermission else { return }
-        guard let loadThumbnails = dependencies.thumbnails else { return }
-        let generation = armGeneration
-        let epoch = thumbnailEpoch
-        let visibleIDs = Set(currentThumbnailWindows.map(\.id))
-        var ids = windows.map(\.id).filter { visibleIDs.contains($0) && !pendingThumbnailIDs.contains($0) }
-        if let selected = highlightedWindowID, let index = ids.firstIndex(of: selected) {
-            ids.remove(at: index)
-            ids.insert(selected, at: 0)
-        }
-        guard !ids.isEmpty else { return }
-        pendingThumbnailIDs.formUnion(ids)
-        for id in ids where thumbnailStates[id] == nil { thumbnailStates[id] = .loading }
-        let loaded = await loadThumbnails(ids, fresh) { [weak self] id, image in
-            guard let self, self.isArmed, self.armGeneration == generation,
-                  self.thumbnailEpoch == epoch, self.screenCaptureGranted,
-                  self.currentThumbnailWindows.contains(where: { $0.id == id }) else { return }
-            self.thumbnails[id] = image
-            self.thumbnailStates[id] = .ready
-        }
-        guard isArmed, armGeneration == generation, thumbnailEpoch == epoch, screenCaptureGranted else { return }
-        pendingThumbnailIDs.subtract(ids)
-        let currentIDs = Set(currentThumbnailWindows.map(\.id))
-        for id in ids where currentIDs.contains(id) {
-            if let image = loaded[id] { thumbnails[id] = image }
-            thumbnailStates[id] = thumbnails[id] == nil ? .unavailable : .ready
-        }
+        await previews.prewarmCache()
     }
 
     private var highlightedWindowID: CGWindowID? {
@@ -1467,6 +1323,18 @@ final class SwitcherModel: ObservableObject {
     private var selectedVisibleFlatWindow: FlatWindowEntry? {
         guard let selected = flatWindows[safe: selectedFlatIndex] else { return nil }
         return filteredFlatWindows.contains(where: { $0.id == selected.id }) ? selected : nil
+    }
+
+    // MARK: - Timers
+
+    /// `Timer.scheduledTimer` only fires in `.default` mode, which pauses while a context
+    /// menu or other tracking loop runs. The picker has a context menu, so its show-delay,
+    /// refresh, and prewarm timers must keep running in `.common` modes.
+    private static func scheduleTimer(interval: TimeInterval, repeats: Bool,
+                                      block: @escaping () -> Void) -> Timer {
+        let timer = Timer(timeInterval: interval, repeats: repeats) { _ in block() }
+        RunLoop.main.add(timer, forMode: .common)
+        return timer
     }
 
     // MARK: - Preference reads
