@@ -14,6 +14,7 @@ final class HotkeyManagerTests: XCTestCase {
         var restoredWindowIDs: [CGWindowID] = []
     }
 
+    @MainActor
     private final class Fixture {
         let suiteName = "com.swiitch.hotkey-tests.\(UUID().uuidString)"
         let defaults: UserDefaults
@@ -61,7 +62,8 @@ final class HotkeyManagerTests: XCTestCase {
         }
 
         deinit {
-            manager.uninstall()
+            // deinit is nonisolated; the fixture only ever dies on the main-actor test.
+            MainActor.assumeIsolated { manager.uninstall() }
             defaults.removePersistentDomain(forName: suiteName)
         }
 

@@ -272,7 +272,7 @@ private struct AppGridView: View {
     }
 
     private func appGrid(visible: [AppEntry]) -> some View {
-        let columnsCount = SwitcherModel.appGridColumns(count: visible.count, maxWidth: maxWidth)
+        let columnsCount = SwitcherLayout.appGridColumns(count: visible.count, maxWidth: maxWidth)
         let columns = Array(repeating: GridItem(.fixed(cellWidth), spacing: cellSpacing), count: columnsCount)
 
         // Resolve absolute indices by identity once per render. `firstIndex(of:)` would

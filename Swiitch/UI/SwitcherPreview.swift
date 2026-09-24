@@ -8,7 +8,7 @@ struct SwitcherPreviewLayout {
     let count: Int
     let isWindowsMode: Bool
     let maximumPanelWidth: CGFloat
-    let metrics: SwitcherModel.GridMetrics
+    let metrics: SwitcherLayout.GridMetrics
     let rows: Int
     let panelWidth: CGFloat
     let contentHeight: CGFloat
@@ -26,10 +26,10 @@ struct SwitcherPreviewLayout {
         let limits = SwitcherPanelSizing.limits(screenWidth: screen.width, percent: maximumWidthPercent)
         maximumPanelWidth = limits.panel
         let maximumHeight = SwitcherPanelSizing.panelHeight(fittingHeight: screen.height, screenHeight: screen.height)
-        metrics = isWindowsMode ? SwitcherModel.gridMetrics(
+        metrics = isWindowsMode ? SwitcherLayout.gridMetrics(
             count: self.count, maxWidth: limits.grid, availableHeight: maximumHeight - 170,
             thumbnailSize: thumbnailSize, fitAll: fitAll
-        ) : .init(columns: SwitcherModel.appGridColumns(count: self.count, maxWidth: limits.grid), cellWidth: 110, thumbnailHeight: 92)
+        ) : .init(columns: SwitcherLayout.appGridColumns(count: self.count, maxWidth: limits.grid), cellWidth: 110, thumbnailHeight: 92)
         rows = Int(ceil(Double(self.count) / Double(metrics.columns)))
         let spacing: CGFloat = isWindowsMode ? 12 : 14
         let gridWidth = CGFloat(metrics.columns) * metrics.cellWidth + CGFloat(metrics.columns - 1) * spacing

@@ -7,8 +7,8 @@ import Combine
 ///
 /// It never reads the picker's lists or selection directly. `SwitcherModel` hands it a
 /// `Scope` snapshot on demand, so every guard here is evaluated against the same
-/// invocation, mode, and query that the UI is showing. Isolation mirrors the model:
-/// the class itself is not actor-bound; the async entry points are `@MainActor`.
+/// invocation, mode, and query that the UI is showing. The main-actor model drives its
+/// synchronous lifecycle; async entry points explicitly hop to `@MainActor`.
 final class ThumbnailCoordinator: ObservableObject {
     /// What the coordinator needs to know about the picker at one instant.
     struct Scope {

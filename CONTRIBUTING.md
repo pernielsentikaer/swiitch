@@ -100,7 +100,9 @@ The script writes PNGs into `Swiitch/Resources/Assets.xcassets/AppIcon.appiconse
 Swiitch/
   SwiitchApp.swift                @main, MenuBarExtra; AppKit owns windows
   AppDelegate.swift               app shell, permission gating, defaults observation
-  Model/SwitcherModel.swift       apps / windowsForApp / flatWindows / currentAppWindows
+  Model/SwitcherModel.swift       @MainActor picker state machine: apps / windowsForApp / flatWindows / currentAppWindows
+  Model/SwitcherModel+Dependencies.swift  injectable seams (.live wires WindowDiscovery/WindowFocuser/WindowThumbnails)
+  Model/SwitcherLayout.swift      pure grid sizing shared by the picker, row navigation, and the preview
   Model/ThumbnailCoordinator.swift preview images, states, viewport refresh, prewarm, epochs
   Hotkey/HotkeyManager.swift      CGEventTap, two configurable shortcuts
   Hotkey/FocusTracker.swift       per-app and per-window MRU via Workspace + AX notifications

@@ -57,7 +57,7 @@ final class SwitcherPreviewTests: XCTestCase {
                     for fit in [false, true] {
                         let preview = layout(count: count, size: size, width: width, fit: fit)
                         let limits = SwitcherPanelSizing.limits(screenWidth: 1440, percent: width)
-                        let expected = SwitcherModel.gridMetrics(count: count, maxWidth: limits.grid, availableHeight: 900 - 24 - 170, thumbnailSize: size, fitAll: fit)
+                        let expected = SwitcherLayout.gridMetrics(count: count, maxWidth: limits.grid, availableHeight: 900 - 24 - 170, thumbnailSize: size, fitAll: fit)
                         XCTAssertEqual(preview.metrics, expected)
                         XCTAssertLessThanOrEqual(preview.panelWidth, limits.panel)
                     }
@@ -90,7 +90,7 @@ final class SwitcherPreviewTests: XCTestCase {
         let a = layout(count: 12, windows: false, size: .small, fit: false)
         let b = layout(count: 12, windows: false, size: .large, fit: true)
         XCTAssertEqual(a.metrics, b.metrics)
-        XCTAssertEqual(a.metrics.columns, SwitcherModel.appGridColumns(count: 12, maxWidth: 1440 * 0.6 - 80))
+        XCTAssertEqual(a.metrics.columns, SwitcherLayout.appGridColumns(count: 12, maxWidth: 1440 * 0.6 - 80))
     }
 
     func testInvalidSampleCountAndScreenSizeRemainBounded() {

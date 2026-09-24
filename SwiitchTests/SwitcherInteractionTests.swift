@@ -788,6 +788,7 @@ final class SwitcherInteractionTests: XCTestCase {
         }
     }
 
+    @MainActor
     private final class Fixture {
         let suite = "com.swiitch.interaction-tests.\(UUID().uuidString)"
         let defaults: UserDefaults
@@ -846,7 +847,8 @@ final class SwitcherInteractionTests: XCTestCase {
         }
 
         deinit {
-            model.cancel()
+            // deinit is nonisolated; the fixture only ever dies on the main-actor test.
+            MainActor.assumeIsolated { model.cancel() }
             defaults.removePersistentDomain(forName: suite)
         }
     }
