@@ -2,6 +2,10 @@ import AppKit
 import Combine
 
 /// Drives the switcher UI + window/app focus actions.
+/// The picker state machine. Every entry point runs on the main actor: AppKit/SwiftUI
+/// call it there, the hotkey tap is serviced by the main run loop, and the async work it
+/// spawns hops back before touching state.
+@MainActor
 final class SwitcherModel: ObservableObject {
     enum Mode: Equatable {
         case apps             // root: app strip
@@ -25,145 +29,6 @@ final class SwitcherModel: ObservableObject {
         let bundleIdentifier: String?
         let appName: String
         let appIcon: NSImage?
-    }
-
-    /// External operations used by the state machine. Keeping these injectable lets the
-    /// selection and filtering behavior run under unit tests without focusing real apps,
-    /// enumerating the developer's desktop, or requesting Screen Recording permission.
-    struct Dependencies {
-        var enumerate: (FocusTracker, EnumerateOptions) -> [AppEntry]
-        var prepareSnapshot: ((EnumerateOptions) async -> Void)?
-        var focusApp: (AppEntry) -> Void
-        var focusWindow: (WindowInfo) -> Void
-        var closeWindow: (WindowInfo) -> Bool
-        var minimizeWindow: (WindowInfo) -> Bool
-        var zoomWindow: (WindowInfo) -> Bool
-        var hideApp: (pid_t) -> Bool
-        var focusPID: (pid_t) -> Void
-        var restoreWindowFocus: (pid_t, CGWindowID) -> Bool
-        var frontmostPID: () -> pid_t?
-        var frontmostBundleID: () -> String?
-        var focusedWindowID: (pid_t) -> CGWindowID?
-        var thumbnails: ((
-            [CGWindowID],
-            Bool,
-            ThumbnailProgressHandler?
-        ) async -> [CGWindowID: NSImage])?
-        var cancelThumbnailCaptures: (() async -> Void)?
-        var retainThumbnails: ((Set<CGWindowID>) async -> Void)?
-        var invalidateThumbnail: ((CGWindowID) async -> Void)?
-        var screenCaptureGranted: () -> Bool
-        var setThumbnailCaptureAllowed: ((Bool) async -> Void)?
-        var scheduleCloseReconciliation: (@escaping () -> Void) -> Void
-        var readWindowCapabilities: ((WindowInfo) async -> WindowActionCapabilities)?
-        var performWindowAction: ((WindowAction, WindowInfo) -> WindowActionResult)?
-        var cancelPendingFocus: () -> Void
-
-        init(
-            enumerate: @escaping (FocusTracker, EnumerateOptions) -> [AppEntry],
-            focusApp: @escaping (AppEntry) -> Void,
-            focusWindow: @escaping (WindowInfo) -> Void,
-            closeWindow: @escaping (WindowInfo) -> Bool,
-            minimizeWindow: @escaping (WindowInfo) -> Bool = { WindowFocuser.minimize(window: $0) },
-            zoomWindow: @escaping (WindowInfo) -> Bool = { WindowFocuser.zoom(window: $0) },
-            hideApp: @escaping (pid_t) -> Bool,
-            focusPID: @escaping (pid_t) -> Void = { pid in
-                MainActor.assumeIsolated { WindowFocuser.focus(pid: pid) }
-            },
-            restoreWindowFocus: @escaping (pid_t, CGWindowID) -> Bool = { _, _ in false },
-            frontmostPID: @escaping () -> pid_t? = { NSWorkspace.shared.frontmostApplication?.processIdentifier },
-            frontmostBundleID: @escaping () -> String? = { NSWorkspace.shared.frontmostApplication?.bundleIdentifier },
-            focusedWindowID: @escaping (pid_t) -> CGWindowID? = { AXPrivate.focusedWindowID(forPID: $0) },
-            thumbnails: ((
-                [CGWindowID],
-                Bool,
-                ThumbnailProgressHandler?
-            ) async -> [CGWindowID: NSImage])? = nil,
-            cancelThumbnailCaptures: (() async -> Void)? = nil,
-            retainThumbnails: ((Set<CGWindowID>) async -> Void)? = nil,
-            invalidateThumbnail: ((CGWindowID) async -> Void)? = nil,
-            screenCaptureGranted: @escaping () -> Bool = { true },
-            setThumbnailCaptureAllowed: ((Bool) async -> Void)? = nil,
-            scheduleCloseReconciliation: @escaping (@escaping () -> Void) -> Void = { action in
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: action)
-            },
-            prepareSnapshot: ((EnumerateOptions) async -> Void)? = nil,
-            readWindowCapabilities: ((WindowInfo) async -> WindowActionCapabilities)? = nil,
-            performWindowAction: ((WindowAction, WindowInfo) -> WindowActionResult)? = nil,
-            cancelPendingFocus: @escaping () -> Void = {}
-        ) {
-            self.enumerate = enumerate
-            self.prepareSnapshot = prepareSnapshot
-            self.focusApp = focusApp
-            self.focusWindow = focusWindow
-            self.closeWindow = closeWindow
-            self.minimizeWindow = minimizeWindow
-            self.zoomWindow = zoomWindow
-            self.hideApp = hideApp
-            self.focusPID = focusPID
-            self.restoreWindowFocus = restoreWindowFocus
-            self.frontmostPID = frontmostPID
-            self.frontmostBundleID = frontmostBundleID
-            self.focusedWindowID = focusedWindowID
-            self.thumbnails = thumbnails
-            self.cancelThumbnailCaptures = cancelThumbnailCaptures
-            self.retainThumbnails = retainThumbnails
-            self.invalidateThumbnail = invalidateThumbnail
-            self.screenCaptureGranted = screenCaptureGranted
-            self.setThumbnailCaptureAllowed = setThumbnailCaptureAllowed
-            self.scheduleCloseReconciliation = scheduleCloseReconciliation
-            self.readWindowCapabilities = readWindowCapabilities
-            self.performWindowAction = performWindowAction
-            self.cancelPendingFocus = cancelPendingFocus
-        }
-
-        static let live = Dependencies(
-            enumerate: { focusTracker, options in
-                MainActor.assumeIsolated {
-                    WindowDiscovery.shared.entries(focusTracker: focusTracker, options: options)
-                }
-            },
-            focusApp: { app in MainActor.assumeIsolated { WindowFocuser.focus(app: app) } },
-            focusWindow: { window in _ = MainActor.assumeIsolated { WindowFocuser.focus(window: window) } },
-            closeWindow: { WindowFocuser.close(window: $0) },
-            minimizeWindow: { WindowFocuser.minimize(window: $0) },
-            zoomWindow: { WindowFocuser.zoom(window: $0) },
-            hideApp: { WindowFocuser.hide(pid: $0) },
-            focusPID: { pid in MainActor.assumeIsolated { WindowFocuser.focus(pid: pid) } },
-            restoreWindowFocus: { pid, id in
-                MainActor.assumeIsolated { WindowFocuser.restoreFocus(pid: pid, windowID: id) }
-            },
-            frontmostPID: { NSWorkspace.shared.frontmostApplication?.processIdentifier },
-            frontmostBundleID: { NSWorkspace.shared.frontmostApplication?.bundleIdentifier },
-            focusedWindowID: { AXPrivate.focusedWindowID(forPID: $0) },
-            thumbnails: { windowIDs, fresh, onUpdate in
-                await WindowThumbnails.shared.images(
-                    for: windowIDs,
-                    fresh: fresh,
-                    // Prewarming fills missing entries only; do not recapture every
-                    // background window every four seconds when no picker is visible.
-                    maximumAge: onUpdate == nil ? .infinity : 3,
-                    onUpdate: onUpdate
-                )
-            },
-            cancelThumbnailCaptures: {
-                await WindowThumbnails.shared.cancelPendingCaptures()
-            },
-            retainThumbnails: { liveIDs in
-                await WindowThumbnails.shared.retain(only: liveIDs)
-            },
-            invalidateThumbnail: { windowID in
-                await WindowThumbnails.shared.invalidate(windowID)
-            },
-            screenCaptureGranted: { CGPreflightScreenCaptureAccess() },
-            setThumbnailCaptureAllowed: { allowed in
-                await WindowThumbnails.shared.setCaptureAllowed(allowed)
-            },
-            prepareSnapshot: { await WindowDiscovery.shared.prepare(options: $0) },
-            readWindowCapabilities: { await WindowActionCapabilityReader.shared.read($0) },
-            performWindowAction: { WindowFocuser.perform($0, window: $1) },
-            cancelPendingFocus: { MainActor.assumeIsolated { WindowFocuser.cancelPendingActivation() } }
-        )
     }
 
     @Published private(set) var apps: [AppEntry] = []
@@ -198,6 +63,10 @@ final class SwitcherModel: ObservableObject {
     var onUpdate: (() -> Void)?
 
     private let focusTracker: FocusTracker
+    private let resumeFocusTracking: @MainActor @Sendable () -> Void
+    /// Stored cleanup ownership, readable from nonisolated deinit without accessing
+    /// the actor-isolated `@Published` getter for `isArmed`.
+    private var ownsFocusTrackingSuspension = false
     private let defaults: UserDefaults
     private let dependencies: Dependencies
     private var showTimer: Timer?
@@ -227,6 +96,7 @@ final class SwitcherModel: ObservableObject {
         dependencies: Dependencies = .live
     ) {
         self.focusTracker = focusTracker
+        resumeFocusTracking = { focusTracker.isTrackingSuspended = false }
         self.defaults = defaults
         self.dependencies = dependencies
         previews = ThumbnailCoordinator(dependencies: dependencies)
@@ -259,7 +129,14 @@ final class SwitcherModel: ObservableObject {
     deinit {
         capabilityTasks.values.forEach { $0.cancel() }
         feedbackTask?.cancel()
-        if isArmed { focusTracker.isTrackingSuspended = false }
+        if ownsFocusTrackingSuspension {
+            let resume = resumeFocusTracking
+            if Thread.isMainThread {
+                MainActor.assumeIsolated { resume() }
+            } else {
+                Task { @MainActor in resume() }
+            }
+        }
         showTimer?.invalidate()
         peekWorkItem?.cancel()
     }
@@ -316,6 +193,7 @@ final class SwitcherModel: ObservableObject {
             mode = .flatWindows
         }
 
+        ownsFocusTrackingSuspension = true
         focusTracker.isTrackingSuspended = true
         isArmed = true
         scheduleShow()
@@ -365,6 +243,7 @@ final class SwitcherModel: ObservableObject {
         mode = .currentAppWindows
         selectedFlatIndex = initialFlatSelectionIndex(reverse: reverse)
 
+        ownsFocusTrackingSuspension = true
         focusTracker.isTrackingSuspended = true
         isArmed = true
         scheduleShow()
@@ -456,94 +335,13 @@ final class SwitcherModel: ObservableObject {
         schedulePeekIfEnabled()
     }
 
-    struct GridMetrics: Equatable {
-        let columns: Int
-        let cellWidth: CGFloat
-        let thumbnailHeight: CGFloat
-    }
-
-    static func appGridColumns(count: Int, maxWidth: CGFloat) -> Int {
-        max(1, min(count, Int(maxWidth / (110 + 14))))
-    }
-
-    /// Calculates one layout used by both SwiftUI and keyboard row navigation. Automatic
-    /// mode preserves the chosen thumbnail size. Fill mode instead finds the largest tiles
-    /// that consume the configured width while keeping the complete grid on screen.
-    static func gridMetrics(
-        count: Int,
-        maxWidth: CGFloat,
-        availableHeight: CGFloat,
-        thumbnailSize: Preferences.ThumbnailSize,
-        fitAll: Bool,
-        columnSpacing: CGFloat = 12,
-        rowSpacing: CGFloat = 14
-    ) -> GridMetrics {
-        guard count > 0 else {
-            return GridMetrics(
-                columns: 1,
-                cellWidth: thumbnailSize.cellWidth,
-                thumbnailHeight: thumbnailSize.thumbHeight
-            )
-        }
-
-        let width = max(120, maxWidth)
-        let preferredWidth = thumbnailSize.cellWidth
-        let aspectRatio = thumbnailSize.thumbHeight / preferredWidth
-
-        if !fitAll {
-            let columns = max(1, min(count, Int((width + columnSpacing) / (preferredWidth + columnSpacing))))
-            return GridMetrics(
-                columns: columns,
-                cellWidth: preferredWidth,
-                thumbnailHeight: thumbnailSize.thumbHeight
-            )
-        }
-
-        // Fill mode may go smaller than the user's preferred thumbnail size, but retain
-        // a usable lower bound. Automatic mode never changes the chosen size.
-        let minimumWidth: CGFloat = 72
-        let height = max(120, availableHeight)
-        let labelHeight: CGFloat = 34
-
-        // Try the fewest columns first. Because each candidate expands to consume the
-        // complete configured width, the first layout that fits vertically also produces
-        // the largest useful thumbnails. This restores Budapest's visibly distinct Fill
-        // behavior instead of collapsing to Automatic whenever full-size tiles fit.
-        for columns in 1...count {
-            let candidateWidth = (width - columnSpacing * CGFloat(columns - 1)) / CGFloat(columns)
-            guard candidateWidth >= minimumWidth else { continue }
-            let cellWidth = candidateWidth
-            let thumbnailHeight = cellWidth * aspectRatio
-            let rows = Int(ceil(Double(count) / Double(columns)))
-            let totalHeight = CGFloat(rows) * (thumbnailHeight + labelHeight)
-                + CGFloat(max(0, rows - 1)) * rowSpacing
-            if totalHeight <= height {
-                return GridMetrics(
-                    columns: columns,
-                    cellWidth: cellWidth,
-                    thumbnailHeight: thumbnailHeight
-                )
-            }
-        }
-
-        // Extremely large sets cannot fit without making tiles unusably small. Use every
-        // viable column at the lower bound; the panel's bounded ScrollView handles only
-        // this final overflow case instead of letting the panel leave the screen.
-        let columns = max(1, min(count, Int((width + columnSpacing) / (minimumWidth + columnSpacing))))
-        let candidateWidth = (width - columnSpacing * CGFloat(columns - 1)) / CGFloat(columns)
-        let cellWidth = max(minimumWidth, min(preferredWidth, candidateWidth))
-        return GridMetrics(
-            columns: columns,
-            cellWidth: cellWidth,
-            thumbnailHeight: cellWidth * aspectRatio
-        )
-    }
+    typealias GridMetrics = SwitcherLayout.GridMetrics
 
     func gridMetrics(count: Int, for gridMode: Mode) -> GridMetrics {
         let raw = defaults.string(forKey: Preferences.Key.thumbnailSize) ?? Preferences.ThumbnailSize.medium.rawValue
         let size = Preferences.ThumbnailSize(rawValue: raw) ?? .medium
         let reservedHeight: CGFloat = gridMode == .windowsForApp ? 330 : 170
-        return Self.gridMetrics(
+        return SwitcherLayout.gridMetrics(
             count: count,
             maxWidth: effectiveMaxWidth,
             availableHeight: effectiveMaxHeight - reservedHeight,
@@ -867,7 +665,10 @@ final class SwitcherModel: ObservableObject {
         let configured = defaults.integer(forKey: Preferences.Key.peekDelayMs)
         let resolved = max(50, min(configured == 0 ? 500 : configured, 2500))
 
-        let item = DispatchWorkItem { [weak self] in self?.peekCurrent() }
+        // DispatchWorkItem runs a Sendable block; the main queue is the main actor.
+        let item = DispatchWorkItem { [weak self] in
+            MainActor.assumeIsolated { self?.peekCurrent() }
+        }
         peekWorkItem = item
         DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(resolved), execute: item)
     }
@@ -1175,6 +976,7 @@ final class SwitcherModel: ObservableObject {
         windowCapabilities.removeAll()
         showActionFeedback(nil)
         focusTracker.isTrackingSuspended = false
+        ownsFocusTrackingSuspension = false
         cancelShowTimer()
         previews.reset()
         peekWorkItem?.cancel()
@@ -1278,24 +1080,20 @@ final class SwitcherModel: ObservableObject {
         previews.refreshWindows
     }
 
-    @MainActor
     func updateThumbnailViewport(_ ids: Set<CGWindowID>, context: ThumbnailViewportContext) {
         previews.updateViewport(ids, context: context)
     }
 
-    @MainActor
     func refreshVisibleThumbnails() async {
         await previews.refreshVisible()
     }
 
     /// UI revocation is immediate; cache transitions are serialized inside the coordinator.
-    @MainActor
     func updateScreenCapturePermission(_ granted: Bool) {
         previews.updatePermission(granted)
     }
 
     /// Retain every live, non-excluded preview; capture missing previews in the current scope.
-    @MainActor
     func prewarmCache() async {
         await previews.prewarmCache()
     }

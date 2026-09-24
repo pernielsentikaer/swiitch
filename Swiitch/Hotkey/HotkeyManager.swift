@@ -6,6 +6,9 @@ import Carbon.HIToolbox
 /// Why a tap instead of `RegisterEventHotKey`:
 ///  - We need to *swallow* the system Cmd+Tab event so macOS doesn't also show its switcher.
 ///  - We need to observe modifier *release* (flagsChanged) to commit on Cmd-up.
+/// Serviced by the main run loop: the event tap, timers, and workspace notifications all
+/// arrive there, and `SwitcherModel` is main-actor isolated.
+@MainActor
 final class HotkeyManager {
     private let model: SwitcherModel
     private let defaults: UserDefaults
@@ -61,18 +64,19 @@ final class HotkeyManager {
         self.recording = recording
         recordingObserver = NotificationCenter.default.addObserver(
             forName: ShortcutRecordingSession.didBegin, object: recording, queue: .main
-        ) { [weak self] _ in self?.cancelInputSession() }
+        ) { [weak self] _ in MainActor.assumeIsolated { self?.cancelInputSession() } }
     }
 
     deinit {
-        // Tear down system resources only. `uninstall()` would force the lazy recovery
-        // controller into existence with `[weak self]` captures of an object mid-deinit,
-        // and cancel the model as a deallocation side effect.
+        // Tear down system resources only, touching stored properties directly: deinit is
+        // nonisolated, so it cannot call the actor-isolated helpers, and `uninstall()` would
+        // also cancel the model as a deallocation side effect.
         healthCheckTimer?.invalidate()
         if let observer = wakeObserver { NSWorkspace.shared.notificationCenter.removeObserver(observer) }
         if let observer = screensWakeObserver { NSWorkspace.shared.notificationCenter.removeObserver(observer) }
-        removeTap()
-        if recoveryStarted { recovery.stop() }
+        if let source = runLoopSource { CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes) }
+        if let tap { CGEvent.tapEnable(tap: tap, enable: false) }
+        if recoveryStarted { HotkeyStatus.shared.value = .stopped }
         if let recordingObserver { NotificationCenter.default.removeObserver(recordingObserver) }
     }
 
@@ -153,17 +157,17 @@ final class HotkeyManager {
     private func startHealthCheck() {
         healthCheckTimer?.invalidate()
         healthCheckTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
-            self?.recovery.refresh()
+            MainActor.assumeIsolated { self?.recovery.refresh() }
         }
     }
 
     private func registerWakeObservers() {
         let center = NSWorkspace.shared.notificationCenter
         wakeObserver = center.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
-            self?.reinstallIfNeeded()
+            MainActor.assumeIsolated { self?.reinstallIfNeeded() }
         }
         screensWakeObserver = center.addObserver(forName: NSWorkspace.screensDidWakeNotification, object: nil, queue: .main) { [weak self] _ in
-            self?.reinstallIfNeeded()
+            MainActor.assumeIsolated { self?.reinstallIfNeeded() }
         }
     }
 
@@ -176,7 +180,8 @@ final class HotkeyManager {
     private static let tapCallback: CGEventTapCallBack = { _, type, event, refcon in
         guard let refcon else { return Unmanaged.passUnretained(event) }
         let manager = Unmanaged<HotkeyManager>.fromOpaque(refcon).takeUnretainedValue()
-        return manager.handle(type: type, event: event)
+        // The tap's run-loop source is added to the main run loop, so this is the main actor.
+        return MainActor.assumeIsolated { manager.handle(type: type, event: event) }
     }
 
     /// Internal entry point also used by synthetic-event tests; never posts input events.
@@ -457,7 +462,7 @@ final class HotkeyManager {
 
     /// Virtual key code zero is the ANSI A key, so only a missing modifier can make a
     /// shortcut invalid. Registered defaults provide the primary fallback values.
-    static func configuredShortcut(
+    nonisolated static func configuredShortcut(
         keyCode: Int,
         rawFlags: Int
     ) -> (keyCode: Int, flags: CGEventFlags)? {

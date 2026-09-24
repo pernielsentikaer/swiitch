@@ -2,22 +2,30 @@ import AppKit
 @testable import Swiitch
 import XCTest
 
+@MainActor
 final class SwitcherModelTests: XCTestCase {
     private var defaults: UserDefaults!
     private var defaultsSuiteName: String!
 
-    override func setUp() {
+    // XCTest's lifecycle hooks are nonisolated; they run on the main thread, so the
+    // isolated fixture state is reached through `assumeIsolated` rather than by
+    // overriding them with a different isolation.
+    nonisolated override func setUp() {
         super.setUp()
-        defaultsSuiteName = "com.swiitch.tests.\(UUID().uuidString)"
-        defaults = UserDefaults(suiteName: defaultsSuiteName)
-        defaults.set(0, forKey: Preferences.Key.switcherShowDelayMs)
-        defaults.set(false, forKey: Preferences.Key.peekOnHover)
+        MainActor.assumeIsolated {
+            defaultsSuiteName = "com.swiitch.tests.\(UUID().uuidString)"
+            defaults = UserDefaults(suiteName: defaultsSuiteName)
+            defaults.set(0, forKey: Preferences.Key.switcherShowDelayMs)
+            defaults.set(false, forKey: Preferences.Key.peekOnHover)
+        }
     }
 
-    override func tearDown() {
-        defaults.removePersistentDomain(forName: defaultsSuiteName)
-        defaults = nil
-        defaultsSuiteName = nil
+    nonisolated override func tearDown() {
+        MainActor.assumeIsolated {
+            defaults.removePersistentDomain(forName: defaultsSuiteName)
+            defaults = nil
+            defaultsSuiteName = nil
+        }
         super.tearDown()
     }
 
@@ -240,6 +248,48 @@ final class SwitcherModelTests: XCTestCase {
         XCTAssertFalse(tracker.isTrackingSuspended)
         model.armForCurrentApp(reverse: false)
         XCTAssertFalse(tracker.isTrackingSuspended)
+    }
+
+    func testDeinitializingArmedModelResumesFocusTracking() {
+        for currentAppOnly in [false, true] {
+            let tracker = FocusTracker()
+            var model: SwitcherModel? = makeModel(
+                apps: sampleApps(), frontmostPID: { 101 }, focusTracker: tracker
+            )
+            weak var releasedModel = model
+            if currentAppOnly {
+                model?.armForCurrentApp(reverse: false)
+            } else {
+                model?.arm(reverse: false)
+            }
+            XCTAssertTrue(tracker.isTrackingSuspended)
+            model = nil
+            XCTAssertNil(releasedModel)
+            XCTAssertFalse(tracker.isTrackingSuspended)
+        }
+    }
+
+    func testDeinitializingIdleModelDoesNotResumeAnotherOwnersTracking() {
+        let tracker = FocusTracker()
+        var model: SwitcherModel? = makeModel(apps: sampleApps(), focusTracker: tracker)
+        weak var releasedModel = model
+        tracker.isTrackingSuspended = true
+        model = nil
+        XCTAssertNil(releasedModel)
+        XCTAssertTrue(tracker.isTrackingSuspended)
+    }
+
+    func testDeinitializingCancelledModelDoesNotResumeAnotherOwnersTracking() {
+        let tracker = FocusTracker()
+        var model: SwitcherModel? = makeModel(apps: sampleApps(), focusTracker: tracker)
+        weak var releasedModel = model
+        model?.arm(reverse: false)
+        model?.cancel()
+        XCTAssertFalse(tracker.isTrackingSuspended)
+        tracker.isTrackingSuspended = true
+        model = nil
+        XCTAssertNil(releasedModel)
+        XCTAssertTrue(tracker.isTrackingSuspended)
     }
 
     private func diaAndChatApps() -> [AppEntry] {
@@ -783,14 +833,14 @@ final class SwitcherModelTests: XCTestCase {
     }
 
     func testFitGridShrinksTilesAndUsesAdditionalColumns() {
-        let automatic = SwitcherModel.gridMetrics(
+        let automatic = SwitcherLayout.gridMetrics(
             count: 8,
             maxWidth: 600,
             availableHeight: 300,
             thumbnailSize: .medium,
             fitAll: false
         )
-        let fitted = SwitcherModel.gridMetrics(
+        let fitted = SwitcherLayout.gridMetrics(
             count: 8,
             maxWidth: 600,
             availableHeight: 300,
@@ -805,7 +855,7 @@ final class SwitcherModelTests: XCTestCase {
     }
 
     func testFitGridUsesSmallerUsableTilesBeforeOverflowingVertically() {
-        let fitted = SwitcherModel.gridMetrics(
+        let fitted = SwitcherLayout.gridMetrics(
             count: 24,
             maxWidth: 600,
             availableHeight: 500,
@@ -822,7 +872,7 @@ final class SwitcherModelTests: XCTestCase {
     }
 
     func testFillGridUsesConfiguredWidthAndExpandsTiles() {
-        let fitted = SwitcherModel.gridMetrics(
+        let fitted = SwitcherLayout.gridMetrics(
             count: 18,
             maxWidth: 1_200,
             availableHeight: 1_620,
@@ -840,14 +890,14 @@ final class SwitcherModelTests: XCTestCase {
     }
 
     func testFillGridDiffersEvenWhenAutomaticAlreadyFits() {
-        let automatic = SwitcherModel.gridMetrics(
+        let automatic = SwitcherLayout.gridMetrics(
             count: 15,
             maxWidth: 1_667,
             availableHeight: 1_084,
             thumbnailSize: .medium,
             fitAll: false
         )
-        let fill = SwitcherModel.gridMetrics(
+        let fill = SwitcherLayout.gridMetrics(
             count: 15,
             maxWidth: 1_667,
             availableHeight: 1_084,

@@ -222,6 +222,7 @@ final class WindowActionFeedbackTests: XCTestCase {
         XCTFail("Timed out waiting for test state", file: file, line: line)
     }
 
+    @MainActor
     private final class Fixture {
         final class State { var result: WindowActionResult = .accepted }
         let state = State()
@@ -249,7 +250,8 @@ final class WindowActionFeedbackTests: XCTestCase {
         }
 
         deinit {
-            model.cancel()
+            // deinit is nonisolated; the fixture only ever dies on the main-actor test.
+            MainActor.assumeIsolated { model.cancel() }
             defaults.removePersistentDomain(forName: suite)
         }
     }
