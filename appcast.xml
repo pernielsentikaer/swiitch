@@ -7,6 +7,28 @@
         <language>en</language>
 
         <item>
+            <title>0.1.6</title>
+            <pubDate>Thu, 24 Sep 2026 08:17:25 +0200</pubDate>
+            <sparkle:version>61</sparkle:version>
+            <sparkle:shortVersionString>0.1.6</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[
+                <ul>
+                    <li>More efficient cached previews, shared window listings, and permission polling.</li>
+                    <li>Less repeated discovery, grid, and layout work; preview timers remain active while menus are open.</li>
+                    <li>Quieter automatic-update reminders in the menu bar, in English and Danish.</li>
+                    <li>More flexible shortcut setup and safer handling of unavailable macOS window APIs.</li>
+                </ul>
+                <p><b>Not notarized by Apple.</b> This ad-hoc-signed app uses a separately verified Sparkle update signature. macOS may require manual first-launch approval and renewed Accessibility or Screen Recording permissions.</p>
+            ]]></description>
+            <enclosure
+                url="https://github.com/pernielsentikaer/swiitch/releases/download/v0.1.6/Swiitch-v0.1.6.zip"
+                length="3069127"
+                type="application/octet-stream"
+                sparkle:edSignature="gEKWfdSd7cSwi/eFfwFP2OGM9hzHqfolANBtfAhPdEw/GOhlUuyq/Gz6sTWQU075V1YxM/NAzG/ZA/RuP7RJDw==" />
+        </item>
+
+        <item>
             <title>0.1.5</title>
             <pubDate>Wed, 23 Sep 2026 23:36:48 +0000</pubDate>
             <sparkle:version>60</sparkle:version>
