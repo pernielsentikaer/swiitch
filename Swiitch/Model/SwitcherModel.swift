@@ -108,7 +108,8 @@ final class SwitcherModel: ObservableObject {
                 return self.shouldLoadThumbnails(for: self.currentDisplayMode())
             },
             prepareAllLive: { [weak self] excluded in
-                await self?.dependencies.prepareSnapshot?(EnumerateOptions(excludedBundleIDs: excluded))
+                // Idle prewarming is keep-warm work; it must not look like the user opening the picker.
+                await self?.dependencies.prepareSnapshot?(EnumerateOptions(isBackgroundRefresh: true, excludedBundleIDs: excluded))
             },
             allLiveWindowIDs: { [weak self] excluded in
                 guard let self else { return [] }
