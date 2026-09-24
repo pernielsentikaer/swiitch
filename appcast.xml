@@ -7,6 +7,27 @@
         <language>en</language>
 
         <item>
+            <title>0.1.8</title>
+            <pubDate>Thu, 24 Sep 2026 22:21:05 +0200</pubDate>
+            <sparkle:version>63</sparkle:version>
+            <sparkle:shortVersionString>0.1.8</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[
+                <ul>
+                    <li>Reduced background window discovery while idle, with fresh discovery during active switching.</li>
+                    <li>Safer sharing of overlapping discovery requests, avoiding duplicate work and lost request tracking.</li>
+                    <li>Bounded accessibility calls when locating and focusing windows in unresponsive apps.</li>
+                </ul>
+                <p><b>Not notarized by Apple.</b> This ad-hoc-signed app uses a separately verified Sparkle update signature. macOS may require manual first-launch approval and renewed Accessibility or Screen Recording permissions.</p>
+            ]]></description>
+            <enclosure
+                url="https://github.com/pernielsentikaer/swiitch/releases/download/v0.1.8/Swiitch-v0.1.8.zip"
+                length="3075340"
+                type="application/octet-stream"
+                sparkle:edSignature="XNpGqhPshY3aeUsETM++p0riDhxPhv4/U8M1kBru3ueNhiFpPCC9L+KDpp8zVH8SAl/8Vg8CFZugu5go8BKpCw==" />
+        </item>
+
+        <item>
             <title>0.1.7</title>
             <pubDate>Thu, 24 Sep 2026 09:39:23 +0200</pubDate>
             <sparkle:version>62</sparkle:version>
