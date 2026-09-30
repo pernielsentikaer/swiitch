@@ -8,7 +8,9 @@ final class DiagnosticsTests: XCTestCase {
         let window = WindowInfo(id: 99123, pid: 12345, title: "PRIVATE TITLE https://private.example/token", bounds: .zero, isOnScreen: true)
         let app = AppEntry(pid: 12345, bundleIdentifier: "private.bundle", name: "PRIVATE APP", icon: nil, windows: [window])
         let collection = WindowEnumerator.Collection(apps: [app], duration: 0.123, candidateCount: 2,
-            filteredCount: 1, unavailableAXCount: 0, filterReasons: [.orphanedHost: 1])
+            filteredCount: 1, unavailableAXCount: 1, reusedAXCount: 1,
+            filterReasons: [.orphanedHost: 1],
+            accessibilityMemory: [12345: .init(windowIDs: [99123], observedWindowIDs: [99123], recordedAt: 0)])
         let report = DiagnosticsReport.Snapshot(version: "0.1.5-dev", build: "48", osVersion: "macOS test", architecture: "arm64",
             accessibilityGranted: true, screenRecordingGranted: false, keyboardStatus: "ready", loginItemStatus: "disabled",
             automaticUpdateChecks: false,
@@ -22,10 +24,16 @@ final class DiagnosticsTests: XCTestCase {
         }
         let object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any])
         XCTAssertEqual(Set(object.keys), ["schemaVersion", "version", "build", "osVersion", "architecture",
-            "accessibilityGranted", "screenRecordingGranted", "keyboardStatus", "loginItemStatus",
+            "accessibilityGranted", "accessibilityWindowIDsAvailable", "screenRecordingGranted", "keyboardStatus", "loginItemStatus",
             "automaticUpdateChecks", "discovery", "thumbnails"])
         XCTAssertEqual(report.discovery.windowCount, 1)
         XCTAssertEqual(report.discovery.lastCollectionMilliseconds, 123)
+        XCTAssertEqual(report.discovery.reusedAXAppCount, 1)
+        XCTAssertEqual(object["accessibilityWindowIDsAvailable"] as? Bool, true)
+        let discovery = try XCTUnwrap(object["discovery"] as? [String: Any])
+        XCTAssertEqual(Set(discovery.keys), ["appCount", "windowCount", "candidateCount", "filteredCount",
+            "unavailableAXAppCount", "reusedAXAppCount", "lastCollectionMilliseconds", "timeoutCount", "cacheHits", "filterReasons"])
+        XCTAssertEqual(discovery["reusedAXAppCount"] as? Int, 1)
         let thumbnails = try XCTUnwrap(object["thumbnails"] as? [String: Any])
         XCTAssertEqual(Set(thumbnails.keys), ["cachedImages", "cacheBytes", "pendingWindows", "activeBatches",
             "backoffWindows", "timedOutBatches", "failedCaptures", "cacheHits", "cacheMisses", "cacheEvictions"])

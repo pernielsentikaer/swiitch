@@ -215,6 +215,39 @@ final class WindowEnumeratorTests: XCTestCase {
         XCTAssertEqual(result.map(\.id), hosts.map(\.id))
     }
 
+    func testRememberedAccessibilityReadCoversAFailedReadWithoutHidingNewOrVisibleWindows() {
+        let frame = CGRect(x: 100, y: 100, width: 900, height: 600)
+        let real = WindowInfo(id: 1, pid: 300, title: "Scan", bounds: frame, isOnScreen: true)
+        let ghostA = WindowInfo(id: 2, pid: 300, title: "", bounds: frame.insetBy(dx: 40, dy: 20), isOnScreen: false)
+        let ghostB = WindowInfo(id: 3, pid: 300, title: "", bounds: frame.insetBy(dx: 300, dy: 200), isOnScreen: false)
+        // Created after the remembered read: unknown to it, so it must be kept.
+        let newer = WindowInfo(id: 4, pid: 300, title: "", bounds: frame.offsetBy(dx: 50, dy: 50), isOnScreen: false)
+        // Was a ghost at the remembered read but is visibly on screen now: keep it too.
+        let reshown = WindowInfo(id: 5, pid: 300, title: "", bounds: frame.offsetBy(dx: 80, dy: 80), isOnScreen: true)
+        let memory = WindowEnumerator.AccessibilityMemory(windowIDs: [1], observedWindowIDs: [1, 2, 3, 5], recordedAt: 0)
+
+        // A fresh read always wins, including a confirmed-empty list.
+        var evidence = WindowEnumerator.accessibilityEvidence(fresh: [1, 2], memory: memory)
+        XCTAssertEqual(evidence.ids, [1, 2]); XCTAssertNil(evidence.observed); XCTAssertFalse(evidence.reused)
+        evidence = WindowEnumerator.accessibilityEvidence(fresh: [], memory: memory)
+        XCTAssertEqual(evidence.ids, []); XCTAssertFalse(evidence.reused)
+
+        // A failed read falls back to memory, scoped to what that read observed.
+        evidence = WindowEnumerator.accessibilityEvidence(fresh: nil, memory: memory)
+        XCTAssertEqual(evidence.ids, [1]); XCTAssertEqual(evidence.observed, [1, 2, 3, 5]); XCTAssertTrue(evidence.reused)
+        let kept = WindowEnumerator.windowsMatchingAccessibility(
+            [real, ghostA, ghostB, newer, reshown], axWindowIDs: evidence.ids, observedWindowIDs: evidence.observed
+        )
+        XCTAssertEqual(kept.map(\.id), [1, 4, 5], "Remembered ghosts drop; a newer window and a now-visible one stay")
+
+        // No memory and no fresh read: keep everything, as before.
+        evidence = WindowEnumerator.accessibilityEvidence(fresh: nil, memory: nil)
+        XCTAssertNil(evidence.ids); XCTAssertFalse(evidence.reused)
+        // An empty memory is never evidence.
+        let empty = WindowEnumerator.AccessibilityMemory(windowIDs: [], observedWindowIDs: [1], recordedAt: 0)
+        XCTAssertNil(WindowEnumerator.accessibilityEvidence(fresh: nil, memory: empty).ids)
+    }
+
     func testAccessibilityIntersectionDropsUnpublishedHelperWindow() {
         let real = WindowInfo(
             id: 5097,

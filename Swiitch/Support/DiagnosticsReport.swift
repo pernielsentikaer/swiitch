@@ -10,6 +10,9 @@ enum DiagnosticsReport {
         let osVersion: String
         let architecture: String
         let accessibilityGranted: Bool
+        /// False means `_AXUIElementGetWindow` did not resolve, so no app's windows can be
+        /// matched to Accessibility and the ghost-window filter is effectively off.
+        var accessibilityWindowIDsAvailable = true
         let screenRecordingGranted: Bool
         let keyboardStatus: String
         let loginItemStatus: String
@@ -24,6 +27,8 @@ enum DiagnosticsReport {
         let candidateCount: Int
         let filteredCount: Int
         let unavailableAXAppCount: Int
+        /// Apps whose failed read was covered by a recent remembered Accessibility read.
+        var reusedAXAppCount = 0
         let lastCollectionMilliseconds: Int?
         let timeoutCount: Int
         let cacheHits: Int
@@ -35,6 +40,7 @@ enum DiagnosticsReport {
             candidateCount = collection?.candidateCount ?? 0
             filteredCount = collection?.filteredCount ?? 0
             unavailableAXAppCount = collection?.unavailableAXCount ?? 0
+            reusedAXAppCount = collection?.reusedAXCount ?? 0
             if let duration = collection?.duration, duration.isFinite, duration >= 0 {
                 lastCollectionMilliseconds = Int(min(duration * 1000, 3_600_000))
             } else { lastCollectionMilliseconds = nil }
@@ -59,7 +65,9 @@ enum DiagnosticsReport {
             version: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown",
             build: Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown",
             osVersion: ProcessInfo.processInfo.operatingSystemVersionString, architecture: architecture,
-            accessibilityGranted: AXIsProcessTrusted(), screenRecordingGranted: CGPreflightScreenCaptureAccess(),
+            accessibilityGranted: AXIsProcessTrusted(),
+            accessibilityWindowIDsAvailable: AXPrivate.windowIDResolverAvailable,
+            screenRecordingGranted: CGPreflightScreenCaptureAccess(),
             keyboardStatus: HotkeyStatus.shared.value.rawValue,
             loginItemStatus: LoginItemController.shared.status.rawValue,
             automaticUpdateChecks: UpdateController.shared.automaticChecksEnabled,

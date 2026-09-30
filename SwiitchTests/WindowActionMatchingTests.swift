@@ -42,6 +42,12 @@ final class WindowActionMatchingTests: XCTestCase {
         XCTAssertEqual(activations, 0)
     }
 
+    func testPrivateWindowIDResolverBindsAtRuntime() {
+        // Needs no permission: only checks that the SPI symbol resolved via dlsym. If this
+        // fails, every app reads as "AX unavailable" and ghost-window filtering is off.
+        XCTAssertTrue(AXPrivate.windowIDResolverAvailable)
+    }
+
     @MainActor
     func testFocusWindowReportsWhenIdentityCannotBeVerified() {
         // `focus(app:)` relies on this result to fall through to the next cached window or

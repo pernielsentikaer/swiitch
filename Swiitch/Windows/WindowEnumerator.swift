@@ -65,12 +65,28 @@ enum WindowEnumerator {
         let icon: NSImage?
     }
 
+    /// The last successful Accessibility read for one app. A momentarily slow or busy
+    /// bridge (a scanner mid-scan, an Electron app rebuilding its tree) must not switch
+    /// ghost-window filtering off for that app, so a failed read falls back to this for a
+    /// bounded time. `observedWindowIDs` scopes the reuse: only windows that already
+    /// existed at the read are judged by it; anything created since is always kept.
+    struct AccessibilityMemory: Equatable {
+        let windowIDs: Set<CGWindowID>
+        let observedWindowIDs: Set<CGWindowID>
+        let recordedAt: TimeInterval
+    }
+
+    /// How long a remembered Accessibility read may stand in for a failed one.
+    static let accessibilityMemoryLifetime: TimeInterval = 60
+
     /// AppKit metadata is snapshotted on the main actor; WindowServer/Accessibility
     /// collection runs independently and never reads the mutable focus tracker.
     struct Context {
         let applications: [ApplicationSnapshot]
         let options: EnumerateOptions
         let screenFrame: CGRect?
+        /// Carried over from the previous collection by `WindowDiscovery`.
+        var accessibilityMemory: [pid_t: AccessibilityMemory] = [:]
     }
 
     struct Collection {
@@ -78,8 +94,13 @@ enum WindowEnumerator {
         let duration: TimeInterval
         let candidateCount: Int
         let filteredCount: Int
+        /// Apps whose Accessibility read failed this round.
         let unavailableAXCount: Int
+        /// Of those, apps that could still be filtered from a recent successful read.
+        var reusedAXCount: Int = 0
         var filterReasons: [FilterReason: Int] = [:]
+        /// Successful reads (fresh or still-valid carried ones) for the next collection.
+        var accessibilityMemory: [pid_t: AccessibilityMemory] = [:]
     }
 
     @MainActor static func context(options: EnumerateOptions) -> Context {
@@ -145,10 +166,15 @@ enum WindowEnumerator {
         let mainDisplayBounds = CGDisplayBounds(CGMainDisplayID())
         let candidateCount = byPID.values.reduce(0) { $0 + $1.count }
         var unavailableAXCount = 0
+        var reusedAXCount = 0
         var filterReasons: [FilterReason: Int] = [:]
         var metadataByPID: [pid_t: AXMetadata] = [:]
-        // Prioritize every app's window IDs before optional minimized-state queries.
-        // Otherwise a slow offscreen window could consume the budget needed to reject
+        // Keep only memories that are still fresh and belong to apps that still have windows.
+        var memory = context.accessibilityMemory.filter {
+            started - $0.value.recordedAt < accessibilityMemoryLifetime && byPID[$0.key] != nil
+        }
+        // Prioritize every app's window IDs before optional metadata (titles, minimized
+        // state). Otherwise one slow window could consume the budget needed to reject
         // another app's helper surfaces.
         for (pid, windows) in byPID {
             // One slow application cannot impose its timeout on every later application.
@@ -159,28 +185,39 @@ enum WindowEnumerator {
                              untitledIDs: Set(windows.filter { $0.title.isEmpty }.map(\.id)),
                              deadline: started + metadataBudget) : nil
             metadataByPID[pid] = metadata
-            if metadata == nil { unavailableAXCount += 1 }
+            if let metadata, !metadata.ids.isEmpty {
+                memory[pid] = AccessibilityMemory(windowIDs: metadata.ids,
+                                                  observedWindowIDs: Set(windows.map(\.id)),
+                                                  recordedAt: started)
+            } else if metadata == nil {
+                unavailableAXCount += 1
+            }
         }
         for (pid, windows) in byPID {
             let app = regularApps.first(where: { $0.processIdentifier == pid })
             let metadata = metadataByPID[pid]
-            let minimized = minimizedStates(in: metadata?.offscreen ?? [], deadline: started + metadataBudget)
+            let deadline = started + metadataBudget
+            let minimized = minimizedStates(in: metadata?.offscreen ?? [], deadline: deadline)
+            let titles = accessibilityTitles(for: metadata?.untitled ?? [], deadline: deadline)
             let annotated = windows.map { window in
                 var window = window
                 // WindowServer omits `kCGWindowName` without Screen Recording permission.
                 // Accessibility titles keep search and title-based matching working then.
-                if window.title.isEmpty, let title = metadata?.titles[window.id] {
+                if window.title.isEmpty, let title = titles[window.id] {
                     window = WindowInfo(id: window.id, pid: window.pid, title: title,
                                         bounds: window.bounds, isOnScreen: window.isOnScreen)
                 }
                 window.isMinimized = window.isOnScreen ? false : minimized[window.id]
                 return window
             }
+            let evidence = accessibilityEvidence(fresh: metadata?.ids, memory: memory[pid])
+            if evidence.reused { reusedAXCount += 1 }
             byPID[pid] = switchableWindows(
                 annotated,
                 applicationName: app?.localizedName ?? "",
                 mainDisplayBounds: mainDisplayBounds,
-                accessibilityWindowIDs: metadata?.ids,
+                accessibilityWindowIDs: evidence.ids,
+                accessibilityObservedWindowIDs: evidence.observed,
                 onFilter: { reason, count in filterReasons[reason, default: 0] += count }
             )
         }
@@ -203,7 +240,8 @@ enum WindowEnumerator {
         let remainingCount = entries.reduce(0) { $0 + $1.windows.count }
         return Collection(apps: entries, duration: ProcessInfo.processInfo.systemUptime - started,
                           candidateCount: candidateCount, filteredCount: candidateCount - remainingCount,
-                          unavailableAXCount: unavailableAXCount, filterReasons: filterReasons)
+                          unavailableAXCount: unavailableAXCount, reusedAXCount: reusedAXCount,
+                          filterReasons: filterReasons, accessibilityMemory: memory)
     }
 
     static func ordered(_ apps: [AppEntry], focusTracker: FocusTracker) -> [AppEntry] {
@@ -234,8 +272,9 @@ enum WindowEnumerator {
     private struct AXMetadata {
         var ids: Set<CGWindowID> = []
         var offscreen: [(CGWindowID, AXUIElement)] = []
-        /// Accessibility titles for windows whose WindowServer title was empty.
-        var titles: [CGWindowID: String] = [:]
+        /// Windows whose WindowServer title was empty; their AX titles are read after every
+        /// app's ID pass so optional metadata never starves identity checks.
+        var untitled: [(CGWindowID, AXUIElement)] = []
     }
 
     /// Resolve IDs before optional state reads so a slow minimized-state lookup cannot
@@ -247,23 +286,39 @@ enum WindowEnumerator {
         guard !windows.isEmpty else { return AXMetadata() }
 
         var result = AXMetadata()
-        var untitled: [(CGWindowID, AXUIElement)] = []
         for window in windows {
             guard !Task.isCancelled, ProcessInfo.processInfo.systemUptime < deadline else { return nil }
             AXUIElementSetMessagingTimeout(window, 0.01)
             if let wid = AXPrivate.windowID(for: window) {
                 result.ids.insert(wid)
                 if offscreenIDs.contains(wid) { result.offscreen.append((wid, window)) }
-                if untitledIDs.contains(wid) { untitled.append((wid, window)) }
+                if untitledIDs.contains(wid) { result.untitled.append((wid, window)) }
             }
         }
         guard !result.ids.isEmpty else { return nil }
-        // Titles are optional metadata: run out of budget here and the IDs above still stand.
-        for (wid, window) in untitled {
+        return result
+    }
+
+    private static func accessibilityTitles(for untitled: [(CGWindowID, AXUIElement)],
+                                            deadline: TimeInterval) -> [CGWindowID: String] {
+        var result: [CGWindowID: String] = [:]
+        for (id, window) in untitled {
             guard !Task.isCancelled, ProcessInfo.processInfo.systemUptime < deadline else { break }
-            if let title = AXPrivate.title(for: window) { result.titles[wid] = title }
+            if let title = AXPrivate.title(for: window) { result[id] = title }
         }
         return result
+    }
+
+    /// What to judge an app's windows against: a fresh read when there is one, otherwise a
+    /// recent remembered read scoped to the windows it observed. Fresh evidence always wins,
+    /// including a confirmed-empty list, which memory never contains.
+    static func accessibilityEvidence(
+        fresh: Set<CGWindowID>?,
+        memory: AccessibilityMemory?
+    ) -> (ids: Set<CGWindowID>?, observed: Set<CGWindowID>?, reused: Bool) {
+        if let fresh { return (fresh, nil, false) }
+        guard let memory, !memory.windowIDs.isEmpty else { return (nil, nil, false) }
+        return (memory.windowIDs, memory.observedWindowIDs, true)
     }
 
     private static func minimizedStates(in offscreen: [(CGWindowID, AXUIElement)],
@@ -280,12 +335,21 @@ enum WindowEnumerator {
         return result
     }
 
+    /// `observedWindowIDs` is set when `axWindowIDs` comes from a remembered read: only
+    /// windows that existed then, were not published then, and are still off-screen now are
+    /// dropped. A window created since, or one visible on screen right now, is never hidden
+    /// on the strength of an old read.
     static func windowsMatchingAccessibility(
         _ windows: [WindowInfo],
-        axWindowIDs: Set<CGWindowID>?
+        axWindowIDs: Set<CGWindowID>?,
+        observedWindowIDs: Set<CGWindowID>? = nil
     ) -> [WindowInfo] {
         guard let axWindowIDs, !axWindowIDs.isEmpty else { return windows }
-        let filtered = windows.filter { axWindowIDs.contains($0.id) }
+        let filtered = windows.filter { window in
+            if axWindowIDs.contains(window.id) { return true }
+            guard let observedWindowIDs else { return false }
+            return !observedWindowIDs.contains(window.id) || window.isOnScreen
+        }
         // A non-empty AX list with zero CG matches is a known transient state while an app's
         // accessibility bridge rebuilds. Treat that as unavailable metadata for every app,
         // rather than maintaining a bundle-ID allowlist for particular frameworks.
@@ -297,6 +361,7 @@ enum WindowEnumerator {
         applicationName: String,
         mainDisplayBounds: CGRect,
         accessibilityWindowIDs: Set<CGWindowID>?,
+        accessibilityObservedWindowIDs: Set<CGWindowID>? = nil,
         onFilter: ((FilterReason, Int) -> Void)? = nil
     ) -> [WindowInfo] {
         // A framework can retain its hidden 500x500 host after the last document closes.
@@ -315,7 +380,8 @@ enum WindowEnumerator {
         )
         let matched = windowsMatchingAccessibility(
             structurallyPruned,
-            axWindowIDs: accessibilityWindowIDs
+            axWindowIDs: accessibilityWindowIDs,
+            observedWindowIDs: accessibilityObservedWindowIDs
         )
         onFilter?(.notPublishedByAX, structurallyPruned.count - matched.count)
         return matched

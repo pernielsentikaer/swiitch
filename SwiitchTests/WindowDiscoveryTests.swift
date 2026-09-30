@@ -42,6 +42,24 @@ final class WindowDiscoveryTests: XCTestCase {
         XCTAssertEqual(service.lastCollection?.candidateCount, 3)
     }
 
+    func testSuccessfulAccessibilityMemoryReachesTheNextCollection() async {
+        let memory: [pid_t: WindowEnumerator.AccessibilityMemory] = [
+            300: .init(windowIDs: [1], observedWindowIDs: [1, 2], recordedAt: 10),
+        ]
+        let service = WindowDiscovery(collector: { context in
+            if !context.options.excludedBundleIDs.isEmpty {
+                XCTAssertEqual(context.accessibilityMemory, memory)
+            }
+            var result = Self.collection()
+            result.accessibilityMemory = memory
+            return result
+        })
+        await service.prepare(context: context())
+        await service.prepare(context: context(excluded: ["example.private"]))
+        XCTAssertEqual(service.lastCollection?.accessibilityMemory, memory)
+        XCTAssertEqual(service.timeoutCount, 0)
+    }
+
     func testConcurrentRequestsCoalesceAndDifferentExclusionsRefresh() async {
         let count = DiscoveryCount()
         let gate = DiscoveryGate()
