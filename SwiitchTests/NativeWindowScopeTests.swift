@@ -7,6 +7,30 @@ import XCTest
 /// Does not request permission, touch user documents, or change system/app preferences.
 @MainActor
 final class NativeWindowScopeTests: XCTestCase {
+    func testNativeSpacesMembershipQueryRecognizesItsOwnWindow() async throws {
+        try XCTSkipUnless(ProcessInfo.processInfo.environment["SWIITCH_NATIVE_WINDOW_TESTS"] == "1",
+                          "Run the opt-in native window integration check on an interactive Mac.")
+        let screen = try XCTUnwrap(NSScreen.main)
+        let window = NSWindow(contentRect: NSRect(x: screen.visibleFrame.minX + 40,
+                                                 y: screen.visibleFrame.minY + 60,
+                                                 width: 320, height: 200),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.title = "Swiitch disposable Spaces test"
+        window.orderBack(nil)
+        defer { window.close() }
+        try await Task.sleep(for: .milliseconds(150))
+        let id = CGWindowID(window.windowNumber)
+        let queriedSpaces = await Task.detached { AXPrivate.spaceIDs(forWindow: id) }.value
+        let visibleSpaces = try XCTUnwrap(queriedSpaces,
+                                         "Resolving symbols must also produce a usable Spaces query")
+        XCTAssertFalse(visibleSpaces.isEmpty, "The displayed test window must belong to a Space")
+        window.orderOut(nil)
+        try await Task.sleep(for: .milliseconds(150))
+        let orderedOutSpaces = await Task.detached { AXPrivate.spaceIDs(forWindow: id) }.value
+        print("Native Spaces query: visibleCount=\(visibleSpaces.count), orderedOutCount=\(orderedOutSpaces?.count ?? -1)")
+    }
+
     func testNativeThumbnailCaptureIsPixelBoundedAndCached() async throws {
         try XCTSkipUnless(ProcessInfo.processInfo.environment["SWIITCH_NATIVE_WINDOW_TESTS"] == "1",
                           "Run the opt-in native window integration check on an interactive Mac.")

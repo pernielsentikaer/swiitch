@@ -13,6 +13,8 @@ enum DiagnosticsReport {
         /// False means `_AXUIElementGetWindow` did not resolve, so no app's windows can be
         /// matched to Accessibility and the ghost-window filter is effectively off.
         var accessibilityWindowIDsAvailable = true
+        /// False means the SkyLight Spaces-membership SPI did not resolve on this macOS.
+        var spacesMembershipAvailable = true
         let screenRecordingGranted: Bool
         let keyboardStatus: String
         let loginItemStatus: String
@@ -67,6 +69,7 @@ enum DiagnosticsReport {
             osVersion: ProcessInfo.processInfo.operatingSystemVersionString, architecture: architecture,
             accessibilityGranted: AXIsProcessTrusted(),
             accessibilityWindowIDsAvailable: AXPrivate.windowIDResolverAvailable,
+            spacesMembershipAvailable: AXPrivate.spacesResolverAvailable,
             screenRecordingGranted: CGPreflightScreenCaptureAccess(),
             keyboardStatus: HotkeyStatus.shared.value.rawValue,
             loginItemStatus: LoginItemController.shared.status.rawValue,

@@ -42,6 +42,11 @@ final class WindowActionMatchingTests: XCTestCase {
         XCTAssertEqual(activations, 0)
     }
 
+    func testPrivateSpacesMembershipResolverBindsAtRuntime() {
+        // Same idea for the SkyLight Spaces query used by the window census.
+        XCTAssertTrue(AXPrivate.spacesResolverAvailable)
+    }
+
     func testPrivateWindowIDResolverBindsAtRuntime() {
         // Needs no permission: only checks that the SPI symbol resolved via dlsym. If this
         // fails, every app reads as "AX unavailable" and ghost-window filtering is off.
