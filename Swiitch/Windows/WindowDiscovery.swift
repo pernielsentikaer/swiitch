@@ -93,7 +93,11 @@ final class WindowDiscovery {
         let timeout = self.timeout
         nextRequestID &+= 1
         let id = nextRequestID
-        let task = Task { [weak self, runner] in
+        // Hand the previous collection's Accessibility reads to the next one so an app
+        // whose bridge is momentarily slow keeps its ghost-window filtering.
+        var context = context
+        context.accessibilityMemory = lastCollection?.accessibilityMemory ?? [:]
+        let task = Task { [weak self, runner, context] in
             let result = await runner.run(timeout: timeout) { await collector(context) }
             guard let self else { return }
             if let result {

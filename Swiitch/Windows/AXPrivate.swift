@@ -1,6 +1,7 @@
 import ApplicationServices
 import Carbon.HIToolbox
 import Darwin
+import os
 
 enum AXPrivate {
     /// Private Accessibility SPI: maps an AXUIElement representing a window to its CGWindowID.
@@ -10,9 +11,18 @@ enum AXPrivate {
     /// consumer already treats a missing ID as "unknown".
     private typealias GetWindow = @convention(c) (AXUIElement, UnsafeMutablePointer<CGWindowID>) -> AXError
     private static let getWindow: GetWindow? = {
-        guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "_AXUIElementGetWindow") else { return nil }
+        guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "_AXUIElementGetWindow") else {
+            // Without this SPI every app's AX metadata reads as unavailable, which disables
+            // ghost-window filtering. Make that state visible instead of silent.
+            Logger(subsystem: "com.swiitch.Swiitch", category: "accessibility")
+                .error("_AXUIElementGetWindow is unavailable; window identity via Accessibility is disabled")
+            return nil
+        }
         return unsafeBitCast(symbol, to: GetWindow.self)
     }()
+
+    /// Whether the private window-ID SPI resolved at runtime. Reported in diagnostics.
+    static var windowIDResolverAvailable: Bool { getWindow != nil }
 
     /// Deprecated Carbon call, still exported. Resolved the same way for the same reason.
     private typealias GetProcess = @convention(c) (pid_t, UnsafeMutablePointer<ProcessSerialNumber>) -> OSStatus
