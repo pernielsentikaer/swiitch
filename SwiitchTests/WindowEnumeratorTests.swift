@@ -268,6 +268,24 @@ final class WindowEnumeratorTests: XCTestCase {
         XCTAssertEqual(WindowEnumerator.accessibilityAuxiliaryIDs(kinds: kinds, accessibilityTitledIDs: [6, 7]), [6, 9])
     }
 
+    func testAuxiliaryFilteringKeepsUntitledDocumentsAndUnavailableMetadata() {
+        let main = makeWindow(id: 1, title: "Document", bounds: CGRect(x: 100, y: 100, width: 900, height: 600))
+        let untitled = makeWindow(id: 2, title: "", bounds: CGRect(x: 220, y: 200, width: 600, height: 400))
+        let metadataCases: [[CGWindowID: WindowEnumerator.AccessibilityKind]] = [
+            [:], // Missing or timed-out metadata is not evidence of an overlay.
+            [2: .init(role: kAXWindowRole, subrole: "")],
+            [2: .init(role: kAXWindowRole, subrole: kAXStandardWindowSubrole)],
+        ]
+        for kinds in metadataCases {
+            let auxiliary = WindowEnumerator.accessibilityAuxiliaryIDs(kinds: kinds, accessibilityTitledIDs: [])
+            let kept = WindowEnumerator.switchableWindows(
+                [untitled, main], applicationName: "Example", mainDisplayBounds: mainDisplayBounds,
+                accessibilityWindowIDs: [1, 2], accessibilityAuxiliaryIDs: auxiliary
+            )
+            XCTAssertEqual(kept.map(\.id), [2, 1])
+        }
+    }
+
     func testRememberedAccessibilityReadCoversAFailedReadWithoutHidingNewOrVisibleWindows() {
         let frame = CGRect(x: 100, y: 100, width: 900, height: 600)
         let real = WindowInfo(id: 1, pid: 300, title: "Scan", bounds: frame, isOnScreen: true)

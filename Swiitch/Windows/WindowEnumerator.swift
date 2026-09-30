@@ -329,8 +329,9 @@ enum WindowEnumerator {
 
     /// Windows whose Accessibility description says they are not user windows at all: an
     /// element that is not a window (CleanMyMac exposes its animated scan button as one), or
-    /// an untitled non-standard surface (HUD, badge, floating panel, unnamed dialog). A
-    /// window that gained a title through Accessibility is never auxiliary.
+    /// an untitled non-standard surface (HUD, badge, floating panel, unnamed dialog). An
+    /// AXWindow that gained a title through Accessibility is never auxiliary. Non-window
+    /// roles remain auxiliary even if the element has an Accessibility title.
     static func accessibilityAuxiliaryIDs(
         kinds: [CGWindowID: AccessibilityKind],
         accessibilityTitledIDs: Set<CGWindowID>
