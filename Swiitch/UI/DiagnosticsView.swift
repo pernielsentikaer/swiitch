@@ -25,6 +25,15 @@ struct DiagnosticsView: View {
                     message = DiagnosticsReport.copy(report) ? String(localized: "Copied to clipboard.") : String(localized: "Couldn’t copy the report. Please try again.")
                 }
                 .disabled(report == nil)
+                Button("Copy Window Census") {
+                    Task {
+                        let census = await WindowCensus.render()
+                        message = DiagnosticsReport.copy(census)
+                            ? String(localized: "Window census copied. It names running apps and window geometry, never titles.")
+                            : String(localized: "Couldn’t copy the report. Please try again.")
+                    }
+                }
+                .help(String(localized: "For troubleshooting duplicate or missing windows. Lists running app identifiers and window geometry; no titles or content."))
                 Spacer()
                 Button("Done") { dismiss() }.keyboardShortcut(.cancelAction)
             }

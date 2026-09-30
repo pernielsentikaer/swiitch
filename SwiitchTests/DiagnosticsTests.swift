@@ -24,7 +24,7 @@ final class DiagnosticsTests: XCTestCase {
         }
         let object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any])
         XCTAssertEqual(Set(object.keys), ["schemaVersion", "version", "build", "osVersion", "architecture",
-            "accessibilityGranted", "accessibilityWindowIDsAvailable", "screenRecordingGranted", "keyboardStatus", "loginItemStatus",
+            "accessibilityGranted", "accessibilityWindowIDsAvailable", "spacesMembershipAvailable", "screenRecordingGranted", "keyboardStatus", "loginItemStatus",
             "automaticUpdateChecks", "discovery", "thumbnails"])
         XCTAssertEqual(report.discovery.windowCount, 1)
         XCTAssertEqual(report.discovery.lastCollectionMilliseconds, 123)

@@ -1,6 +1,7 @@
 import ApplicationServices
 import Carbon.HIToolbox
 import Darwin
+import Foundation
 import os
 
 enum AXPrivate {
@@ -37,17 +38,45 @@ enum AXPrivate {
         UInt32
     ) -> CGError
 
-    /// Loaded dynamically so a renamed or unavailable private SkyLight symbol degrades
+    /// SkyLight is loaded dynamically so a renamed or unavailable private symbol degrades
     /// gracefully instead of preventing Swiitch from launching.
-    private static let setFrontProcess: SetFrontProcess? = {
-        guard let handle = dlopen(
-            "/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight",
-            RTLD_LAZY | RTLD_LOCAL
-        ), let symbol = dlsym(handle, "_SLPSSetFrontProcessWithOptions") else {
-            return nil
-        }
-        return unsafeBitCast(symbol, to: SetFrontProcess.self)
-    }()
+    private static let skyLight: UnsafeMutableRawPointer? = dlopen(
+        "/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight",
+        RTLD_LAZY | RTLD_LOCAL
+    )
+
+    private static func skyLightSymbol<T>(_ name: String, as type: T.Type) -> T? {
+        guard let skyLight, let symbol = dlsym(skyLight, name) else { return nil }
+        return unsafeBitCast(symbol, to: type)
+    }
+
+    private static let setFrontProcess: SetFrontProcess? =
+        skyLightSymbol("_SLPSSetFrontProcessWithOptions", as: SetFrontProcess.self)
+
+    // MARK: Spaces membership
+
+    private typealias MainConnectionID = @convention(c) () -> UInt32
+    private typealias CopySpacesForWindows = @convention(c) (UInt32, UInt32, CFArray) -> Unmanaged<CFArray>?
+    private static let mainConnectionID: MainConnectionID? =
+        skyLightSymbol("CGSMainConnectionID", as: MainConnectionID.self)
+    private static let copySpacesForWindows: CopySpacesForWindows? =
+        skyLightSymbol("CGSCopySpacesForWindows", as: CopySpacesForWindows.self)
+    /// kCGSAllSpacesMask: current, other, and fullscreen Spaces alike.
+    private static let allSpacesMask: UInt32 = 7
+
+    /// Whether the private Spaces-membership SPI resolved. Reported in diagnostics.
+    static var spacesResolverAvailable: Bool { mainConnectionID != nil && copySpacesForWindows != nil }
+
+    /// The Spaces a window is assigned to, or nil when the SPI is unavailable. A window on
+    /// another Space has one; a retained window that has been ordered out has none, which is
+    /// the difference between "not visible right now" and "not a window the user can reach".
+    static func spaceIDs(forWindow id: CGWindowID) -> [UInt64]? {
+        guard let mainConnectionID, let copySpacesForWindows else { return nil }
+        let windows = [NSNumber(value: id)] as CFArray
+        guard let result = copySpacesForWindows(mainConnectionID(), allSpacesMask, windows) else { return nil }
+        let spaces = result.takeRetainedValue() as? [NSNumber] ?? []
+        return spaces.map(\.uint64Value)
+    }
 
     static func windowID(for element: AXUIElement) -> CGWindowID? {
         guard let getWindow else { return nil }

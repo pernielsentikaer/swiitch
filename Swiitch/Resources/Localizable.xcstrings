@@ -561,6 +561,36 @@
         }
       }
     },
+    "Copy Window Census": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopiér vinduesoversigt"
+          }
+        }
+      }
+    },
+    "Window census copied. It names running apps and window geometry, never titles.": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vinduesoversigten er kopieret. Den nævner kørende apps og vinduers geometri, aldrig titler."
+          }
+        }
+      }
+    },
+    "For troubleshooting duplicate or missing windows. Lists running app identifiers and window geometry; no titles or content.": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Til fejlfinding af dublerede eller manglende vinduer. Viser kørende apps’ identifikatorer og vinduers geometri; ingen titler eller indhold."
+          }
+        }
+      }
+    },
     "Corner radius": {
       "localizations": {
         "da": {
