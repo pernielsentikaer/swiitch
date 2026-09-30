@@ -7,6 +7,27 @@
         <language>en</language>
 
         <item>
+            <title>0.1.9</title>
+            <pubDate>Wed, 30 Sep 2026 10:00:23 +0200</pubDate>
+            <sparkle:version>64</sparkle:version>
+            <sparkle:shortVersionString>0.1.9</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[
+                <ul>
+                    <li>More stable ghost-window filtering during brief Accessibility read failures, while retaining newly opened and currently visible windows in the fallback.</li>
+                    <li>Window identity checks run before optional titles and minimized-state metadata.</li>
+                    <li>New privacy-conscious diagnostic counters for window identity support and reused Accessibility reads.</li>
+                </ul>
+                <p><b>Not notarized by Apple.</b> This ad-hoc-signed app uses a separately verified Sparkle update signature. macOS may require manual first-launch approval and renewed Accessibility or Screen Recording permissions.</p>
+            ]]></description>
+            <enclosure
+                url="https://github.com/pernielsentikaer/swiitch/releases/download/v0.1.9/Swiitch-v0.1.9.zip"
+                length="3081660"
+                type="application/octet-stream"
+                sparkle:edSignature="tjULB67JT9Fkfe6sSwvRe23SCjF8tbVBvrHLd/xDW7TKvhDQhsGiAmpKkqC/gbFZqWxPkezmfMe6wOyc2K4dAg==" />
+        </item>
+
+        <item>
             <title>0.1.8</title>
             <pubDate>Thu, 24 Sep 2026 22:21:05 +0200</pubDate>
             <sparkle:version>63</sparkle:version>
