@@ -215,6 +215,59 @@ final class WindowEnumeratorTests: XCTestCase {
         XCTAssertEqual(result.map(\.id), hosts.map(\.id))
     }
 
+    func testAccessibilityAuxiliaryOverlaysAreDroppedBesideTheRealWindow() {
+        // From a real census of CleanMyMac: one standard window plus its animated scan orb
+        // (one layer exposed as a button), an untitled AXUnknown twin, and a small untitled
+        // dialog badge. All four are on screen, on the current Space, and AX-published.
+        let main = WindowInfo(id: 266, pid: 9343, title: "CleanMyMac", bounds: CGRect(x: 428, y: 173, width: 1200, height: 720), isOnScreen: true)
+        let orb = WindowInfo(id: 267, pid: 9343, title: "", bounds: CGRect(x: 942, y: 749, width: 256, height: 256), isOnScreen: true)
+        let button = WindowInfo(id: 264, pid: 9343, title: "", bounds: CGRect(x: 942, y: 749, width: 256, height: 256), isOnScreen: true)
+        let badge = WindowInfo(id: 265, pid: 9343, title: "", bounds: CGRect(x: 1350, y: 167, width: 284, height: 68), isOnScreen: true)
+        let kinds: [CGWindowID: WindowEnumerator.AccessibilityKind] = [
+            267: .init(role: kAXWindowRole, subrole: kAXUnknownSubrole),
+            264: .init(role: "AXButton", subrole: kAXUnknownSubrole),
+            265: .init(role: kAXWindowRole, subrole: kAXDialogSubrole),
+        ]
+        let auxiliary = WindowEnumerator.accessibilityAuxiliaryIDs(kinds: kinds, accessibilityTitledIDs: [])
+        XCTAssertEqual(auxiliary, [267, 264, 265])
+
+        var reasons: [WindowEnumerator.FilterReason: Int] = [:]
+        let kept = WindowEnumerator.switchableWindows(
+            [orb, main, badge, button], applicationName: "CleanMyMac", mainDisplayBounds: mainDisplayBounds,
+            accessibilityWindowIDs: [266, 267, 264, 265], accessibilityAuxiliaryIDs: auxiliary,
+            onFilter: { reasons[$0, default: 0] += $1 }
+        )
+        XCTAssertEqual(kept.map(\.id), [266])
+        XCTAssertEqual(reasons[.accessibilityAuxiliary], 3)
+        XCTAssertEqual(reasons[.notPublishedByAX], 0)
+    }
+
+    func testAccessibilityAuxiliaryRuleNeedsAnAnchorAndNeverHidesLargerOrMinimizedOrTitledWindows() {
+        let frame = CGRect(x: 100, y: 100, width: 800, height: 600)
+        let hud = WindowInfo(id: 1, pid: 10, title: "", bounds: CGRect(x: 300, y: 300, width: 200, height: 100), isOnScreen: true)
+        let untitledDocument = WindowInfo(id: 2, pid: 10, title: "", bounds: frame, isOnScreen: true)
+        let titled = WindowInfo(id: 3, pid: 10, title: "Notes", bounds: frame, isOnScreen: true)
+        let bigger = WindowInfo(id: 4, pid: 10, title: "", bounds: frame.insetBy(dx: -50, dy: -50), isOnScreen: true)
+        let minimized = WindowInfo(id: 5, pid: 10, title: "", bounds: hud.bounds, isOnScreen: false, isMinimized: true)
+
+        // A sole HUD-like window still represents its app.
+        XCTAssertEqual(WindowEnumerator.windowsRemovingAccessibilityAuxiliaries([hud], auxiliaryIDs: [1]).map(\.id), [1])
+        // An untitled standard sibling is not an anchor: nothing is dropped without a titled window.
+        XCTAssertEqual(WindowEnumerator.windowsRemovingAccessibilityAuxiliaries([hud, untitledDocument], auxiliaryIDs: [1]).map(\.id), [1, 2])
+        // With a titled anchor the HUD goes; a non-standard window larger than every anchor stays,
+        // and a minimized one is never judged by overlay status.
+        XCTAssertEqual(WindowEnumerator.windowsRemovingAccessibilityAuxiliaries(
+            [hud, titled, bigger, minimized], auxiliaryIDs: [1, 4, 5]).map(\.id), [3, 4, 5])
+        // Non-window roles are auxiliary regardless of title; titled non-standard windows are not.
+        let kinds: [CGWindowID: WindowEnumerator.AccessibilityKind] = [
+            6: .init(role: "AXButton", subrole: ""),
+            7: .init(role: kAXWindowRole, subrole: kAXDialogSubrole),
+            8: .init(role: kAXWindowRole, subrole: kAXStandardWindowSubrole),
+            9: .init(role: kAXWindowRole, subrole: kAXFloatingWindowSubrole),
+        ]
+        XCTAssertEqual(WindowEnumerator.accessibilityAuxiliaryIDs(kinds: kinds, accessibilityTitledIDs: [6, 7]), [6, 9])
+    }
+
     func testRememberedAccessibilityReadCoversAFailedReadWithoutHidingNewOrVisibleWindows() {
         let frame = CGRect(x: 100, y: 100, width: 900, height: 600)
         let real = WindowInfo(id: 1, pid: 300, title: "Scan", bounds: frame, isOnScreen: true)

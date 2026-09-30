@@ -57,6 +57,9 @@ struct EnumerateOptions {
 enum WindowEnumerator {
     enum FilterReason: String, CaseIterable {
         case orphanedHost, hiddenHost, decorativeSurface, duplicateFrame, launchPlaceholder, notPublishedByAX
+        /// Published by Accessibility as something other than a standard window (a button, an
+        /// untitled HUD or dialog) beside a real titled window of the same app.
+        case accessibilityAuxiliary
     }
     struct ApplicationSnapshot {
         let processIdentifier: pid_t
@@ -199,6 +202,8 @@ enum WindowEnumerator {
             let deadline = started + metadataBudget
             let minimized = minimizedStates(in: metadata?.offscreen ?? [], deadline: deadline)
             let titles = accessibilityTitles(for: metadata?.untitled ?? [], deadline: deadline)
+            let kinds = accessibilityKinds(for: metadata?.untitled ?? [], deadline: deadline)
+            let auxiliaryIDs = accessibilityAuxiliaryIDs(kinds: kinds, accessibilityTitledIDs: Set(titles.keys))
             let annotated = windows.map { window in
                 var window = window
                 // WindowServer omits `kCGWindowName` without Screen Recording permission.
@@ -218,6 +223,7 @@ enum WindowEnumerator {
                 mainDisplayBounds: mainDisplayBounds,
                 accessibilityWindowIDs: evidence.ids,
                 accessibilityObservedWindowIDs: evidence.observed,
+                accessibilityAuxiliaryIDs: auxiliaryIDs,
                 onFilter: { reason, count in filterReasons[reason, default: 0] += count }
             )
         }
@@ -299,6 +305,68 @@ enum WindowEnumerator {
         return result
     }
 
+    /// What an app's Accessibility bridge says a window *is*. Read only for windows that
+    /// WindowServer reports without a title, after every app's identity pass.
+    struct AccessibilityKind: Equatable {
+        let role: String
+        let subrole: String
+    }
+
+    private static func accessibilityKinds(for untitled: [(CGWindowID, AXUIElement)],
+                                           deadline: TimeInterval) -> [CGWindowID: AccessibilityKind] {
+        var result: [CGWindowID: AccessibilityKind] = [:]
+        for (id, window) in untitled {
+            guard !Task.isCancelled, ProcessInfo.processInfo.systemUptime < deadline else { break }
+            var role: AnyObject?
+            var subrole: AnyObject?
+            guard AXUIElementCopyAttributeValue(window, kAXRoleAttribute as CFString, &role) == .success,
+                  let role = role as? String else { continue }
+            _ = AXUIElementCopyAttributeValue(window, kAXSubroleAttribute as CFString, &subrole)
+            result[id] = AccessibilityKind(role: role, subrole: subrole as? String ?? "")
+        }
+        return result
+    }
+
+    /// Windows whose Accessibility description says they are not user windows at all: an
+    /// element that is not a window (CleanMyMac exposes its animated scan button as one), or
+    /// an untitled non-standard surface (HUD, badge, floating panel, unnamed dialog). A
+    /// window that gained a title through Accessibility is never auxiliary.
+    static func accessibilityAuxiliaryIDs(
+        kinds: [CGWindowID: AccessibilityKind],
+        accessibilityTitledIDs: Set<CGWindowID>
+    ) -> Set<CGWindowID> {
+        let auxiliarySubroles: Set<String> = [
+            kAXUnknownSubrole, kAXDialogSubrole, kAXSystemDialogSubrole,
+            kAXFloatingWindowSubrole, kAXSystemFloatingWindowSubrole,
+        ]
+        return Set(kinds.compactMap { (id, kind) -> CGWindowID? in
+            if kind.role != kAXWindowRole { return id }
+            guard !accessibilityTitledIDs.contains(id) else { return nil }
+            return auxiliarySubroles.contains(kind.subrole) ? id : nil
+        })
+    }
+
+    /// Drops auxiliary surfaces only beside a genuine anchor: a titled, non-auxiliary,
+    /// at-least-as-large sibling. A sole unusual window still represents its app, and a
+    /// minimized window is never judged by its overlay status.
+    static func windowsRemovingAccessibilityAuxiliaries(
+        _ windows: [WindowInfo],
+        auxiliaryIDs: Set<CGWindowID>,
+        onFilter: ((FilterReason, Int) -> Void)? = nil
+    ) -> [WindowInfo] {
+        guard !auxiliaryIDs.isEmpty, windows.count > 1 else { return windows }
+        let anchors = windows.filter { !auxiliaryIDs.contains($0.id) && !normalized($0.title).isEmpty }
+        guard !anchors.isEmpty else { return windows }
+        func area(_ window: WindowInfo) -> CGFloat { window.bounds.width * window.bounds.height }
+        let removed = Set(windows.compactMap { window -> CGWindowID? in
+            guard auxiliaryIDs.contains(window.id), window.isMinimized != true else { return nil }
+            return anchors.contains { area($0) >= area(window) } ? window.id : nil
+        })
+        guard !removed.isEmpty, removed.count < windows.count else { return windows }
+        onFilter?(.accessibilityAuxiliary, removed.count)
+        return windows.filter { !removed.contains($0.id) }
+    }
+
     private static func accessibilityTitles(for untitled: [(CGWindowID, AXUIElement)],
                                             deadline: TimeInterval) -> [CGWindowID: String] {
         var result: [CGWindowID: String] = [:]
@@ -362,6 +430,7 @@ enum WindowEnumerator {
         mainDisplayBounds: CGRect,
         accessibilityWindowIDs: Set<CGWindowID>?,
         accessibilityObservedWindowIDs: Set<CGWindowID>? = nil,
+        accessibilityAuxiliaryIDs: Set<CGWindowID> = [],
         onFilter: ((FilterReason, Int) -> Void)? = nil
     ) -> [WindowInfo] {
         // A framework can retain its hidden 500x500 host after the last document closes.
@@ -378,12 +447,17 @@ enum WindowEnumerator {
             mainDisplayBounds: mainDisplayBounds,
             onFilter: onFilter
         )
-        let matched = windowsMatchingAccessibility(
+        let withoutAuxiliaries = windowsRemovingAccessibilityAuxiliaries(
             structurallyPruned,
+            auxiliaryIDs: accessibilityAuxiliaryIDs,
+            onFilter: onFilter
+        )
+        let matched = windowsMatchingAccessibility(
+            withoutAuxiliaries,
             axWindowIDs: accessibilityWindowIDs,
             observedWindowIDs: accessibilityObservedWindowIDs
         )
-        onFilter?(.notPublishedByAX, structurallyPruned.count - matched.count)
+        onFilter?(.notPublishedByAX, withoutAuxiliaries.count - matched.count)
         return matched
     }
 
