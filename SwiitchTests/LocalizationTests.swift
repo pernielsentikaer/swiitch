@@ -34,6 +34,9 @@ final class LocalizationTests: XCTestCase {
             "Show last": "Vis sidst",
             "Keep in recent order": "Efter seneste brug",
             "Don’t show": "Vis ikke",
+            "Copy Window Census": "Kopiér vinduesoversigt",
+            "Window census copied. It names running apps and window geometry, never titles.": "Vinduesoversigten er kopieret. Den nævner kørende apps og vinduers geometri, aldrig titler.",
+            "For troubleshooting duplicate or missing windows. Lists running app identifiers and window geometry; no titles or content.": "Til fejlfinding af dublerede eller manglende vinduer. Viser kørende apps’ identifikatorer og vinduers geometri; ingen titler eller indhold.",
         ] {
             XCTAssertEqual(danish.localizedString(forKey: key, value: nil, table: nil), translation)
         }

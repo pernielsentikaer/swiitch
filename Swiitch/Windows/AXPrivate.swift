@@ -67,9 +67,9 @@ enum AXPrivate {
     /// Whether the private Spaces-membership SPI resolved. Reported in diagnostics.
     static var spacesResolverAvailable: Bool { mainConnectionID != nil && copySpacesForWindows != nil }
 
-    /// The Spaces a window is assigned to, or nil when the SPI is unavailable. A window on
-    /// another Space has one; a retained window that has been ordered out has none, which is
-    /// the difference between "not visible right now" and "not a window the user can reach".
+    /// The Spaces a window is assigned to, or nil when the SPI/query is unavailable.
+    /// An ordered-out window can retain Space membership, so this is diagnostic evidence,
+    /// not a standalone test of whether the user can reach the window.
     static func spaceIDs(forWindow id: CGWindowID) -> [UInt64]? {
         guard let mainConnectionID, let copySpacesForWindows else { return nil }
         let windows = [NSNumber(value: id)] as CFArray

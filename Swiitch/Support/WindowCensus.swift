@@ -19,14 +19,8 @@ enum WindowCensus {
             restrictToActiveScreen: defaults.bool(forKey: Preferences.Key.restrictToActiveScreen),
             excludedBundleIDs: Set(Preferences.excludedBundleIDs)
         )
-        let context = WindowEnumerator.context(options: options)
-        let collection = await Task.detached { WindowEnumerator.collect(context: context) }.value
-        let keptByPID = Dictionary(uniqueKeysWithValues: collection.apps.map { ($0.pid, Set($0.windows.map(\.id))) })
-
-        let rows = (CGWindowListCopyWindowInfo([.optionAll, .excludeDesktopElements], kCGNullWindowID)
-            as? [[String: Any]]) ?? []
-        let rowsByPID = Dictionary(grouping: rows) { $0[kCGWindowOwnerPID as String] as? pid_t ?? -1 }
-
+        var context = WindowEnumerator.context(options: options)
+        context.accessibilityMemory = WindowDiscovery.shared.lastCollection?.accessibilityMemory ?? [:]
         var lines: [String] = []
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
         let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "?"
@@ -36,6 +30,22 @@ enum WindowCensus {
         lines.append("accessibility=\(AXIsProcessTrusted()) screenRecording=\(CGPreflightScreenCaptureAccess()) "
             + "windowIDSPI=\(AXPrivate.windowIDResolverAvailable) spacesSPI=\(AXPrivate.spacesResolverAvailable) "
             + "displays=\(NSScreen.screens.count)")
+        // AppKit metadata is snapshotted above; all potentially slow native queries run
+        // off the UI actor, including the detailed per-window Accessibility reads.
+        return await Task.detached { [context, lines] in
+            collect(context: context, apps: apps, header: lines)
+        }.value
+    }
+
+    private static func collect(context: WindowEnumerator.Context,
+                                apps: [(pid: pid_t, bundleID: String, name: String)],
+                                header: [String]) -> String {
+        let collection = WindowEnumerator.collect(context: context)
+        let keptByPID = Dictionary(uniqueKeysWithValues: collection.apps.map { ($0.pid, Set($0.windows.map(\.id))) })
+        let rows = (CGWindowListCopyWindowInfo([.optionAll, .excludeDesktopElements], kCGNullWindowID)
+            as? [[String: Any]]) ?? []
+        let rowsByPID = Dictionary(grouping: rows) { $0[kCGWindowOwnerPID as String] as? pid_t ?? -1 }
+        var lines = header
         lines.append("collection: apps=\(collection.apps.count) windows=\(collection.apps.reduce(0) { $0 + $1.windows.count }) "
             + "candidates=\(collection.candidateCount) axUnavailable=\(collection.unavailableAXCount) "
             + "axReused=\(collection.reusedAXCount) filters=\(collection.filterReasons.map { "\($0.key.rawValue)=\($0.value)" }.sorted().joined(separator: ","))")
@@ -46,6 +56,7 @@ enum WindowCensus {
             var axByID: [CGWindowID: AXUIElement] = [:]
             var axUnresolved = 0
             for element in axWindows ?? [] {
+                AXUIElementSetMessagingTimeout(element, 0.05)
                 if let id = AXPrivate.windowID(for: element) { axByID[id] = element } else { axUnresolved += 1 }
             }
             let axSummary = axWindows.map { "\($0.count) (unresolved ids: \(axUnresolved))" } ?? "unavailable"
