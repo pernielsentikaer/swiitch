@@ -283,7 +283,8 @@ private struct AppGridView: View {
             ForEach(visible, id: \.id) { app in
                 let absoluteIndex = indexByPID[app.pid] ?? 0
                 let isPinned = Preferences.isPinned(app.bundleIdentifier)
-                AppCell(app: app, isSelected: absoluteIndex == model.selectedAppIndex, isPinned: isPinned)
+                AppCell(app: app, isSelected: absoluteIndex == model.selectedAppIndex, isPinned: isPinned,
+                        highlightRanges: model.searchMatch(appName: app.name, title: nil)?.appRanges ?? [])
                     .id(SwitcherScrollTarget.app(app.pid))
                     .frame(width: cellWidth)
                     .contentShape(Rectangle())
@@ -327,6 +328,8 @@ struct AppCell: View {
     let app: AppEntry
     let isSelected: Bool
     var isPinned: Bool = false
+    /// Character ranges of the app name that matched the typed query.
+    var highlightRanges: [Range<Int>] = []
     @Environment(\.swiitchAccent) private var accent: Color
 
     var body: some View {
@@ -391,7 +394,7 @@ struct AppCell: View {
                 }
             }
 
-            Text(app.name)
+            Text(SearchHighlight.attributed(app.name, ranges: highlightRanges, color: accent))
                 .font(.caption)
                 .lineLimit(1)
                 .truncationMode(.tail)
@@ -445,6 +448,7 @@ private struct WindowGridView: View {
         return LazyVGrid(columns: columns, alignment: .center, spacing: 14) {
             ForEach(visible) { window in
                 let index = indexByID[window.id] ?? 0
+                let match = model.searchMatch(appName: app.name, title: window.displayTitle)
                 WindowCell(
                     title: window.displayTitle,
                     thumbnail: model.thumbnails[window.id],
@@ -453,6 +457,7 @@ private struct WindowGridView: View {
                     accessibilityAppName: app.name,
                     overlayPosition: overlayPosition,
                     thumbnailOverlay: thumbnailOverlay,
+                    titleHighlightRanges: match?.titleRanges ?? [],
                     isMinimized: window.isMinimized == true,
                     isSelected: index == model.selectedWindowIndex,
                     thumbHeight: metrics.thumbnailHeight,
@@ -520,6 +525,7 @@ private struct FlatWindowGridView: View {
         return LazyVGrid(columns: columns, alignment: .center, spacing: 14) {
             ForEach(visible, id: \.id) { entry in
                 let absoluteIndex = indexByID[entry.id] ?? 0
+                let match = model.searchMatch(appName: entry.appName, title: entry.window.displayTitle)
                 WindowCell(
                     title: entry.window.displayTitle,
                     thumbnail: model.thumbnails[entry.id],
@@ -528,6 +534,8 @@ private struct FlatWindowGridView: View {
                     overlayPosition: overlayPosition,
                     thumbnailOverlay: thumbnailOverlay,
                     secondaryLabel: entry.appName,
+                    titleHighlightRanges: match?.titleRanges ?? [],
+                    secondaryHighlightRanges: match?.appRanges ?? [],
                     isMinimized: entry.window.isMinimized == true,
                     isSelected: absoluteIndex == model.selectedFlatIndex,
                     thumbHeight: metrics.thumbnailHeight,
@@ -579,6 +587,9 @@ struct WindowCell: View {
     let overlayPosition: Preferences.OverlayPosition
     var thumbnailOverlay: Preferences.ThumbnailOverlay = .none
     var secondaryLabel: String? = nil
+    /// Character ranges of `title` / `secondaryLabel` that matched the typed query.
+    var titleHighlightRanges: [Range<Int>] = []
+    var secondaryHighlightRanges: [Range<Int>] = []
     var isMinimized: Bool = false
     let isSelected: Bool
     let thumbHeight: CGFloat
@@ -645,7 +656,7 @@ struct WindowCell: View {
             .frame(height: thumbHeight)
 
             VStack(spacing: 1) {
-                Text(title)
+                Text(SearchHighlight.attributed(title, ranges: titleHighlightRanges, color: accent))
                     .font(.caption)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -655,7 +666,8 @@ struct WindowCell: View {
                         ViewThatFits(in: .horizontal) {
                             if let secondaryLabel {
                                 HStack(spacing: 3) {
-                                    Text(secondaryLabel).foregroundStyle(.tertiary)
+                                    Text(SearchHighlight.attributed(secondaryLabel, ranges: secondaryHighlightRanges, color: accent))
+                                        .foregroundStyle(.tertiary)
                                     Text("·").foregroundStyle(.secondary)
                                     Text("Minimized").foregroundStyle(.secondary)
                                 }
@@ -668,7 +680,7 @@ struct WindowCell: View {
                         .font(.caption2)
                         .lineLimit(1)
                     } else if let secondaryLabel {
-                        Text(secondaryLabel)
+                        Text(SearchHighlight.attributed(secondaryLabel, ranges: secondaryHighlightRanges, color: accent))
                             .font(.caption2)
                             .lineLimit(1)
                             .truncationMode(.tail)
