@@ -21,6 +21,8 @@ enum DiagnosticsReport {
         let automaticUpdateChecks: Bool
         let discovery: Discovery
         let thumbnails: WindowThumbnails.Statistics
+        /// Milliseconds from the hotkey to each stage of recent opens; counts and timings only.
+        let timing: OpenLatency.Summary
     }
 
     struct Discovery: Codable {
@@ -32,11 +34,14 @@ enum DiagnosticsReport {
         /// Apps whose failed read was covered by a recent remembered Accessibility read.
         var reusedAXAppCount = 0
         let lastCollectionMilliseconds: Int?
+        /// Percentiles over the most recent collections.
+        var collectionMilliseconds: OpenLatency.Percentiles?
         let timeoutCount: Int
         let cacheHits: Int
         let filterReasons: [String: Int]
 
-        init(collection: WindowEnumerator.Collection?, timeoutCount: Int, cacheHits: Int) {
+        init(collection: WindowEnumerator.Collection?, timeoutCount: Int, cacheHits: Int,
+             recentDurations: [TimeInterval] = []) {
             appCount = collection?.apps.count ?? 0
             windowCount = collection?.apps.reduce(0) { $0 + $1.windows.count } ?? 0
             candidateCount = collection?.candidateCount ?? 0
@@ -46,6 +51,9 @@ enum DiagnosticsReport {
             if let duration = collection?.duration, duration.isFinite, duration >= 0 {
                 lastCollectionMilliseconds = Int(min(duration * 1000, 3_600_000))
             } else { lastCollectionMilliseconds = nil }
+            collectionMilliseconds = OpenLatency.Percentiles(
+                recentDurations.filter { $0.isFinite && $0 >= 0 }.map { min($0 * 1000, 3_600_000) }
+            )
             self.timeoutCount = timeoutCount
             self.cacheHits = cacheHits
             filterReasons = Dictionary(uniqueKeysWithValues: WindowEnumerator.FilterReason.allCases.map {
@@ -74,8 +82,10 @@ enum DiagnosticsReport {
             keyboardStatus: HotkeyStatus.shared.value.rawValue,
             loginItemStatus: LoginItemController.shared.status.rawValue,
             automaticUpdateChecks: UpdateController.shared.automaticChecksEnabled,
-            discovery: Discovery(collection: discovery.lastCollection, timeoutCount: discovery.timeoutCount, cacheHits: discovery.cacheHits),
-            thumbnails: await WindowThumbnails.shared.statistics
+            discovery: Discovery(collection: discovery.lastCollection, timeoutCount: discovery.timeoutCount,
+                                 cacheHits: discovery.cacheHits, recentDurations: discovery.recentDurations),
+            thumbnails: await WindowThumbnails.shared.statistics,
+            timing: OpenLatency.shared.summary
         )
     }
 

@@ -270,6 +270,7 @@ final class HotkeyManager {
     }
 
     private func beginSession(_ match: HotkeyMatch, flags: CGEventFlags) {
+        OpenLatency.shared.begin()
         let session = Session(modifiers: match.modifiers, flags: flags)
         inputSession = session
         let generation = dispatchGeneration
@@ -297,6 +298,9 @@ final class HotkeyManager {
                     }
                     session.pending = false
                     if !self.model.isArmed {
+                        // Nothing to show (no windows): close the latency sample so it
+                        // does not bleed into the next open.
+                        OpenLatency.shared.end()
                         if self.inputSession === session { self.inputSession = nil }
                         self.presentedSession = nil
                     }
