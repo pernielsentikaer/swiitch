@@ -105,13 +105,11 @@ extension SwitcherModel {
             frontmostBundleID: { NSWorkspace.shared.frontmostApplication?.bundleIdentifier },
             focusedWindowID: { AXPrivate.focusedWindowID(forPID: $0) },
             thumbnails: { windowIDs, fresh, onUpdate in
-                await WindowThumbnails.shared.images(
-                    for: windowIDs,
-                    fresh: fresh,
-                    // Prewarming fills missing entries only; do not recapture every
-                    // background window every four seconds when no picker is visible.
-                    maximumAge: onUpdate == nil ? .infinity : 3,
-                    onUpdate: onUpdate
+                // Only the picker asks for progress. Idle prewarming fills what the cache
+                // has room for and never recaptures or evicts; see `WindowThumbnails.prewarm`.
+                guard let onUpdate else { return await WindowThumbnails.shared.prewarm(windowIDs) }
+                return await WindowThumbnails.shared.images(
+                    for: windowIDs, fresh: fresh, maximumAge: 3, onUpdate: onUpdate
                 )
             },
             cancelThumbnailCaptures: {

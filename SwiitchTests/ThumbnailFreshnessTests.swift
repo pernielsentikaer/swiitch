@@ -33,6 +33,38 @@ final class ThumbnailFreshnessTests: XCTestCase {
         XCTAssertEqual(cleared.cacheMisses, 81, "Counters cover the cache's lifetime, not just retained entries")
     }
 
+    func testPrewarmFillsTheCacheMostRecentFirstAndNeverCyclesThroughALargerScope() async {
+        let provider = ThumbnailTestCapture()
+        let cache = makeCache(ThumbnailTestClock(), provider)
+        let scope = (1...120).map { CGWindowID($0) }
+        for _ in 0..<4 { await cache.prewarm(scope) }
+        let batches = await provider.batches
+        let stats = await cache.statistics
+        XCTAssertEqual(stats.cachedImages, WindowThumbnails.cacheCountLimit, "Prewarming fills the cache")
+        XCTAssertEqual(stats.cacheEvictions, 0, "Prewarming never evicts to admit more")
+        XCTAssertEqual(Set(batches.flatMap { $0 }), Set(scope.prefix(WindowThumbnails.cacheCountLimit)),
+                       "The most recently used windows are warmed; the rest wait for the picker")
+        XCTAssertEqual(batches.flatMap { $0 }.count, WindowThumbnails.cacheCountLimit, "No window is captured twice")
+
+        await cache.prewarm(scope)
+        let settled = await provider.batches.count
+        XCTAssertEqual(settled, batches.count, "A full cache makes prewarming a no-op")
+    }
+
+    func testPrewarmGivesBackedOffWindowsSlotToOthersUntilTheyMayRetry() async {
+        let clock = ThumbnailTestClock()
+        let provider = ThumbnailTestCapture(failed: [1])
+        let cache = makeCache(clock, provider, retryDelay: 2)
+        await cache.prewarm([1, 2])
+        await cache.prewarm([1, 2, 3])
+        var batches = await provider.batches
+        XCTAssertEqual(batches, [[1, 2], [3]], "Windows in back-off do not hold a slot")
+        clock.set(clock.now + 10)
+        await cache.prewarm([1, 2, 3])
+        batches = await provider.batches
+        XCTAssertEqual(batches.last, [1, 2], "Back-off expiry makes them eligible again")
+    }
+
     func testBytePressureAlsoCountsAsCapacityEviction() async {
         let cache = WindowThumbnails(captureProvider: { ids, deliver in
             for id in ids {

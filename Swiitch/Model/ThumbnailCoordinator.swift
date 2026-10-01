@@ -155,7 +155,8 @@ final class ThumbnailCoordinator: ObservableObject {
 
     func startPrewarmTimer() {
         prewarmTimer?.invalidate()
-        prewarmTimer = Self.scheduleTimer(interval: 4.0, repeats: true) { [weak self] in
+        // Idle work: let the system fold this wake-up into others it is already doing.
+        prewarmTimer = Self.scheduleTimer(interval: 4.0, repeats: true, tolerance: 1.0) { [weak self] in
             guard let self, !self.scope().isArmed else { return }
             Task { [weak self] in
                 await self?.prewarmCache()
@@ -309,9 +310,10 @@ final class ThumbnailCoordinator: ObservableObject {
 
     /// `Timer.scheduledTimer` only fires in `.default` mode, which pauses while a context
     /// menu or other tracking loop runs; previews must keep refreshing under one.
-    private static func scheduleTimer(interval: TimeInterval, repeats: Bool,
+    private static func scheduleTimer(interval: TimeInterval, repeats: Bool, tolerance: TimeInterval = 0,
                                       block: @escaping () -> Void) -> Timer {
         let timer = Timer(timeInterval: interval, repeats: repeats) { _ in block() }
+        timer.tolerance = tolerance
         RunLoop.main.add(timer, forMode: .common)
         return timer
     }

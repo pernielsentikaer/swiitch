@@ -162,6 +162,7 @@ final class HotkeyManager {
         healthCheckTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.recovery.refresh() }
         }
+        healthCheckTimer?.tolerance = 0.25
     }
 
     private func registerWakeObservers() {

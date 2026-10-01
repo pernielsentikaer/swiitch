@@ -52,6 +52,7 @@ final class WindowDiscovery {
         timer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in await self?.prepare(options: Self.backgroundOptions()) }
         }
+        timer?.tolerance = 0.5
         Task { await prepare(options: Self.backgroundOptions()) }
     }
 

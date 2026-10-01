@@ -82,9 +82,11 @@ actor WindowThumbnails {
         let generation: ThumbnailGeneration
     }
 
-    private static let cacheCountLimit = 80
+    static let cacheCountLimit = 80
     private static let cacheByteLimit = 96 * 1_024 * 1_024
     private static let maximumPixelDimension = 720
+    /// A capture's byte cost before it exists: the largest preview the cache stores.
+    private static let worstCaseByteCost = maximumPixelDimension * maximumPixelDimension * 4
     private static let maximumConcurrentCaptures = 3
 
     private static let log = Logger(subsystem: "com.swiitch.Swiitch", category: "snapshot")
@@ -150,6 +152,35 @@ actor WindowThumbnails {
         self.captureTimeout = max(0.001, captureTimeout)
         self.retryDelay = max(0, retryDelay)
         self.captureProvider = captureProvider
+    }
+
+    /// Idle keep-warm: captures the first uncached `windowIDs` the cache has room for, and
+    /// nothing once it is full. `windowIDs` arrive most recently used first.
+    ///
+    /// Prewarming a scope larger than the cache through `images(for:)` used to evict the
+    /// most recently used previews on every pass to admit the oldest ones, then recapture
+    /// the evicted previews on the next pass: a few window captures every four seconds for
+    /// as long as the Mac stayed awake, and the previews most likely to be needed next
+    /// were the ones missing. Room is judged against the largest possible capture so a
+    /// pass can never overflow the byte budget either.
+    @discardableResult
+    func prewarm(_ windowIDs: [CGWindowID]) async -> [CGWindowID: NSImage] {
+        let countRoom = Self.cacheCountLimit - images.count - inFlight.count
+        let byteRoom = (Self.cacheByteLimit - totalByteCost) / Self.worstCaseByteCost
+        let room = max(0, min(countRoom, byteRoom))
+        guard room > 0 else { return [:] }
+        var missing: [CGWindowID] = []
+        var seen: Set<CGWindowID> = []
+        let currentTime = now()
+        for windowID in windowIDs where seen.insert(windowID).inserted {
+            // A window in capture back-off must not hold a slot other windows could use.
+            guard images[windowID] == nil, inFlight[windowID] == nil,
+                  currentTime >= (failures[windowID]?.retryAfter ?? -.infinity) else { continue }
+            missing.append(windowID)
+            if missing.count == room { break }
+        }
+        guard !missing.isEmpty else { return [:] }
+        return await images(for: missing, maximumAge: .infinity)
     }
 
     /// Captures a complete set with one ScreenCaptureKit content lookup. Captures run in

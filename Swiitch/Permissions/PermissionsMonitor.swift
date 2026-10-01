@@ -78,6 +78,8 @@ final class PermissionsMonitor: ObservableObject {
         let timer = Timer(timeInterval: interval, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in self?.refresh() }
         }
+        // Nothing here needs to fire on the dot; tolerance lets the system coalesce wake-ups.
+        timer.tolerance = interval * 0.2
         // `.common` keeps polling alive while a menu or modal tracking loop is running.
         RunLoop.main.add(timer, forMode: .common)
         self.timer = timer
