@@ -247,8 +247,15 @@ final class WindowDiscoveryTests: XCTestCase {
         // A change notification forces a fresh collection regardless of age.
         monitor.handle("AXWindowCreated")
         await waitUntil("the change notification to force a collection") { await count.value == 3 }
+
+        // Idle and covered, the keep-warm poll only guards against a missed notification.
+        clock.now += WindowDiscovery.idleAfter + 1
+        XCTAssertEqual(service.snapshotLifetime(background: true), WindowDiscovery.eventDrivenIdleSnapshotLifetime)
+        XCTAssertEqual(service.snapshotLifetime(background: false), WindowDiscovery.eventDrivenSnapshotLifetime,
+                       "The picker itself still gets a fresher snapshot")
         monitor.stop()
         XCTAssertEqual(service.snapshotLifetime(background: false), WindowDiscovery.activeSnapshotLifetime)
+        XCTAssertEqual(service.snapshotLifetime(background: true), WindowDiscovery.idleSnapshotLifetime)
     }
 
     func testWaitersWithDifferentKeysNeverLoseTrackOfEachOthersRequests() async {
