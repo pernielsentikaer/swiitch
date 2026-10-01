@@ -1,6 +1,6 @@
 # Swiitch — Project Guidelines
 
-Swiitch is a native macOS menubar utility (Swift 5.10, macOS 14+) that lets users switch between apps and windows via a configurable hotkey. It is **not** distributed via the Mac App Store due to private SPI usage.
+Swiitch is a native macOS menubar utility (Swift 6 language mode, macOS 14+) that lets users switch between apps and windows via a configurable hotkey. It is **not** distributed via the Mac App Store due to private SPI usage.
 
 ## Architecture
 
@@ -44,7 +44,7 @@ See `CONTRIBUTING.md` for local signing setup (required for stable TCC across re
 
 See `CONTRIBUTING.md` for the full style guide. Critical points agents must follow:
 
-- **4-space indentation**, Swift 5.10
+- **4-space indentation**, Swift 6 language mode
 - `///` doc comments on all public types and non-obvious internals
 - Prefer `@AppStorage` for user-facing settings — `@Published` bindings into `MenuBarExtra(isInserted:)` trigger SwiftUI publishing warnings
 - AppKit for all windowing (`NSPanel`, `NSWindow`); SwiftUI for view bodies only
