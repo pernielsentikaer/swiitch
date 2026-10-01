@@ -7,16 +7,26 @@ import CoreGraphics
 ///   - Screen Recording (optional — for window thumbnails; without it WindowServer withholds
 ///     window titles, so enumeration falls back to Accessibility titles).
 ///
-/// One shared instance serves the app delegate and every permission view. Each
+/// One shared instance serves the app delegate and every permission view. Accessibility
+/// changes can arrive by distributed notification when the privacy list changes; the
+/// poll remains a fallback for both permissions, including Screen Recording. Each
 /// `CGPreflightScreenCaptureAccess` is an XPC round-trip to `tccd`, so the app-lifetime
 /// poll is slow and only a visible permission UI raises the rate. Polling never prompts.
 @MainActor
 final class PermissionsMonitor: ObservableObject {
     static let shared = PermissionsMonitor()
 
-    /// Detects revocation while the user is actively switching, before they retry ⌘+Tab
-    /// a few times in vain. The TCC client caches `AXIsProcessTrusted`, so this is cheap.
-    nonisolated static let backgroundInterval: TimeInterval = 2.0
+    /// Best-effort system hint that the Accessibility privacy list changed, for any app.
+    nonisolated static let accessibilityChangedNotification = Notification.Name("com.apple.accessibility.api")
+    /// The TCC client may still answer from its cache when the notification arrives; a
+    /// second read shortly after catches up.
+    nonisolated static let accessibilityChangeSettleDelay: TimeInterval = 1.0
+
+    /// Screen Recording only matters for previews and has no change notification; a late
+    /// read costs one capture attempt against a stale answer, so the poll can be slow.
+    /// Accessibility changes also trigger the notification above when available, and the
+    /// event tap's own health check checks for a dead tap every second while active.
+    nonisolated static let backgroundInterval: TimeInterval = 10.0
     /// Fast enough that a grant in System Settings is reflected as the user tabs back.
     nonisolated static let foregroundInterval: TimeInterval = 0.8
 
@@ -27,6 +37,11 @@ final class PermissionsMonitor: ObservableObject {
     private var timer: Timer?
     private var backgroundActive = false
     private var foregroundRequests = 0
+    private var accessibilityObserver: NSObjectProtocol?
+    private var settleTask: Task<Void, Never>?
+    /// Accessibility change notifications handled since start, for tests and Diagnostics.
+    private(set) var accessibilityChangeCount = 0
+    var observesAccessibilityChanges: Bool { accessibilityObserver != nil }
 
     /// Effective polling interval, or nil while idle. Exposed for tests.
     var currentInterval: TimeInterval? {
@@ -39,16 +54,44 @@ final class PermissionsMonitor: ObservableObject {
         interval = (backgroundInterval, foregroundInterval)
     }
 
-    /// App-lifetime polling at the slow interval.
+    /// App-lifetime polling at the slow interval, plus the Accessibility change notification.
     func start() {
         backgroundActive = true
+        if accessibilityObserver == nil {
+            accessibilityObserver = DistributedNotificationCenter.default().addObserver(
+                forName: Self.accessibilityChangedNotification, object: nil, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { self?.handleAccessibilityChange() }
+            }
+        }
         refresh()
         reschedule()
     }
 
     func stop() {
         backgroundActive = false
+        if let accessibilityObserver {
+            DistributedNotificationCenter.default().removeObserver(accessibilityObserver)
+            self.accessibilityObserver = nil
+        }
+        settleTask?.cancel()
+        settleTask = nil
         reschedule()
+    }
+
+    /// The privacy list changed for some app, possibly this one: read now, and once more
+    /// after the TCC cache has had a moment to catch up.
+    func handleAccessibilityChange() {
+        // Removing an observer does not retract a notification already queued for delivery.
+        guard backgroundActive else { return }
+        accessibilityChangeCount += 1
+        refresh()
+        settleTask?.cancel()
+        settleTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(Self.accessibilityChangeSettleDelay))
+            guard !Task.isCancelled else { return }
+            self?.refresh()
+        }
     }
 
     /// A visible permission UI asks for the faster rate; balanced by `endForegroundPolling`.

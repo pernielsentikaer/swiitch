@@ -220,9 +220,12 @@ final class WindowDiscoveryTests: XCTestCase {
     func testCoveringEventMonitorLetsUserRequestsReuseAFreshSnapshot() async {
         let count = DiscoveryCount()
         let clock = DiscoveryClock()
+        let fixtureContext = context()
         let service = WindowDiscovery(now: { clock.now }, collector: { _ in await count.add(); return Self.collection() })
         let monitor = WindowEventMonitor(dependencies: .init(
-            trusted: { true }, refresh: { await service.refreshAfterChange() },
+            trusted: { true }, refresh: {
+                await service.prepare(context: fixtureContext, force: true, background: true)
+            },
             observeApplication: { pid, _ in .init(pid: pid) }, windowElements: { _ in [] }))
         service.eventMonitor = monitor
         monitor.start()
@@ -247,8 +250,49 @@ final class WindowDiscoveryTests: XCTestCase {
         // A change notification forces a fresh collection regardless of age.
         monitor.handle("AXWindowCreated")
         await waitUntil("the change notification to force a collection") { await count.value == 3 }
+
+        // Idle and covered, the keep-warm poll only guards against a missed notification.
+        clock.now += WindowDiscovery.idleAfter + 1
+        XCTAssertEqual(service.snapshotLifetime(background: true), WindowDiscovery.eventDrivenIdleSnapshotLifetime)
+        XCTAssertEqual(service.snapshotLifetime(background: false), WindowDiscovery.eventDrivenSnapshotLifetime,
+                       "The picker itself still gets a fresher snapshot")
         monitor.stop()
         XCTAssertEqual(service.snapshotLifetime(background: false), WindowDiscovery.activeSnapshotLifetime)
+        XCTAssertEqual(service.snapshotLifetime(background: true), WindowDiscovery.idleSnapshotLifetime)
+    }
+
+    func testCoveredIdleCacheExpiresAndEventsStillInvalidateImmediately() async {
+        let count = DiscoveryCount()
+        let clock = DiscoveryClock()
+        let service = WindowDiscovery(now: { clock.now }, collector: { _ in await count.add(); return Self.collection() })
+        // Disable the coalesced refresh so the next request must itself notice the event.
+        let monitor = WindowEventMonitor(dependencies: .init(
+            trusted: { true }, refresh: {},
+            observeApplication: { pid, _ in .init(pid: pid) }, windowElements: { _ in [] }))
+        service.eventMonitor = monitor
+        monitor.start()
+        defer { monitor.stop() }
+
+        await service.prepare(context: context(), background: true)
+        clock.now = WindowDiscovery.eventDrivenIdleSnapshotLifetime - 1
+        await service.prepare(context: context(), background: true)
+        var total = await count.value
+        XCTAssertEqual(total, 1, "Covered idle polling reuses the snapshot for nearly a minute")
+
+        clock.now += 1
+        await service.prepare(context: context(), background: true)
+        total = await count.value
+        XCTAssertEqual(total, 2, "The one-minute guard still collects")
+
+        monitor.handle("AXWindowCreated")
+        await service.prepare(context: context(), background: true)
+        total = await count.value
+        XCTAssertEqual(total, 3, "An event invalidates even a just-collected idle snapshot")
+
+        clock.now += WindowDiscovery.eventDrivenSnapshotLifetime
+        await service.prepare(context: context())
+        total = await count.value
+        XCTAssertEqual(total, 4, "A user request does not inherit the longer idle lifetime")
     }
 
     func testWaitersWithDifferentKeysNeverLoseTrackOfEachOthersRequests() async {

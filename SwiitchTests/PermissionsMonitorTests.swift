@@ -30,6 +30,26 @@ final class PermissionsMonitorTests: XCTestCase {
     }
 
     @MainActor
+    func testAccessibilityChangesAreObservedOnlyWhileStarted() {
+        let monitor = PermissionsMonitor()
+        XCTAssertFalse(monitor.observesAccessibilityChanges)
+        monitor.start()
+        XCTAssertTrue(monitor.observesAccessibilityChanges, "The privacy-list notification replaces fast polling")
+        monitor.start()
+        XCTAssertTrue(monitor.observesAccessibilityChanges, "Starting twice registers once")
+        monitor.handleAccessibilityChange()
+        monitor.handleAccessibilityChange()
+        XCTAssertEqual(monitor.accessibilityChangeCount, 2)
+        XCTAssertEqual(monitor.accessibilityGranted, AXIsProcessTrusted(), "The immediate read reflects the process")
+        monitor.stop()
+        XCTAssertFalse(monitor.observesAccessibilityChanges)
+        XCTAssertNil(monitor.currentInterval)
+        monitor.handleAccessibilityChange()
+        XCTAssertEqual(monitor.accessibilityChangeCount, 2,
+                       "A notification queued before stop must not restart permission reads")
+    }
+
+    @MainActor
     func testRefreshReflectsCurrentProcessState() {
         let monitor = PermissionsMonitor()
         monitor.refresh()
