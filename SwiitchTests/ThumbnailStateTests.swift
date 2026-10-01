@@ -229,7 +229,14 @@ final class ThumbnailStateTests: XCTestCase {
         let fixture = CaptureModelFixture(returnImages: true, windowCount: 40)
         defer { fixture.close() }
         fixture.model.arm(reverse: false)
-        let host = NSHostingView(rootView: SwitcherView(model: fixture.model).frame(width: 640, height: 340))
+        // Match the synthetic host instead of laying out a 1200-point grid in 640 points.
+        // This checks viewport reporting, not animation timing or desktop pointer hover.
+        fixture.model.effectiveMaxWidth = 600
+        fixture.model.effectiveMaxHeight = 340
+        let host = NSHostingView(rootView: SwitcherView(model: fixture.model)
+            .defaultAppStorage(fixture.defaults)
+            .transaction { $0.animation = nil; $0.disablesAnimations = true }
+            .frame(width: 640, height: 340))
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 640, height: 340),
                               styleMask: .borderless, backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -243,10 +250,12 @@ final class ThumbnailStateTests: XCTestCase {
         let initialCount = fixture.model.thumbnailRefreshWindows.count
         fixture.model.mouseHasMoved = true
         fixture.model.selectFlatWindow(at: 39)
+        fixture.model.mouseHasMoved = false
         try await eventually {
             !fixture.model.thumbnailRefreshWindows.isEmpty &&
                 fixture.model.thumbnailRefreshWindows.allSatisfy { $0.id > 20 }
         }
+        XCTAssertEqual(fixture.model.selectedFlatIndex, 39)
         print("Hosted viewport refresh: initial=\(initialCount), afterScroll=\(fixture.model.thumbnailRefreshWindows.count), total=40")
     }
 
