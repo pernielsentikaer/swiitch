@@ -33,6 +33,71 @@ final class ThumbnailFreshnessTests: XCTestCase {
         XCTAssertEqual(cleared.cacheMisses, 81, "Counters cover the cache's lifetime, not just retained entries")
     }
 
+    func testPrewarmFillsTheCacheMostRecentFirstAndNeverCyclesThroughALargerScope() async {
+        let provider = ThumbnailTestCapture()
+        let cache = makeCache(ThumbnailTestClock(), provider)
+        let scope = (1...120).map { CGWindowID($0) }
+        for _ in 0..<4 { await cache.prewarm(scope) }
+        let batches = await provider.batches
+        let stats = await cache.statistics
+        XCTAssertEqual(stats.cachedImages, WindowThumbnails.cacheCountLimit, "Prewarming fills the cache")
+        XCTAssertEqual(stats.cacheEvictions, 0, "Prewarming never evicts to admit more")
+        XCTAssertEqual(Set(batches.flatMap { $0 }), Set(scope.prefix(WindowThumbnails.cacheCountLimit)),
+                       "The most recently used windows are warmed; the rest wait for the picker")
+        XCTAssertEqual(batches.flatMap { $0 }.count, WindowThumbnails.cacheCountLimit, "No window is captured twice")
+
+        await cache.prewarm(scope)
+        let settled = await provider.batches.count
+        XCTAssertEqual(settled, batches.count, "A full cache makes prewarming a no-op")
+    }
+
+    func testPrewarmGivesBackedOffWindowsSlotToOthersUntilTheyMayRetry() async {
+        let clock = ThumbnailTestClock()
+        let provider = ThumbnailTestCapture(failed: [1])
+        let cache = makeCache(clock, provider, retryDelay: 2)
+        await cache.prewarm([1, 2])
+        await cache.prewarm([1, 2, 3])
+        var batches = await provider.batches
+        XCTAssertEqual(batches, [[1, 2], [3]], "Windows in back-off do not hold a slot")
+        clock.set(clock.now + 10)
+        await cache.prewarm([1, 2, 3])
+        batches = await provider.batches
+        XCTAssertEqual(batches.last, [1, 2], "Back-off expiry makes them eligible again")
+    }
+
+    func testOverlappingPrewarmReservesThePendingByteBudget() async throws {
+        let provider = ThumbnailTestCapture(blocked: [1], imageSize: NSSize(width: 720, height: 720))
+        let cache = makeCache(ThumbnailTestClock(), provider)
+        let scope = (1...120).map { CGWindowID($0) }
+        let first = Task { await cache.prewarm(scope) }
+        try await waitForBatch(1, provider)
+        await cache.prewarm(scope)
+        await provider.release(1)
+        _ = await first.value
+        for _ in 0..<3 { await cache.prewarm(scope) }
+        let batches = await provider.batches
+        let stats = await cache.statistics
+        XCTAssertEqual(batches, [Array(scope.prefix(48))], "Pending full-size previews already reserve the byte budget")
+        XCTAssertEqual(stats.cachedImages, 48)
+        XCTAssertEqual(stats.cacheEvictions, 0)
+    }
+
+    func testLatePrewarmCannotEvictNewForegroundPreviews() async throws {
+        let provider = ThumbnailTestCapture(blocked: [1], imageSize: NSSize(width: 720, height: 720))
+        let cache = makeCache(ThumbnailTestClock(), provider)
+        let background = Task { await cache.prewarm([1]) }
+        try await waitForBatch(1, provider)
+        let foreground = (2...49).map { CGWindowID($0) }
+        _ = await cache.images(for: foreground)
+        await provider.release(1)
+        _ = await background.value
+        let stats = await cache.statistics
+        XCTAssertEqual(stats.cacheEvictions, 0, "A late background capture must not displace foreground previews")
+        _ = await cache.images(for: foreground, maximumAge: .infinity)
+        let batches = await provider.batches
+        XCTAssertEqual(batches, [[1], foreground], "All foreground previews remain cached")
+    }
+
     func testBytePressureAlsoCountsAsCapacityEviction() async {
         let cache = WindowThumbnails(captureProvider: { ids, deliver in
             for id in ids {
@@ -454,11 +519,13 @@ private actor ThumbnailTestCapture {
     private(set) var batches: [[CGWindowID]] = []
     private let blocked: Set<Int>
     private let failed: Set<Int>
+    private let imageSize: NSSize?
     private var waiters: [Int: CheckedContinuation<Void, Never>] = [:]
 
-    init(blocked: Set<Int> = [], failed: Set<Int> = []) {
+    init(blocked: Set<Int> = [], failed: Set<Int> = [], imageSize: NSSize? = nil) {
         self.blocked = blocked
         self.failed = failed
+        self.imageSize = imageSize
     }
 
     func capture(_ ids: [CGWindowID], deliver: ThumbnailCaptureDelivery) async {
@@ -468,7 +535,7 @@ private actor ThumbnailTestCapture {
             await withCheckedContinuation { waiters[batch] = $0 }
         }
         // Intentionally ignores cancellation to model a native capture finishing late.
-        let image = failed.contains(batch) ? nil : NSImage(size: NSSize(width: 100 + batch, height: 24))
+        let image = failed.contains(batch) ? nil : NSImage(size: imageSize ?? NSSize(width: 100 + batch, height: 24))
         for id in ids { await deliver(id, image) }
     }
 

@@ -80,11 +80,14 @@ actor WindowThumbnails {
         let token: UInt64
         let promise: ThumbnailCapturePromise
         let generation: ThumbnailGeneration
+        let allowsCacheEviction: Bool
     }
 
-    private static let cacheCountLimit = 80
+    static let cacheCountLimit = 80
     private static let cacheByteLimit = 96 * 1_024 * 1_024
     private static let maximumPixelDimension = 720
+    /// A capture's byte cost before it exists: the largest preview the cache stores.
+    private static let worstCaseByteCost = maximumPixelDimension * maximumPixelDimension * 4
     private static let maximumConcurrentCaptures = 3
 
     private static let log = Logger(subsystem: "com.swiitch.Swiitch", category: "snapshot")
@@ -152,6 +155,36 @@ actor WindowThumbnails {
         self.captureProvider = captureProvider
     }
 
+    /// Idle keep-warm: captures the first uncached `windowIDs` the cache has room for, and
+    /// nothing once it is full. `windowIDs` arrive most recently used first.
+    ///
+    /// Prewarming a scope larger than the cache through `images(for:)` used to evict the
+    /// most recently used previews on every pass to admit the oldest ones, then recapture
+    /// the evicted previews on the next pass: a few window captures every four seconds for
+    /// as long as the Mac stayed awake, and the previews most likely to be needed next
+    /// were the ones missing. Room is judged against the largest possible capture so a
+    /// pass can never overflow the byte budget either.
+    @discardableResult
+    func prewarm(_ windowIDs: [CGWindowID]) async -> [CGWindowID: NSImage] {
+        let countRoom = Self.cacheCountLimit - images.count - inFlight.count
+        let reservedBytes = inFlight.count * Self.worstCaseByteCost
+        let byteRoom = (Self.cacheByteLimit - totalByteCost - reservedBytes) / Self.worstCaseByteCost
+        let room = max(0, min(countRoom, byteRoom))
+        guard room > 0 else { return [:] }
+        var missing: [CGWindowID] = []
+        var seen: Set<CGWindowID> = []
+        let currentTime = now()
+        for windowID in windowIDs where seen.insert(windowID).inserted {
+            // A window in capture back-off must not hold a slot other windows could use.
+            guard images[windowID] == nil, inFlight[windowID] == nil,
+                  currentTime >= (failures[windowID]?.retryAfter ?? -.infinity) else { continue }
+            missing.append(windowID)
+            if missing.count == room { break }
+        }
+        guard !missing.isEmpty else { return [:] }
+        return await loadImages(for: missing, maximumAge: .infinity, allowsCacheEviction: false)
+    }
+
     /// Captures a complete set with one ScreenCaptureKit content lookup. Captures run in
     /// small groups so opening Swiitch with many windows cannot create an unbounded burst
     /// of GPU work or full-window image allocations.
@@ -160,6 +193,17 @@ actor WindowThumbnails {
         fresh: Bool = false,
         maximumAge: TimeInterval = 3,
         onUpdate: ThumbnailProgressHandler? = nil
+    ) async -> [CGWindowID: NSImage] {
+        await loadImages(for: windowIDs, fresh: fresh, maximumAge: maximumAge,
+                         onUpdate: onUpdate, allowsCacheEviction: true)
+    }
+
+    private func loadImages(
+        for windowIDs: [CGWindowID],
+        fresh: Bool = false,
+        maximumAge: TimeInterval = 3,
+        onUpdate: ThumbnailProgressHandler? = nil,
+        allowsCacheEviction: Bool
     ) async -> [CGWindowID: NSImage] {
         guard captureAllowed, permissionCheck() else {
             await clear()
@@ -196,7 +240,10 @@ actor WindowThumbnails {
             let token = captureToken
             let newCaptureIDSet = Set(newCaptureIDs)
             for (windowID, promise) in requests where newCaptureIDSet.contains(windowID) {
-                inFlight[windowID] = InFlightCapture(token: token, promise: promise, generation: generations[windowID]!)
+                inFlight[windowID] = InFlightCapture(
+                    token: token, promise: promise, generation: generations[windowID]!,
+                    allowsCacheEviction: allowsCacheEviction
+                )
             }
             if captureTasks.count < 2 {
                 startCapture(windowIDs: newCaptureIDs, token: token)
@@ -304,12 +351,21 @@ actor WindowThumbnails {
         else { failures.removeAll() }
     }
 
-    private func store(_ image: NSImage, for windowID: CGWindowID, generation: ThumbnailGeneration) {
+    private func store(_ image: NSImage, for windowID: CGWindowID,
+                       generation: ThumbnailGeneration, allowsEviction: Bool) {
+        let byteCost = estimatedByteCost(of: image)
+        if !allowsEviction {
+            // Foreground captures may have filled the cache while prewarm was suspended.
+            // A late background result must never displace a preview the picker just used.
+            let projectedCount = images.count + (images[windowID] == nil ? 1 : 0)
+            let projectedBytes = totalByteCost - (images[windowID]?.byteCost ?? 0) + byteCost
+            guard projectedCount <= Self.cacheCountLimit,
+                  projectedBytes <= Self.cacheByteLimit else { return }
+        }
         if let previous = images[windowID] {
             totalByteCost -= previous.byteCost
         }
         accessOrder &+= 1
-        let byteCost = estimatedByteCost(of: image)
         images[windowID] = CacheEntry(
             image: image,
             byteCost: byteCost,
@@ -381,7 +437,8 @@ actor WindowThumbnails {
         inFlight.removeValue(forKey: windowID)
         if let image, capture.generation.isValid {
             failures.removeValue(forKey: windowID)
-            store(image, for: windowID, generation: capture.generation)
+            store(image, for: windowID, generation: capture.generation,
+                  allowsEviction: capture.allowsCacheEviction)
         } else {
             recordFailure(windowID)
         }
