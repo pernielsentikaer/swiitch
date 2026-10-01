@@ -7,6 +7,27 @@
         <language>en</language>
 
         <item>
+            <title>0.1.15</title>
+            <pubDate>Thu, 01 Oct 2026 14:24:31 +0200</pubDate>
+            <sparkle:version>70</sparkle:version>
+            <sparkle:shortVersionString>0.1.15</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[
+                <ul>
+                    <li>Stops idle thumbnail prewarming when the preview cache is full, avoiding repeated eviction and recapture with many windows open.</li>
+                    <li>Prioritizes recent windows, reserves space for pending captures, and prevents late background results from evicting foreground previews.</li>
+                    <li>Allows macOS to coalesce background permission, hotkey-health, discovery, and prewarm timer wake-ups.</li>
+                </ul>
+                <p><b>Not notarized by Apple.</b> This ad-hoc-signed app uses a separately verified Sparkle update signature. macOS may require manual first-launch approval and renewed Accessibility or Screen Recording permissions.</p>
+            ]]></description>
+            <enclosure
+                url="https://github.com/pernielsentikaer/swiitch/releases/download/v0.1.15/Swiitch-v0.1.15.zip"
+                length="3241562"
+                type="application/octet-stream"
+                sparkle:edSignature="hqGIs7fyOrzkQRRbHkI/R5fqrUXlJItF9ohwGtU5j0kXRuu/8fBtDjAD2oPG5MPRWpX7I5H9Ji74gkmdOwkyDw==" />
+        </item>
+
+        <item>
             <title>0.1.14</title>
             <pubDate>Thu, 01 Oct 2026 13:27:06 +0200</pubDate>
             <sparkle:version>69</sparkle:version>
