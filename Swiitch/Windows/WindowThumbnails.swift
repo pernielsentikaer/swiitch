@@ -638,8 +638,8 @@ actor WindowThumbnails {
 /// stand-in listing; ScreenCaptureKit's type cannot be constructed directly.
 actor ShareableContentCache<Content> {
     private let ttl: TimeInterval
-    private let clock: () -> TimeInterval
-    private let windowIDs: (Content) -> Set<CGWindowID>
+    private let clock: @Sendable () -> TimeInterval
+    private let windowIDs: @Sendable (Content) -> Set<CGWindowID>
     private var cached: (content: Content, windowIDs: Set<CGWindowID>, at: TimeInterval)?
     private var inFlight: (id: UInt64, task: Task<Content?, Never>)?
     private var nextFetchID: UInt64 = 0
@@ -649,8 +649,8 @@ actor ShareableContentCache<Content> {
     private(set) var inFlightJoinCount = 0
 
     init(ttl: TimeInterval = 1.0,
-         clock: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
-         windowIDs: @escaping (Content) -> Set<CGWindowID>) {
+         clock: @escaping @Sendable () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
+         windowIDs: @escaping @Sendable (Content) -> Set<CGWindowID>) {
         self.ttl = ttl
         self.clock = clock
         self.windowIDs = windowIDs

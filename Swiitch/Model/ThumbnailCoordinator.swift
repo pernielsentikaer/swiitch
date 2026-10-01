@@ -7,8 +7,9 @@ import Combine
 ///
 /// It never reads the picker's lists or selection directly. `SwitcherModel` hands it a
 /// `Scope` snapshot on demand, so every guard here is evaluated against the same
-/// invocation, mode, and query that the UI is showing. The main-actor model drives its
-/// synchronous lifecycle; async entry points explicitly hop to `@MainActor`.
+/// invocation, mode, and query that the UI is showing. Main-actor isolated like its
+/// owner, so timers and delivery callbacks can capture it as a Sendable reference.
+@MainActor
 final class ThumbnailCoordinator: ObservableObject {
     /// What the coordinator needs to know about the picker at one instant.
     struct Scope {
@@ -166,7 +167,6 @@ final class ThumbnailCoordinator: ObservableObject {
 
     // MARK: - Viewport and refresh
 
-    @MainActor
     func updateViewport(_ ids: Set<CGWindowID>, context: SwitcherModel.ThumbnailViewportContext) {
         let scope = self.scope()
         guard scope.isArmed, context == viewportContext(for: scope) else { return }
@@ -185,7 +185,6 @@ final class ThumbnailCoordinator: ObservableObject {
         }
     }
 
-    @MainActor
     func refreshVisible() async {
         let scope = self.scope()
         guard scope.isArmed, scope.panelShown, scope.loadsThumbnails else { return }
@@ -196,7 +195,6 @@ final class ThumbnailCoordinator: ObservableObject {
 
     /// UI revocation is immediate. Cache transitions are serialized so rapid deny/grant
     /// changes cannot let an older clear wipe a newer capture. No permission prompt here.
-    @MainActor
     func updatePermission(_ granted: Bool) {
         guard screenCaptureGranted != granted else { return }
         screenCaptureGranted = granted
@@ -224,7 +222,6 @@ final class ThumbnailCoordinator: ObservableObject {
 
     /// Retain every live, non-excluded preview; only capture missing previews in the
     /// current display/Spaces/minimized scope. Both lists are cached discovery reads.
-    @MainActor
     func prewarmCache() async {
         guard let source = prewarmSource else { return }
         guard screenCaptureGranted, !updatingCapturePermission, !scope().isArmed, !prewarmInFlight else { return }
@@ -245,7 +242,6 @@ final class ThumbnailCoordinator: ObservableObject {
         _ = await thumbnails(source.scopedWindowIDs(), false, nil)
     }
 
-    @MainActor
     private func canContinuePrewarming(_ source: PrewarmSource, epoch: UInt64, excluded: Set<String>) -> Bool {
         !Task.isCancelled && screenCaptureGranted && !updatingCapturePermission && !scope().isArmed
             && self.epoch == epoch && source.loadsThumbnails()
@@ -254,7 +250,6 @@ final class ThumbnailCoordinator: ObservableObject {
 
     // MARK: - Capture
 
-    @MainActor
     private func fetchInitial(for windows: [WindowInfo]) async {
         let scope = self.scope()
         guard scope.isArmed, screenCaptureGranted, !updatingCapturePermission else { return }
@@ -268,7 +263,6 @@ final class ThumbnailCoordinator: ObservableObject {
         await fetch(for: windows, fresh: false)
     }
 
-    @MainActor
     func fetch(for windows: [WindowInfo], fresh: Bool) async {
         let scope = self.scope()
         guard scope.isArmed, screenCaptureGranted, !updatingCapturePermission else { return }
