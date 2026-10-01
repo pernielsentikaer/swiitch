@@ -14,7 +14,7 @@ final class AccessibilityTests: XCTestCase {
             .frame(width: 260, height: 190)
         let limited = WindowCell(title: "Limited document", thumbnail: nil, thumbnailState: .unavailable,
             appIcon: nil, accessibilityAppName: "Example app", overlayPosition: .hidden,
-            isMinimized: true, isSelected: false, thumbHeight: 150, showControlsOnHover: false,
+            presence: .minimized, isSelected: false, thumbHeight: 150, showControlsOnHover: false,
             controls: .init(close: {}, minimize: {}, zoom: {},
                             capabilities: .init(close: .unsupported, minimize: .disabled, zoom: .available)), commit: {})
             .frame(width: 260, height: 190)

@@ -29,6 +29,7 @@ final class SwitcherModel: ObservableObject {
         let bundleIdentifier: String?
         let appName: String
         let appIcon: NSImage?
+        var presence: WindowPresence = .current
     }
 
     @Published private(set) var apps: [AppEntry] = [] {
@@ -1204,7 +1205,8 @@ final class SwitcherModel: ObservableObject {
                     window: window,
                     bundleIdentifier: app.bundleIdentifier,
                     appName: app.name,
-                    appIcon: app.icon
+                    appIcon: app.icon,
+                    presence: window.presence(appHidden: app.isHidden)
                 )
             }
         }

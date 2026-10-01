@@ -20,6 +20,34 @@ struct WindowInfo: Identifiable, Hashable {
     var displayTitle: String {
         title.isEmpty ? String(localized: "Untitled") : title
     }
+
+    /// Where the user would find this window right now.
+    func presence(appHidden: Bool) -> WindowPresence {
+        if isMinimized == true { return .minimized }
+        if appHidden { return .hidden }
+        return isOnScreen ? .current : .otherSpace
+    }
+}
+
+/// Why a switchable window is not in front of the user: minimized to the Dock, owned by a
+/// hidden app (⌘H), or living on another Space (including another app's full-screen Space).
+/// WindowServer's on-screen flag covers every display's current Space, so "other Space" is
+/// simply a live window the server does not currently draw.
+enum WindowPresence: Equatable {
+    case current, minimized, hidden, otherSpace
+
+    /// Short status under the title; nil for a window on the current Space.
+    var label: String? {
+        switch self {
+        case .current: nil
+        case .minimized: String(localized: "Minimized")
+        case .hidden: String(localized: "Hidden")
+        case .otherSpace: String(localized: "Other Space")
+        }
+    }
+
+    /// Minimized and hidden windows have no live pixels on screen; their last preview is dimmed.
+    var isOutOfSight: Bool { self == .minimized || self == .hidden }
 }
 
 struct AppEntry: Identifiable, Hashable {
@@ -29,6 +57,8 @@ struct AppEntry: Identifiable, Hashable {
     let name: String
     let icon: NSImage?
     var windows: [WindowInfo]
+    /// The app is hidden with ⌘H; every window of it is off screen until it is unhidden.
+    var isHidden: Bool = false
 }
 
 struct EnumerateOptions {
@@ -66,6 +96,7 @@ enum WindowEnumerator {
         let bundleIdentifier: String?
         let localizedName: String?
         let icon: NSImage?
+        var isHidden: Bool = false
     }
 
     /// The last successful Accessibility read for one app. A momentarily slow or busy
@@ -111,7 +142,7 @@ enum WindowEnumerator {
             $0.activationPolicy == .regular && !options.excludedBundleIDs.contains($0.bundleIdentifier ?? "")
         }.map {
             ApplicationSnapshot(processIdentifier: $0.processIdentifier, bundleIdentifier: $0.bundleIdentifier,
-                                localizedName: $0.localizedName, icon: $0.icon)
+                                localizedName: $0.localizedName, icon: $0.icon, isHidden: $0.isHidden)
         }
         return Context(applications: applications, options: options,
                        screenFrame: options.restrictToActiveScreen ? activeScreenCGFrame() : nil)
@@ -239,7 +270,8 @@ enum WindowEnumerator {
                 bundleIdentifier: app.bundleIdentifier,
                 name: app.localizedName ?? String(localized: "Unknown"),
                 icon: app.icon,
-                windows: windows
+                windows: windows,
+                isHidden: app.isHidden
             ))
         }
 
