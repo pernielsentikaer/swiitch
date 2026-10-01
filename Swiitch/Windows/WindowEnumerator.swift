@@ -1,7 +1,7 @@
 import AppKit
 import ApplicationServices
 
-struct WindowInfo: Identifiable, Hashable {
+struct WindowInfo: Identifiable, Hashable, Sendable {
     let id: CGWindowID
     let pid: pid_t
     let title: String
@@ -50,7 +50,9 @@ enum WindowPresence: Equatable {
     var isOutOfSight: Bool { self == .minimized || self == .hidden }
 }
 
-struct AppEntry: Identifiable, Hashable {
+/// `icon` is an `NSImage` that is only ever read after the snapshot is taken, so the
+/// value is safe to hand across the discovery worker boundary.
+struct AppEntry: Identifiable, Hashable, @unchecked Sendable {
     var id: pid_t { pid }
     let pid: pid_t
     let bundleIdentifier: String?
@@ -61,7 +63,7 @@ struct AppEntry: Identifiable, Hashable {
     var isHidden: Bool = false
 }
 
-struct EnumerateOptions {
+struct EnumerateOptions: Sendable {
     /// Explicit list mutations need a new collection, not the normal warm-opening cache.
     var forceRefresh: Bool = false
     /// Periodic keep-warm work (discovery timer, idle prewarm) rather than a user opening
@@ -91,7 +93,8 @@ enum WindowEnumerator {
         /// untitled HUD or dialog) beside a real titled window of the same app.
         case accessibilityAuxiliary
     }
-    struct ApplicationSnapshot {
+    /// Immutable AppKit metadata captured on the main actor; `icon` is read-only afterwards.
+    struct ApplicationSnapshot: @unchecked Sendable {
         let processIdentifier: pid_t
         let bundleIdentifier: String?
         let localizedName: String?
@@ -115,7 +118,7 @@ enum WindowEnumerator {
 
     /// AppKit metadata is snapshotted on the main actor; WindowServer/Accessibility
     /// collection runs independently and never reads the mutable focus tracker.
-    struct Context {
+    struct Context: Sendable {
         let applications: [ApplicationSnapshot]
         let options: EnumerateOptions
         let screenFrame: CGRect?
@@ -123,7 +126,7 @@ enum WindowEnumerator {
         var accessibilityMemory: [pid_t: AccessibilityMemory] = [:]
     }
 
-    struct Collection {
+    struct Collection: Sendable {
         var apps: [AppEntry]
         let duration: TimeInterval
         let candidateCount: Int
