@@ -62,7 +62,7 @@ struct DiagnosticsView: View {
 
     /// The issue opens in the browser with the reviewed report folded into its body. A
     /// report too long for a link goes to the clipboard instead, and the body says so.
-    private func reportProblem() {
+    @MainActor private func reportProblem() {
         guard let report, let prepared = IssueReport.prepare(diagnostics: report) else { return }
         if !prepared.includesDiagnostics {
             guard DiagnosticsReport.copy(report) else {
