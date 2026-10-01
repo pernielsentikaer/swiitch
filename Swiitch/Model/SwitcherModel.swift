@@ -31,7 +31,9 @@ final class SwitcherModel: ObservableObject {
         let appIcon: NSImage?
     }
 
-    @Published private(set) var apps: [AppEntry] = []
+    @Published private(set) var apps: [AppEntry] = [] {
+        didSet { searchCache.reset() }
+    }
     @Published private(set) var flatWindows: [FlatWindowEntry] = []
     @Published private(set) var mode: Mode = .apps
     @Published private(set) var selectedAppIndex: Int = 0
@@ -54,9 +56,10 @@ final class SwitcherModel: ObservableObject {
     /// happens to start inside the panel doesn't snap selection on its own.
     @Published var mouseHasMoved: Bool = false
     /// Filter text typed by the user while the panel is open. Narrows the visible apps
-    /// / windows in the current mode by case-insensitive substring match.
+    /// / windows in the current mode by ranked, case-insensitive matching.
     @Published private(set) var filterText: String = ""
     private var appFilterBeforeDrillIn = ""
+    private let searchCache = SearchMatcher.Cache()
 
     var onShow: (() -> Void)?
     var onHide: (() -> Void)?
@@ -487,8 +490,8 @@ final class SwitcherModel: ObservableObject {
         let scored: [(index: Int, app: AppEntry, score: Int)] = apps.enumerated().compactMap { index, app in
             // An app scores by its best window (or its bare name), so one strong title match
             // can lift it above an app that only matches by name.
-            let candidates = [SearchMatcher.match(terms: terms, appName: app.name, title: nil)]
-                + app.windows.map { SearchMatcher.match(terms: terms, appName: app.name, title: $0.displayTitle) }
+            let candidates = [searchMatch(appName: app.name, title: nil)]
+                + app.windows.map { searchMatch(appName: app.name, title: $0.displayTitle) }
             guard let best = candidates.compactMap({ $0?.score }).max() else { return nil }
             return (index, app, best)
         }
@@ -498,20 +501,22 @@ final class SwitcherModel: ObservableObject {
     /// Match all query words across this window's title and owning app name, ranked by
     /// match quality with recency as the tiebreaker.
     var filteredFlatWindows: [FlatWindowEntry] {
-        SearchMatcher.ranked(flatWindows, terms: filterTerms) { ($0.appName, $0.window.displayTitle) }
+        guard !filterTerms.isEmpty else { return flatWindows }
+        return SearchMatcher.ranked(flatWindows) { searchMatch(appName: $0.appName, title: $0.window.displayTitle) }
     }
 
     /// Drill-in search is scoped to this application's windows, never the app strip.
     var filteredAppWindows: [WindowInfo] {
         guard let app = currentApp else { return [] }
-        return SearchMatcher.ranked(app.windows, terms: filterTerms) { (app.name, $0.displayTitle) }
+        guard !filterTerms.isEmpty else { return app.windows }
+        return SearchMatcher.ranked(app.windows) { searchMatch(appName: app.name, title: $0.displayTitle) }
     }
 
     /// Why a visible tile matches the current query, for highlighting. Nil when nothing is typed.
     func searchMatch(appName: String, title: String?) -> SearchMatcher.Match? {
         let terms = filterTerms
         guard !terms.isEmpty else { return nil }
-        return SearchMatcher.match(terms: terms, appName: appName, title: title)
+        return searchCache.match(query: filterText, appName: appName, title: title)
     }
 
     var selectedVisibleAppWindow: WindowInfo? {

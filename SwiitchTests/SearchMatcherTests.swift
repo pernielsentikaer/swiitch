@@ -107,4 +107,19 @@ final class SearchMatcherTests: XCTestCase {
         XCTAssertEqual(emphasized.map { String(highlighted[$0.range].characters) }, ["Re\u{301}sume\u{301}"])
         XCTAssertTrue(emphasized.allSatisfy { $0.foregroundColor == .blue })
     }
+
+    func testCachedMatchingTracksQueryAndTitlesIncludingMisses() {
+        let cache = SearchMatcher.Cache()
+        for query in ["strasse", "vsc", "zzz", "résumé", "", "strasse"] {
+            for title in ["🗺️ Straße", "Résumé", "Updated title"] {
+                let expected = SearchMatcher.match(terms: terms(query), appName: "Visual Studio Code", title: title)
+                for _ in 0..<2 {
+                    XCTAssertEqual(cache.match(query: query, appName: "Visual Studio Code", title: title), expected)
+                }
+            }
+        }
+        cache.reset()
+        XCTAssertNil(cache.match(query: "strasse", appName: "Dia", title: "Updated title"))
+        XCTAssertNotNil(cache.match(query: "strasse", appName: "Dia", title: "Straße"))
+    }
 }

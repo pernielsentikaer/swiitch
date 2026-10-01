@@ -54,14 +54,64 @@ enum SearchMatcher {
     }
 
     static func match(terms: [Substring], appName: String, title: String?) -> Match? {
-        guard !terms.isEmpty else { return Match(score: 0, appRanges: [], titleRanges: []) }
-        let app = FoldedField(appName)
-        let titleFolded = title.map(FoldedField.init)
+        match(foldedTerms: terms.map { fold(String($0)).flatMap { $0.map(String.init) } },
+              app: FoldedField(appName), titleFolded: title.map(FoldedField.init))
+    }
+
+    /// Owned by one switcher model and cleared when its app snapshot changes. Field
+    /// normalization is shared across keystrokes, and each query/candidate is scored
+    /// only once even when selection, layout and highlighting read it repeatedly.
+    final class Cache {
+        private struct Candidate: Hashable {
+            let appName: String
+            let title: String?
+        }
+        private struct Result { let match: Match? }
+        private var fields: [String: FoldedField] = [:]
+        private var results: [Candidate: Result] = [:]
+        private var query: String?
+        private var foldedTerms: [[String]] = []
+        private var locale = Locale.current
+
+        func reset() {
+            fields.removeAll()
+            results.removeAll()
+            query = nil
+            foldedTerms = []
+            locale = .current
+        }
+
+        func match(query: String, appName: String, title: String?) -> Match? {
+            if locale != .current { reset() }
+            if self.query != query {
+                self.query = query
+                foldedTerms = query.split(whereSeparator: \.isWhitespace).map {
+                    fold(String($0)).flatMap { $0.map(String.init) }
+                }
+                results.removeAll(keepingCapacity: true)
+            }
+            let candidate = Candidate(appName: appName, title: title)
+            if let result = results[candidate] { return result.match }
+            let result = SearchMatcher.match(foldedTerms: foldedTerms, app: field(appName),
+                                             titleFolded: title.map(field))
+            results[candidate] = Result(match: result)
+            return result
+        }
+
+        private func field(_ text: String) -> FoldedField {
+            if let field = fields[text] { return field }
+            let field = FoldedField(text)
+            fields[text] = field
+            return field
+        }
+    }
+
+    private static func match(foldedTerms: [[String]], app: FoldedField, titleFolded: FoldedField?) -> Match? {
+        guard !foldedTerms.isEmpty else { return Match(score: 0, appRanges: [], titleRanges: []) }
         var score = 0
         var appRanges: [Range<Int>] = []
         var titleRanges: [Range<Int>] = []
-        for term in terms {
-            let folded = fold(String(term)).flatMap { $0.map(String.init) }
+        for folded in foldedTerms {
             let inApp = match(term: folded, in: app.characters)
             let inTitle = titleFolded.flatMap { match(term: folded, in: $0.characters) }
             switch (inApp, inTitle) {
@@ -84,9 +134,15 @@ enum SearchMatcher {
     static func ranked<Item>(_ items: [Item], terms: [Substring],
                              fields: (Item) -> (appName: String, title: String?)) -> [Item] {
         guard !terms.isEmpty else { return items }
-        let scored: [(index: Int, item: Item, score: Int)] = items.enumerated().compactMap { index, item in
+        return ranked(items) { item in
             let field = fields(item)
-            guard let match = match(terms: terms, appName: field.appName, title: field.title) else { return nil }
+            return match(terms: terms, appName: field.appName, title: field.title)
+        }
+    }
+
+    static func ranked<Item>(_ items: [Item], match: (Item) -> Match?) -> [Item] {
+        let scored: [(index: Int, item: Item, score: Int)] = items.enumerated().compactMap { index, item in
+            guard let match = match(item) else { return nil }
             return (index, item, match.score)
         }
         return scored.sorted { $0.score != $1.score ? $0.score > $1.score : $0.index < $1.index }.map(\.item)
