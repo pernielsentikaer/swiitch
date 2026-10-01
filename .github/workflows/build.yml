@@ -7,8 +7,15 @@ on:
     branches: [main]
 
 jobs:
-  build:
-    runs-on: macos-14
+  test:
+    # Cover the prior and current runner OS/toolchain defaults. Show toolchain records the
+    # actual SDK versions as GitHub updates its images. macos-14 is deprecated by GitHub.
+    name: Test on ${{ matrix.runner }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-15, macos-26]
     steps:
       - uses: actions/checkout@v5
 
@@ -18,8 +25,10 @@ jobs:
           xcodebuild -version
           swift --version
 
-      - name: Install xcodegen
-        run: brew install xcodegen
+      - name: Install tools
+        run: |
+          brew install xcodegen
+          command -v xcpretty >/dev/null || sudo gem install xcpretty
 
       - name: Generate Xcode project
         run: xcodegen generate
@@ -45,6 +54,28 @@ jobs:
             CODE_SIGN_STYLE=Automatic \
             test | xcpretty
 
+      - name: Preserve test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ matrix.runner }}
+          path: build/DebugTests.xcresult
+          if-no-files-found: warn
+
+  release:
+    name: Universal Release and gates
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install tools
+        run: |
+          brew install xcodegen
+          command -v xcpretty >/dev/null || sudo gem install xcpretty
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
       - name: Universal Release compilation
         run: |
           set -o pipefail
@@ -64,11 +95,3 @@ jobs:
         run: |
           cmp Package.resolved Swiitch.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
           bash Scripts/test_release_gates.sh
-
-      - name: Preserve test results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: macOS-test-results
-          path: build/DebugTests.xcresult
-          if-no-files-found: warn

@@ -44,6 +44,11 @@ final class WindowDiscovery {
     /// reuse it this long. Beyond that a collection runs anyway, as a guard against a
     /// notification an app never posted.
     nonisolated static let eventDrivenSnapshotLifetime: TimeInterval = 10
+    /// Covered and idle: change notifications invalidate the snapshot the moment they
+    /// arrive, so the keep-warm collection is only a guard against a notification an app
+    /// never posted. Once a minute is plenty for that, and it is the difference between
+    /// waking every regular app's Accessibility bridge four times a minute and once.
+    nonisolated static let eventDrivenIdleSnapshotLifetime: TimeInterval = 60
 
     private struct Key: Equatable {
         let pids: Set<pid_t>
@@ -79,7 +84,9 @@ final class WindowDiscovery {
     func snapshotLifetime(background: Bool) -> TimeInterval {
         let eventDriven = eventMonitor?.coversEveryApp == true
         guard background else { return eventDriven ? Self.eventDrivenSnapshotLifetime : Self.activeSnapshotLifetime }
-        if now() - lastUserRequest > Self.idleAfter { return Self.idleSnapshotLifetime }
+        if now() - lastUserRequest > Self.idleAfter {
+            return eventDriven ? Self.eventDrivenIdleSnapshotLifetime : Self.idleSnapshotLifetime
+        }
         return eventDriven ? Self.eventDrivenSnapshotLifetime : Self.activeSnapshotLifetime
     }
 
