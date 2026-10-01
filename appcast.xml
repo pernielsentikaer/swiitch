@@ -7,6 +7,28 @@
         <language>en</language>
 
         <item>
+            <title>0.1.14</title>
+            <pubDate>Thu, 01 Oct 2026 13:27:06 +0200</pubDate>
+            <sparkle:version>69</sparkle:version>
+            <sparkle:shortVersionString>0.1.14</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[
+                <p>Maintenance release focused on automated test and release reliability. Keeps the ranked search and highlighted matches from 0.1.13; no new UI features or runtime speedup are claimed.</p>
+                <ul>
+                    <li>Replaces guessed delays in concurrency tests with bounded waits for observable completion.</li>
+                    <li>Adds internal counters so tests can verify that overlapping discovery and thumbnail-list requests share in-flight work.</li>
+                    <li>Uses median timing for the synthetic model regression guard while retaining p95 and maximum timings for inspection.</li>
+                </ul>
+                <p><b>Not notarized by Apple.</b> This ad-hoc-signed app uses a separately verified Sparkle update signature. macOS may require manual first-launch approval and renewed Accessibility or Screen Recording permissions.</p>
+            ]]></description>
+            <enclosure
+                url="https://github.com/pernielsentikaer/swiitch/releases/download/v0.1.14/Swiitch-v0.1.14.zip"
+                length="3237925"
+                type="application/octet-stream"
+                sparkle:edSignature="iVrr6Nf7NcBUA1jHET/T5bL9pJC+RVm7y6gK6fKQY57bWzKbk+A9N8XrsFrg2MN4hiLmFqjOwhMWKi36dn2CAw==" />
+        </item>
+
+        <item>
             <title>0.1.13</title>
             <pubDate>Thu, 01 Oct 2026 12:35:58 +0200</pubDate>
             <sparkle:version>68</sparkle:version>
