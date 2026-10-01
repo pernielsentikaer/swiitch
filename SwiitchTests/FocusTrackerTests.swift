@@ -57,6 +57,19 @@ final class FocusTrackerTests: XCTestCase {
         ])
     }
 
+    func testNeverFocusedWindowsOnTheCurrentSpaceComeBeforeThoseElsewhere() {
+        let windows = [window(1, onScreen: false), window(2), window(3, onScreen: false), window(4)]
+        let tracker = FocusTracker()
+        tracker.bumpWindow(id: 3, pid: 101)
+        var order = tracker.windowOrder
+        order.recordMinimizedState(in: windows)
+        XCTAssertEqual(order.sorted(windows, window: { $0 }).map(\.id), [3, 2, 4, 1],
+                       "Recency first; among never-focused windows the current Space leads, WindowServer order within")
+        let switched = [window(1), window(2), window(3, onScreen: false), window(4)]
+        XCTAssertEqual(order.sorted(switched, window: { $0 }).map(\.id), [3, 2, 4, 1],
+                       "A Space switch during the invocation does not move tiles")
+    }
+
     func testVisitsReorderIndividualWindowsWithoutDuplicates() {
         let tracker = FocusTracker()
         tracker.bumpWindow(id: 1, pid: 101)
@@ -148,7 +161,7 @@ final class FocusTrackerTests: XCTestCase {
         XCTAssertEqual(tracker.mruWindows.last?.id, 89)
     }
 
-    private func window(_ id: CGWindowID, pid: pid_t = 101) -> WindowInfo {
-        WindowInfo(id: id, pid: pid, title: "Window", bounds: .zero, isOnScreen: true)
+    private func window(_ id: CGWindowID, pid: pid_t = 101, onScreen: Bool = true) -> WindowInfo {
+        WindowInfo(id: id, pid: pid, title: "Window", bounds: .zero, isOnScreen: onScreen)
     }
 }

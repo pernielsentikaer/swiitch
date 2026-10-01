@@ -10,9 +10,10 @@ final class WindowDiscovery {
     private let now: () -> TimeInterval
     private let timeout: TimeInterval
     private let runner = CaptureDeadlineRunner(limit: 1)
-    private var inFlight: (id: UInt64, key: Key, task: Task<Void, Never>)?
+    private var inFlight: (id: UInt64, key: Key, eventCount: Int?, task: Task<Void, Never>)?
     private var nextRequestID: UInt64 = 0
     private var cacheKey: Key?
+    private var cachedEventCount: Int?
     private var collectedAt: TimeInterval = -.infinity
     private var lastUserRequest: TimeInterval = -.infinity
     private var timer: Timer?
@@ -24,6 +25,10 @@ final class WindowDiscovery {
     /// Durations of the most recent collections, newest last, for Diagnostics percentiles.
     private(set) var recentDurations: [TimeInterval] = []
     static let recentDurationCapacity = 50
+    /// When set and active, change notifications drive fresh collections and the periodic
+    /// poll only guards against missed events, so background requests accept an older
+    /// snapshot. Forced requests (the monitor's own) always collect.
+    var eventMonitor: WindowEventMonitor?
 
     /// A user-facing request (opening the picker, changing a list preference) accepts a
     /// snapshot up to this old.
@@ -34,6 +39,11 @@ final class WindowDiscovery {
     /// the next user request still gets a fresh collection.
     nonisolated static let idleSnapshotLifetime: TimeInterval = 15
     nonisolated static let idleAfter: TimeInterval = 120
+    /// With an event monitor covering every app, a snapshot with no change notification
+    /// since is current by construction: both the poll and a user opening the picker may
+    /// reuse it this long. Beyond that a collection runs anyway, as a guard against a
+    /// notification an app never posted.
+    nonisolated static let eventDrivenSnapshotLifetime: TimeInterval = 10
 
     private struct Key: Equatable {
         let pids: Set<pid_t>
@@ -67,8 +77,16 @@ final class WindowDiscovery {
 
     /// How old a snapshot may be for the given kind of request right now.
     func snapshotLifetime(background: Bool) -> TimeInterval {
-        guard background, now() - lastUserRequest > Self.idleAfter else { return Self.activeSnapshotLifetime }
-        return Self.idleSnapshotLifetime
+        let eventDriven = eventMonitor?.coversEveryApp == true
+        guard background else { return eventDriven ? Self.eventDrivenSnapshotLifetime : Self.activeSnapshotLifetime }
+        if now() - lastUserRequest > Self.idleAfter { return Self.idleSnapshotLifetime }
+        return eventDriven ? Self.eventDrivenSnapshotLifetime : Self.activeSnapshotLifetime
+    }
+
+    /// The monitor's request after a change notification: always a fresh collection.
+    func refreshAfterChange() async {
+        await prepare(options: EnumerateOptions(forceRefresh: true, isBackgroundRefresh: true,
+                                                excludedBundleIDs: Set(Preferences.excludedBundleIDs)))
     }
 
     func prepare(options: EnumerateOptions) async {
@@ -85,7 +103,9 @@ final class WindowDiscovery {
         // Re-check the cache and whatever is in flight after every wait, so a caller never
         // starts a collection that another waiter has already started for the same key.
         while true {
-            if !force, cacheKey == key, lastCollection != nil, now() - collectedAt < snapshotLifetime(background: background) {
+            if !force, cacheKey == key, lastCollection != nil,
+               cachedEventCount == eventMonitor?.eventCount,
+               now() - collectedAt < snapshotLifetime(background: background) {
                 cacheHits += 1
                 return
             }
@@ -93,13 +113,17 @@ final class WindowDiscovery {
             let sameRequest = inFlight.key == key
             coalescedRequestCount += 1
             await inFlight.task.value
-            if (sameRequest && !force) || Task.isCancelled { return }
+            if Task.isCancelled { return }
+            // A failed collection is bounded too. Only an event newer than the request
+            // requires another collection before this waiter can reuse its result.
+            if sameRequest && !force && inFlight.eventCount == eventMonitor?.eventCount { return }
         }
         guard !Task.isCancelled else { return }
         let collector = self.collector
         let timeout = self.timeout
         nextRequestID &+= 1
         let id = nextRequestID
+        let eventCountAtStart = eventMonitor?.eventCount
         // Hand the previous collection's Accessibility reads to the next one so an app
         // whose bridge is momentarily slow keeps its ghost-window filtering.
         var context = context
@@ -111,10 +135,12 @@ final class WindowDiscovery {
                 self.lastCollection = result
                 self.cacheKey = key
                 self.collectedAt = self.now()
+                self.cachedEventCount = eventCountAtStart
                 self.recentDurations.append(result.duration)
                 if self.recentDurations.count > Self.recentDurationCapacity {
                     self.recentDurations.removeFirst(self.recentDurations.count - Self.recentDurationCapacity)
                 }
+                self.eventMonitor?.reconcile(with: result, applicationPIDs: key.pids)
             } else {
                 self.timeoutCount += 1
             }
@@ -122,7 +148,7 @@ final class WindowDiscovery {
             // be in flight, and a third caller must still be able to coalesce onto it.
             if self.inFlight?.id == id { self.inFlight = nil }
         }
-        inFlight = (id, key, task)
+        inFlight = (id, key, eventCountAtStart, task)
         await task.value
     }
 

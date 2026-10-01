@@ -67,6 +67,74 @@ final class SwitcherModelTests: XCTestCase {
         XCTAssertFalse(model.isArmed)
     }
 
+    func testOrdinalAndEdgeSelectionFollowTheVisibleListInEveryMode() {
+        defaults.set(Preferences.DisplayMode.apps.rawValue, forKey: Preferences.Key.displayMode)
+        let apps = [
+            makeApp(pid: 101, name: "Alpha", windows: [makeWindow(id: 1, pid: 101, title: "One")]),
+            makeApp(pid: 102, name: "Beta", windows: [
+                makeWindow(id: 2, pid: 102, title: "Two"),
+                makeWindow(id: 3, pid: 102, title: "Three"),
+                makeWindow(id: 4, pid: 102, title: "Four"),
+            ]),
+            makeApp(pid: 103, name: "Gamma", windows: [makeWindow(id: 5, pid: 103, title: "Five")]),
+        ]
+        let model = makeModel(apps: apps)
+        XCTAssertFalse(model.selectVisible(ordinal: 1), "Nothing is selectable before arming")
+        model.arm(reverse: false)
+        defer { model.cancel() }
+
+        let appOrder = model.filteredApps.map(\.id)
+        XCTAssertTrue(model.selectVisible(ordinal: 3))
+        XCTAssertEqual(model.apps[model.selectedAppIndex].id, appOrder[2])
+        XCTAssertFalse(model.selectVisible(ordinal: 4))
+        XCTAssertFalse(model.selectVisible(ordinal: 0))
+        XCTAssertEqual(model.apps[model.selectedAppIndex].id, appOrder[2], "An ordinal past the list changes nothing")
+        model.selectEdge(last: false)
+        XCTAssertEqual(model.apps[model.selectedAppIndex].id, appOrder[0])
+        model.selectEdge(last: true)
+        XCTAssertEqual(model.apps[model.selectedAppIndex].id, appOrder[2])
+
+        model.appendFilter("g")
+        XCTAssertEqual(model.filteredApps.map(\.id), [103])
+        XCTAssertFalse(model.selectVisible(ordinal: 2), "Ordinals count visible apps only")
+        XCTAssertTrue(model.selectVisible(ordinal: 1))
+        XCTAssertEqual(model.apps[model.selectedAppIndex].id, 103)
+        model.clearFilter()
+
+        XCTAssertTrue(model.selectVisible(ordinal: appOrder.firstIndex(of: 102)! + 1))
+        model.enterWindowMode()
+        XCTAssertEqual(model.mode, .windowsForApp)
+        let windowOrder = model.filteredAppWindows.map(\.id)
+        XCTAssertEqual(Set(windowOrder), [2, 3, 4])
+        model.selectEdge(last: true)
+        XCTAssertEqual(model.selectedVisibleAppWindow?.id, windowOrder[2])
+        model.appendFilter("o")
+        let narrowed = model.filteredAppWindows.map(\.id)
+        XCTAssertEqual(Set(narrowed), [2, 4], "Two and Four match, Three does not")
+        XCTAssertTrue(model.selectVisible(ordinal: 2))
+        XCTAssertEqual(model.selectedVisibleAppWindow?.id, narrowed[1])
+        XCTAssertFalse(model.selectVisible(ordinal: 3))
+        model.selectEdge(last: false)
+        XCTAssertEqual(model.selectedVisibleAppWindow?.id, narrowed[0])
+    }
+
+    func testOrdinalSelectionInWindowsModeCountsFilteredWindows() {
+        defaults.set(Preferences.DisplayMode.windows.rawValue, forKey: Preferences.Key.displayMode)
+        let model = makeModel(apps: sampleApps())
+        model.arm(reverse: false)
+        defer { model.cancel() }
+        let order = model.filteredFlatWindows.map(\.id)
+        model.selectEdge(last: true)
+        XCTAssertEqual(model.flatWindows[model.selectedFlatIndex].id, order[2])
+        XCTAssertTrue(model.selectVisible(ordinal: 1))
+        XCTAssertEqual(model.flatWindows[model.selectedFlatIndex].id, order[0])
+        model.appendFilter("inbox")
+        XCTAssertEqual(model.filteredFlatWindows.map(\.id), [2])
+        XCTAssertFalse(model.selectVisible(ordinal: 2))
+        XCTAssertTrue(model.selectVisible(ordinal: 1))
+        XCTAssertEqual(model.flatWindows[model.selectedFlatIndex].id, 2, "Selection stays an absolute index")
+    }
+
     func testSearchRanksMatchQualityBeforeRecencyAndExposesHighlights() {
         defaults.set(Preferences.DisplayMode.windows.rawValue, forKey: Preferences.Key.displayMode)
         let apps = [
@@ -95,6 +163,26 @@ final class SwitcherModelTests: XCTestCase {
         model.clearFilter()
         XCTAssertNil(model.searchMatch(appName: "Slack", title: nil), "No query, no highlight")
         XCTAssertEqual(model.filteredFlatWindows.map(\.id), recency)
+    }
+
+    func testFlatEntriesReportWhereEachWindowIs() {
+        defaults.set(Preferences.DisplayMode.windows.rawValue, forKey: Preferences.Key.displayMode)
+        let visible = makeWindow(id: 1, pid: 101, title: "Here")
+        let elsewhere = WindowInfo(id: 2, pid: 101, title: "Elsewhere", bounds: .zero, isOnScreen: false)
+        let minimized = WindowInfo(id: 3, pid: 101, title: "Docked", bounds: .zero, isOnScreen: false, isMinimized: true)
+        let hiddenApp = AppEntry(pid: 102, bundleIdentifier: "com.example.hidden", name: "Hidden", icon: nil,
+                                 windows: [WindowInfo(id: 4, pid: 102, title: "Behind ⌘H", bounds: .zero, isOnScreen: false)],
+                                 isHidden: true)
+        let model = makeModel(apps: [makeApp(pid: 101, name: "Alpha", windows: [visible, elsewhere, minimized]), hiddenApp])
+        model.arm(reverse: false)
+        defer { model.cancel() }
+        let presence = Dictionary(uniqueKeysWithValues: model.flatWindows.map { ($0.id, $0.presence) })
+        XCTAssertEqual(presence, [1: .current, 2: .otherSpace, 3: .minimized, 4: .hidden])
+        XCTAssertNil(WindowPresence.current.label)
+        XCTAssertNotNil(WindowPresence.otherSpace.label, "Elsewhere is worth a word; the catalog supplies the language")
+        XCTAssertTrue(WindowPresence.hidden.isOutOfSight)
+        XCTAssertFalse(WindowPresence.otherSpace.isOutOfSight, "A window on another Space is live; its preview is not dimmed")
+        XCTAssertEqual(model.flatWindows.first?.id, 1, "Among never-focused windows the one on the current Space leads")
     }
 
     func testFlatWindowArmSkipsActualFocusedWindowWhenDiaOrderIsReversed() {

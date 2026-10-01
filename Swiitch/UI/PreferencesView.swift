@@ -62,7 +62,7 @@ struct PreferencesView: View {
         )
     }
 
-    @ViewBuilder
+    @MainActor @ViewBuilder
     private var detailView: some View {
         switch selection {
         case .general:

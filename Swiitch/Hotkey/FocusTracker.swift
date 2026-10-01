@@ -13,6 +13,7 @@ final class FocusTracker {
     struct WindowOrder {
         var ranks: [WindowKey: Int] = [:]
         private var minimizedAtFirstAppearance: [WindowKey: Bool] = [:]
+        private var onScreenAtFirstAppearance: [WindowKey: Bool] = [:]
 
         init(ranks: [WindowKey: Int] = [:]) {
             self.ranks = ranks
@@ -20,11 +21,16 @@ final class FocusTracker {
 
         /// Freeze each window's group for this invocation. Later state changes can update
         /// its label without moving the tile; newly discovered windows still get a group.
+        /// The on-screen state is frozen the same way: a peek that switches Space must not
+        /// reshuffle the grid underneath the pointer.
         mutating func recordMinimizedState(in windows: [WindowInfo]) {
             for window in windows {
                 let key = WindowKey(pid: window.pid, id: window.id)
                 if minimizedAtFirstAppearance[key] == nil {
                     minimizedAtFirstAppearance[key] = window.isMinimized == true
+                }
+                if onScreenAtFirstAppearance[key] == nil {
+                    onScreenAtFirstAppearance[key] = window.isOnScreen
                 }
             }
         }
@@ -46,9 +52,16 @@ final class FocusTracker {
                 let lPin = pinnedRank(lhs.element)
                 let rPin = pinnedRank(rhs.element)
                 if lPin != rPin { return lPin < rPin }
-                let lRank = ranks[WindowKey(pid: lWindow.pid, id: lWindow.id)] ?? .max
-                let rRank = ranks[WindowKey(pid: rWindow.pid, id: rWindow.id)] ?? .max
+                let lKey = WindowKey(pid: lWindow.pid, id: lWindow.id)
+                let rKey = WindowKey(pid: rWindow.pid, id: rWindow.id)
+                let lRank = ranks[lKey] ?? .max
+                let rRank = ranks[rKey] ?? .max
                 if lRank != rRank { return lRank < rRank }
+                // Windows the user has never focused keep WindowServer order, except that
+                // those on the current Space come before those the user cannot see.
+                let lOnScreen = onScreenAtFirstAppearance[lKey] ?? lWindow.isOnScreen
+                let rOnScreen = onScreenAtFirstAppearance[rKey] ?? rWindow.isOnScreen
+                if lOnScreen != rOnScreen { return lOnScreen }
                 return lhs.offset < rhs.offset
             }.map(\.element)
         }

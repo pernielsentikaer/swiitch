@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct DiagnosticsView: View {
@@ -40,6 +41,12 @@ struct DiagnosticsView: View {
                 .disabled(isCollectingCensus)
                 .help(String(localized: "For troubleshooting duplicate or missing windows. Lists running app identifiers and window geometry; no titles or content."))
                 Spacer()
+            }
+            HStack {
+                Button("Report a Problem…") { reportProblem() }
+                    .disabled(report == nil)
+                    .help(String(localized: "Opens a new GitHub issue with this report filled in. Add what happened before posting."))
+                Spacer()
                 Button("Done") { dismiss() }.keyboardShortcut(.cancelAction)
             }
             Text("For troubleshooting duplicate or missing windows. Lists running app identifiers and window geometry; no titles or content.")
@@ -51,5 +58,19 @@ struct DiagnosticsView: View {
             do { report = try DiagnosticsReport.render(await DiagnosticsReport.current()) }
             catch { message = String(localized: "Couldn’t create the diagnostics report. Please try again.") }
         }
+    }
+
+    /// The issue opens in the browser with the reviewed report folded into its body. A
+    /// report too long for a link goes to the clipboard instead, and the body says so.
+    @MainActor private func reportProblem() {
+        guard let report, let prepared = IssueReport.prepare(diagnostics: report) else { return }
+        if !prepared.includesDiagnostics {
+            guard DiagnosticsReport.copy(report) else {
+                message = String(localized: "Couldn’t copy the report. Please try again.")
+                return
+            }
+            message = String(localized: "The report is on your clipboard. Paste it into the issue.")
+        }
+        NSWorkspace.shared.open(prepared.url)
     }
 }

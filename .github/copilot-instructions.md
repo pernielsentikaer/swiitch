@@ -48,7 +48,7 @@ See `CONTRIBUTING.md` for the full style guide. Critical points agents must foll
 - `///` doc comments on all public types and non-obvious internals
 - Prefer `@AppStorage` for user-facing settings — `@Published` bindings into `MenuBarExtra(isInserted:)` trigger SwiftUI publishing warnings
 - AppKit for all windowing (`NSPanel`, `NSWindow`); SwiftUI for view bodies only
-- `SWIFT_STRICT_CONCURRENCY` is set to `minimal` — annotate new async code with `@MainActor` where appropriate, but do not mass-annotate existing code
+- `SWIFT_STRICT_CONCURRENCY` is set to `complete` in Swift 5 mode. Remaining migration diagnostics are warnings, not a completed Swift 6 migration. Annotate new async code appropriately; fix existing warnings in scoped, tested changes rather than mass-annotating or suppressing them.
 
 ## Conventions
 

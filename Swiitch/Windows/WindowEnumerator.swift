@@ -1,7 +1,7 @@
 import AppKit
 import ApplicationServices
 
-struct WindowInfo: Identifiable, Hashable {
+struct WindowInfo: Identifiable, Hashable, Sendable {
     let id: CGWindowID
     let pid: pid_t
     let title: String
@@ -20,18 +20,50 @@ struct WindowInfo: Identifiable, Hashable {
     var displayTitle: String {
         title.isEmpty ? String(localized: "Untitled") : title
     }
+
+    /// Where the user would find this window right now.
+    func presence(appHidden: Bool) -> WindowPresence {
+        if isMinimized == true { return .minimized }
+        if appHidden { return .hidden }
+        return isOnScreen ? .current : .otherSpace
+    }
 }
 
-struct AppEntry: Identifiable, Hashable {
+/// Why a switchable window is not in front of the user: minimized to the Dock, owned by a
+/// hidden app (⌘H), or living on another Space (including another app's full-screen Space).
+/// WindowServer's on-screen flag covers every display's current Space, so "other Space" is
+/// simply a live window the server does not currently draw.
+enum WindowPresence: Equatable {
+    case current, minimized, hidden, otherSpace
+
+    /// Short status under the title; nil for a window on the current Space.
+    var label: String? {
+        switch self {
+        case .current: nil
+        case .minimized: String(localized: "Minimized")
+        case .hidden: String(localized: "Hidden")
+        case .otherSpace: String(localized: "Other Space")
+        }
+    }
+
+    /// Minimized and hidden windows have no live pixels on screen; their last preview is dimmed.
+    var isOutOfSight: Bool { self == .minimized || self == .hidden }
+}
+
+/// `icon` is an `NSImage` that is only ever read after the snapshot is taken, so the
+/// value is safe to hand across the discovery worker boundary.
+struct AppEntry: Identifiable, Hashable, @unchecked Sendable {
     var id: pid_t { pid }
     let pid: pid_t
     let bundleIdentifier: String?
     let name: String
     let icon: NSImage?
     var windows: [WindowInfo]
+    /// The app is hidden with ⌘H; every window of it is off screen until it is unhidden.
+    var isHidden: Bool = false
 }
 
-struct EnumerateOptions {
+struct EnumerateOptions: Sendable {
     /// Explicit list mutations need a new collection, not the normal warm-opening cache.
     var forceRefresh: Bool = false
     /// Periodic keep-warm work (discovery timer, idle prewarm) rather than a user opening
@@ -61,11 +93,13 @@ enum WindowEnumerator {
         /// untitled HUD or dialog) beside a real titled window of the same app.
         case accessibilityAuxiliary
     }
-    struct ApplicationSnapshot {
+    /// Immutable AppKit metadata captured on the main actor; `icon` is read-only afterwards.
+    struct ApplicationSnapshot: @unchecked Sendable {
         let processIdentifier: pid_t
         let bundleIdentifier: String?
         let localizedName: String?
         let icon: NSImage?
+        var isHidden: Bool = false
     }
 
     /// The last successful Accessibility read for one app. A momentarily slow or busy
@@ -84,7 +118,7 @@ enum WindowEnumerator {
 
     /// AppKit metadata is snapshotted on the main actor; WindowServer/Accessibility
     /// collection runs independently and never reads the mutable focus tracker.
-    struct Context {
+    struct Context: Sendable {
         let applications: [ApplicationSnapshot]
         let options: EnumerateOptions
         let screenFrame: CGRect?
@@ -92,7 +126,7 @@ enum WindowEnumerator {
         var accessibilityMemory: [pid_t: AccessibilityMemory] = [:]
     }
 
-    struct Collection {
+    struct Collection: Sendable {
         var apps: [AppEntry]
         let duration: TimeInterval
         let candidateCount: Int
@@ -111,7 +145,7 @@ enum WindowEnumerator {
             $0.activationPolicy == .regular && !options.excludedBundleIDs.contains($0.bundleIdentifier ?? "")
         }.map {
             ApplicationSnapshot(processIdentifier: $0.processIdentifier, bundleIdentifier: $0.bundleIdentifier,
-                                localizedName: $0.localizedName, icon: $0.icon)
+                                localizedName: $0.localizedName, icon: $0.icon, isHidden: $0.isHidden)
         }
         return Context(applications: applications, options: options,
                        screenFrame: options.restrictToActiveScreen ? activeScreenCGFrame() : nil)
@@ -239,7 +273,8 @@ enum WindowEnumerator {
                 bundleIdentifier: app.bundleIdentifier,
                 name: app.localizedName ?? String(localized: "Unknown"),
                 icon: app.icon,
-                windows: windows
+                windows: windows,
+                isHidden: app.isHidden
             ))
         }
 

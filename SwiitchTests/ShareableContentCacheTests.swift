@@ -11,7 +11,7 @@ final class ShareableContentCacheTests: XCTestCase {
 
     func testFreshListingCoveringTheRequestIsReused() async {
         let clock = Clock()
-        let cache = ShareableContentCache<Listing>(ttl: 1, clock: { clock.now }, windowIDs: \.ids)
+        let cache = ShareableContentCache<Listing>(ttl: 1, clock: { clock.now }, windowIDs: { $0.ids })
         let first = await cache.content(covering: [1, 2]) { Listing(ids: [1, 2, 3], serial: 1) }
         let second = await cache.content(covering: [3]) { Listing(ids: [3], serial: 2) }
         XCTAssertEqual(first, second, "A fresh listing that knows the requested windows is reused")
@@ -21,7 +21,7 @@ final class ShareableContentCacheTests: XCTestCase {
 
     func testUnknownWindowAndExpiryForceANewListing() async {
         let clock = Clock()
-        let cache = ShareableContentCache<Listing>(ttl: 1, clock: { clock.now }, windowIDs: \.ids)
+        let cache = ShareableContentCache<Listing>(ttl: 1, clock: { clock.now }, windowIDs: { $0.ids })
         _ = await cache.content(covering: [1]) { Listing(ids: [1], serial: 1) }
         let unknown = await cache.content(covering: [9]) { Listing(ids: [1, 9], serial: 2) }
         XCTAssertEqual(unknown?.serial, 2, "A window the listing does not know must not be served from cache")
@@ -33,7 +33,7 @@ final class ShareableContentCacheTests: XCTestCase {
     }
 
     func testFailedFetchIsNotCached() async {
-        let cache = ShareableContentCache<Listing>(ttl: 1, clock: { 0 }, windowIDs: \.ids)
+        let cache = ShareableContentCache<Listing>(ttl: 1, clock: { 0 }, windowIDs: { $0.ids })
         let failed = await cache.content(covering: [1]) { nil }
         XCTAssertNil(failed)
         let recovered = await cache.content(covering: [1]) { Listing(ids: [1], serial: 1) }
@@ -41,7 +41,7 @@ final class ShareableContentCacheTests: XCTestCase {
     }
 
     func testConcurrentCallersShareOneInFlightFetch() async {
-        let cache = ShareableContentCache<Listing>(ttl: 1, clock: { 0 }, windowIDs: \.ids)
+        let cache = ShareableContentCache<Listing>(ttl: 1, clock: { 0 }, windowIDs: { $0.ids })
         let gate = FetchGate()
         async let a = cache.content(covering: [1]) { await gate.wait(); return Listing(ids: [1, 2], serial: 1) }
         await waitUntil("the first fetch to start") { await cache.fetchCount == 1 }
@@ -56,7 +56,7 @@ final class ShareableContentCacheTests: XCTestCase {
     }
 
     func testConcurrentNewWindowsShareOneFollowUpFetch() async {
-        let cache = ShareableContentCache<Listing>(ttl: 1, clock: { 0 }, windowIDs: \.ids)
+        let cache = ShareableContentCache<Listing>(ttl: 1, clock: { 0 }, windowIDs: { $0.ids })
         let firstGate = FetchGate()
         let nextGate = FetchGate()
         async let first = cache.content(covering: [1]) {

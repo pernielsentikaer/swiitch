@@ -110,6 +110,7 @@ Swiitch/
   Hotkey/Shortcut.swift           keycode + flags <-> human label helpers
   Hotkey/ShortcutRecordingSession.swift  suspends switching while a recorder is active
   Windows/WindowDiscovery.swift   background enumeration cache shared by picker + prewarm
+  Windows/WindowEventMonitor.swift  AX/NSWorkspace change notifications → coalesced fresh collections
   Windows/WindowEnumerator.swift  CGWindowList + AX ghost-filter, AX title fallback, screen scope
   Windows/WindowFocuser.swift     AX raise + frontmost + activate, close/minimize/zoom, hide
   Windows/WindowThumbnails.swift  ScreenCaptureKit + CGWindowList fallback (actor)
@@ -131,6 +132,7 @@ Swiitch/
   Support/DiagnosticsReport.swift allowlisted, count-only diagnostics
   Support/OpenLatency.swift       hotkey→snapshot→armed→panel→thumbnail timings (signposts + percentiles)
   Support/WindowCensus.swift      per-window WindowServer/AX/Spaces dump for troubleshooting
+  Support/IssueReport.swift       prefilled GitHub issue link carrying the diagnostics report
 SwiitchTests/                     one file per subsystem; SwitcherModelTests and
                                   SwitcherInteractionTests cover the state machine,
                                   LocalizationTests the Danish catalog, and

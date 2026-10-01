@@ -231,12 +231,32 @@
         }
       }
     },
+    "Activate to switch to this window on its Space. Window actions are available in the Actions menu.": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktivér for at skifte til dette vindue på dets Space. Vindueshandlinger findes i menuen Handlinger."
+          }
+        }
+      }
+    },
     "Activate to switch to this window. Window actions are available in the Actions menu.": {
       "localizations": {
         "da": {
           "stringUnit": {
             "state": "translated",
             "value": "Aktivér for at skifte til dette vindue. Vindueshandlinger findes i menuen Handlinger."
+          }
+        }
+      }
+    },
+    "Activate to unhide its app and switch to this window. Window actions are available in the Actions menu.": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktivér for at vise appen igen og skifte til dette vindue. Vindueshandlinger findes i menuen Handlinger."
           }
         }
       }
@@ -2117,6 +2137,46 @@
           "stringUnit": {
             "state": "translated",
             "value": "minimere"
+          }
+        }
+      }
+    },
+    "Other Space": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Andet Space"
+          }
+        }
+      }
+    },
+    "Opens a new GitHub issue with this report filled in. Add what happened before posting.": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Åbner en ny GitHub-sag med denne rapport udfyldt. Tilføj, hvad der skete, før du sender."
+          }
+        }
+      }
+    },
+    "Report a Problem…": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rapportér et problem…"
+          }
+        }
+      }
+    },
+    "The report is on your clipboard. Paste it into the issue.": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rapporten ligger i din udklipsholder. Indsæt den i sagen."
           }
         }
       }

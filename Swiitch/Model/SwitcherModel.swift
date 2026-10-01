@@ -29,6 +29,7 @@ final class SwitcherModel: ObservableObject {
         let bundleIdentifier: String?
         let appName: String
         let appIcon: NSImage?
+        var presence: WindowPresence = .current
     }
 
     @Published private(set) var apps: [AppEntry] = [] {
@@ -96,8 +97,10 @@ final class SwitcherModel: ObservableObject {
     init(
         focusTracker: FocusTracker,
         defaults: UserDefaults = .standard,
-        dependencies: Dependencies = .live
+        dependencies: Dependencies? = nil
     ) {
+        // Resolve actor-isolated defaults here, not in the caller's default-argument context.
+        let dependencies = dependencies ?? .live
         self.focusTracker = focusTracker
         resumeFocusTracking = { focusTracker.isTrackingSuspended = false }
         self.defaults = defaults
@@ -344,6 +347,55 @@ final class SwitcherModel: ObservableObject {
 
         if panelShown { onUpdate?() }
         schedulePeekIfEnabled()
+    }
+
+    /// Selects the `ordinal`-th item (1-based) as the grid shows it after filtering, in
+    /// whichever mode is active. Returns false when there is no such item.
+    @discardableResult
+    func selectVisible(ordinal: Int) -> Bool {
+        guard isArmed, ordinal >= 1 else { return false }
+        return selectVisible(offset: ordinal - 1)
+    }
+
+    /// Home and End: the first or last item as the grid shows it.
+    func selectEdge(last: Bool) {
+        guard isArmed else { return }
+        let count = visibleItemCount
+        guard count > 0 else { return }
+        selectVisible(offset: last ? count - 1 : 0)
+    }
+
+    private var visibleItemCount: Int {
+        switch mode {
+        case .apps: filteredApps.count
+        case .windowsForApp: filteredAppWindows.count
+        case .flatWindows, .currentAppWindows: filteredFlatWindows.count
+        }
+    }
+
+    @discardableResult
+    private func selectVisible(offset: Int) -> Bool {
+        guard offset >= 0 else { return false }
+        switch mode {
+        case .apps:
+            let visible = filteredApps
+            guard offset < visible.count,
+                  let index = apps.firstIndex(where: { $0.id == visible[offset].id }) else { return false }
+            selectedAppIndex = index
+            selectedWindowIndex = 0
+        case .windowsForApp:
+            let windows = filteredAppWindows
+            guard offset < windows.count else { return false }
+            selectAppWindow(id: windows[offset].id)
+        case .flatWindows, .currentAppWindows:
+            let visible = filteredFlatWindows
+            guard offset < visible.count,
+                  let index = flatWindows.firstIndex(where: { $0.id == visible[offset].id }) else { return false }
+            selectedFlatIndex = index
+        }
+        if panelShown { onUpdate?() }
+        schedulePeekIfEnabled()
+        return true
     }
 
     typealias GridMetrics = SwitcherLayout.GridMetrics
@@ -1204,7 +1256,8 @@ final class SwitcherModel: ObservableObject {
                     window: window,
                     bundleIdentifier: app.bundleIdentifier,
                     appName: app.name,
-                    appIcon: app.icon
+                    appIcon: app.icon,
+                    presence: window.presence(appHidden: app.isHidden)
                 )
             }
         }

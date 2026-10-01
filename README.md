@@ -67,9 +67,11 @@ Swiitch uses the private `_AXUIElementGetWindow` Accessibility SPI to reliably m
 | ← / → | Same as ⌘+Tab / ⌘+⇧+Tab |
 | `letters / digits / spaces / punctuation` | Filter list |
 | ⌫ | Backspace filter |
+| Home / End | First / last item |
+| ⌃ ⌘ 1–9 | Switch to that item of the visible list at once |
 | ⌃ ⌘ W | Close highlighted window |
 | ⌃ ⌘ H | Hide highlighted app |
-| Esc | Cancel |
+| Esc | Clear the search; on an empty search, cancel |
 | Release ⌘ | Commit |
 | ⌥ Tab | (Optional) Open picker in frontmost app's windows |
 
@@ -77,7 +79,7 @@ Both hotkeys are user-recordable in Preferences → General → Hotkeys.
 
 Recording suspends ordinary switching and catches reserved chords before macOS handles them. Escape, switching away from Swiitch, or leaving General ends recording. Conflicts with the other shortcut—including its Shift-reverse chord—are rejected without replacing the saved binding.
 
-Keep holding the switcher shortcut while typing to search, including H and W. With the default ⌘Tab binding, add Control for Close/Hide. If a custom opening shortcut already requires both Control and Command, H/W remain search text instead of triggering those actions.
+Keep holding the switcher shortcut while typing to search, including H, W and digits. With the default ⌘Tab binding, add Control for Close/Hide and for the numbered jump. If a custom opening shortcut already requires both Control and Command, H/W and digits remain search text instead of triggering those actions.
 
 Printable punctuation and symbols stay in search instead of reaching the app underneath.
 The existing navigation keys (including the backtick drill-in key) remain reserved;
@@ -92,7 +94,7 @@ Four sidebar sections in Preferences (⌘, from the menu bar):
 - **General** — Permission recovery, actual Launch at Login status and approval/error guidance, menu-bar / Dock icon visibility, shortcut recorders, automatic update checks, and reset-to-defaults.
 - **Switcher** — Display mode (Apps first / All windows), screen scope, excluded apps, show-delay, Automatic / Fill Screen layout, peek, navigation, and optional thumbnail window controls.
 - **Appearance** — Theme presets, system appearance (Light / Dark / System), accent color, panel material + corner radius, thumbnail size, app-icon overlay position.
-- **About** — Version, Check for Updates, and Review Diagnostics. The report is shown before copying and contains only versions, permission states, counts, timings, and aggregate filtering reasons—not titles, URLs, screenshots, paths, or an app list.
+- **About** — Version, Check for Updates, and Review Diagnostics. The report is shown before copying and contains only versions, permission states, counts, timings, and aggregate filtering reasons—not titles, URLs, screenshots, paths, or an app list. Report a Problem… opens a GitHub issue with that report already filled in; the window census stays a separate copy step because it names running apps.
 
 Thumbnail diagnostics include lifetime cache hits, misses, and capacity evictions. Each
 unique window lookup counts once; a hit may still refresh an old image. Evictions count

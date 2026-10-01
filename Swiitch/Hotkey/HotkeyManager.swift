@@ -361,6 +361,50 @@ final class HotkeyManager {
         }
     }
 
+    /// Escape clears a typed search first and closes the picker on an empty one. The
+    /// choice is made against the queued model state rather than in the tap: characters
+    /// typed during a cold open are still queued ahead of this key, and the picker must
+    /// keep taking input until the model has actually closed.
+    private func escape(_ session: Session) {
+        enqueue(for: session) { manager in
+            guard manager.model.filterText.isEmpty else {
+                manager.model.clearFilter()
+                return
+            }
+            if manager.inputSession === session { manager.inputSession = nil }
+            manager.model.cancel()
+            manager.presentedSession = nil
+        }
+    }
+
+    /// Control-Command plus a digit switches to that item of the visible list at once; the
+    /// digit stays a search character without the action chord. A digit past the end of
+    /// the list leaves the picker as it is.
+    private func jump(_ session: Session, toVisibleItem ordinal: Int) {
+        enqueue(for: session) { manager in
+            guard manager.model.selectVisible(ordinal: ordinal) else { return }
+            if manager.inputSession === session { manager.inputSession = nil }
+            manager.model.commit()
+            manager.presentedSession = nil
+        }
+    }
+
+    /// 1–9 on the main row or the keypad; 0 is not an item.
+    nonisolated static func ordinal(forDigitKeyCode keyCode: Int) -> Int? {
+        switch keyCode {
+        case kVK_ANSI_1, kVK_ANSI_Keypad1: 1
+        case kVK_ANSI_2, kVK_ANSI_Keypad2: 2
+        case kVK_ANSI_3, kVK_ANSI_Keypad3: 3
+        case kVK_ANSI_4, kVK_ANSI_Keypad4: 4
+        case kVK_ANSI_5, kVK_ANSI_Keypad5: 5
+        case kVK_ANSI_6, kVK_ANSI_Keypad6: 6
+        case kVK_ANSI_7, kVK_ANSI_Keypad7: 7
+        case kVK_ANSI_8, kVK_ANSI_Keypad8: 8
+        case kVK_ANSI_9, kVK_ANSI_Keypad9: 9
+        default: nil
+        }
+    }
+
     /// Returns true if the key was handled (and should be swallowed).
     private func handleKeyWhileArmed(keyCode: Int, flags: CGEventFlags, session: Session) -> Bool {
         if keyCode != kVK_Tab { session.advancedOnShiftPress = false }
@@ -380,10 +424,20 @@ final class HotkeyManager {
             enqueue(for: session) { $0.model.hideSelected() }
             return true
         }
+        if isWindowAction, let ordinal = Self.ordinal(forDigitKeyCode: keyCode) {
+            jump(session, toVisibleItem: ordinal)
+            return true
+        }
 
         switch keyCode {
         case kVK_Escape:
-            finishSession(session, cancel: true)
+            escape(session)
+            return true
+        case kVK_Home:
+            enqueue(for: session) { $0.model.selectEdge(last: false) }
+            return true
+        case kVK_End:
+            enqueue(for: session) { $0.model.selectEdge(last: true) }
             return true
         case kVK_Tab:
             advance(session, reverse: flags.contains(.maskShift) && !session.modifiers.contains(.maskShift))

@@ -458,7 +458,7 @@ private struct WindowGridView: View {
                     overlayPosition: overlayPosition,
                     thumbnailOverlay: thumbnailOverlay,
                     titleHighlightRanges: match?.titleRanges ?? [],
-                    isMinimized: window.isMinimized == true,
+                    presence: window.presence(appHidden: app.isHidden),
                     isSelected: index == model.selectedWindowIndex,
                     thumbHeight: metrics.thumbnailHeight,
                     showControlsOnHover: showWindowControlsOnHover && model.mouseHasMoved,
@@ -536,7 +536,7 @@ private struct FlatWindowGridView: View {
                     secondaryLabel: entry.appName,
                     titleHighlightRanges: match?.titleRanges ?? [],
                     secondaryHighlightRanges: match?.appRanges ?? [],
-                    isMinimized: entry.window.isMinimized == true,
+                    presence: entry.presence,
                     isSelected: absoluteIndex == model.selectedFlatIndex,
                     thumbHeight: metrics.thumbnailHeight,
                     showControlsOnHover: showWindowControlsOnHover && model.mouseHasMoved,
@@ -590,7 +590,7 @@ struct WindowCell: View {
     /// Character ranges of `title` / `secondaryLabel` that matched the typed query.
     var titleHighlightRanges: [Range<Int>] = []
     var secondaryHighlightRanges: [Range<Int>] = []
-    var isMinimized: Bool = false
+    var presence: WindowPresence = .current
     let isSelected: Bool
     let thumbHeight: CGFloat
     var showControlsOnHover: Bool = false
@@ -624,7 +624,7 @@ struct WindowCell: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
                         .padding(4)
                         .overlay(thumbnailOverlayLayer)
-                        .opacity(isMinimized ? Theme.minimizedThumbnailOpacity : 1)
+                        .opacity(presence.isOutOfSight ? Theme.minimizedThumbnailOpacity : 1)
                         .transition(.opacity)
                 } else {
                     ThumbnailPlaceholder(state: thumbnailState)
@@ -661,20 +661,20 @@ struct WindowCell: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .foregroundStyle(isSelected ? Color.primary : Color.secondary)
-                if secondaryLabel != nil || isMinimized {
-                    if isMinimized {
+                if secondaryLabel != nil || presence.label != nil {
+                    if let status = presence.label {
                         ViewThatFits(in: .horizontal) {
                             if let secondaryLabel {
                                 HStack(spacing: 3) {
                                     Text(SearchHighlight.attributed(secondaryLabel, ranges: secondaryHighlightRanges, color: accent))
                                         .foregroundStyle(.tertiary)
                                     Text("·").foregroundStyle(.secondary)
-                                    Text("Minimized").foregroundStyle(.secondary)
+                                    Text(status).foregroundStyle(.secondary)
                                 }
                                 .fixedSize(horizontal: true, vertical: false)
                             }
                             // Keep the status readable even at the grid's smallest tile size.
-                            Text("Minimized")
+                            Text(status)
                                 .foregroundStyle(.secondary)
                         }
                         .font(.caption2)
@@ -707,14 +707,12 @@ struct WindowCell: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel([title, accessibilityAppName ?? secondaryLabel].compactMap { $0 }.joined(separator: ", "))
         .accessibilityValue([
-            isMinimized ? String(localized: "Minimized") : nil,
+            presence.label,
             thumbnail == nil ? thumbnailState.label : nil,
         ].compactMap { $0 }.joined(separator: ", "))
         .accessibilityAddTraits(.isButton)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
-        .accessibilityHint(isMinimized
-            ? String(localized: "Activate to restore and switch to this window. Window actions are available in the Actions menu.")
-            : String(localized: "Activate to switch to this window. Window actions are available in the Actions menu."))
+        .accessibilityHint(accessibilityHint)
         .accessibilityAction { commit?() }
         .accessibilityActions {
             if let controls {
@@ -727,6 +725,19 @@ struct WindowCell: View {
 
     private var showsControls: Bool {
         showControlsOnHover && isHovering && controls != nil
+    }
+
+    private var accessibilityHint: String {
+        switch presence {
+        case .minimized:
+            String(localized: "Activate to restore and switch to this window. Window actions are available in the Actions menu.")
+        case .hidden:
+            String(localized: "Activate to unhide its app and switch to this window. Window actions are available in the Actions menu.")
+        case .otherSpace:
+            String(localized: "Activate to switch to this window on its Space. Window actions are available in the Actions menu.")
+        case .current:
+            String(localized: "Activate to switch to this window. Window actions are available in the Actions menu.")
+        }
     }
 
     /// Decorative layer rendered on top of the captured thumbnail. Clipped to the inner
