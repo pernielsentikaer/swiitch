@@ -30,29 +30,23 @@ enum PreferencesSection: String, CaseIterable, Identifiable {
 
 struct PreferencesView: View {
     @State private var selection: PreferencesSection = .general
-    /// The sidebar is the only way between sections and the window has no toolbar or
-    /// View menu to bring it back, so it must never stay collapsed. NavigationSplitView
-    /// lets a drag on the divider close it; the binding reopens it at once.
-    @State private var columnVisibility: NavigationSplitViewVisibility = .all
 
     init(initialSelection: PreferencesSection = .general) {
         _selection = State(initialValue: initialSelection)
     }
 
     var body: some View {
-        NavigationSplitView(columnVisibility: $columnVisibility) {
+        // Preferences needs a permanent sidebar, not collapsible navigation columns.
+        // Enforce its width during divider dragging instead of reopening it afterwards.
+        HSplitView {
             List(PreferencesSection.allCases, selection: $selection) { section in
                 Label(section.title, systemImage: section.systemImage)
                     .tag(section)
             }
             .listStyle(.sidebar)
-            .navigationSplitViewColumnWidth(min: 170, ideal: 190, max: 220)
-        } detail: {
+            .frame(minWidth: 170, idealWidth: 190, maxWidth: 220, maxHeight: .infinity)
             detailView
-        }
-        .navigationSplitViewStyle(.balanced)
-        .onChange(of: columnVisibility) { _, visibility in
-            if visibility != .all { columnVisibility = .all }
+                .frame(minWidth: 500, maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(
             minWidth: 720,
