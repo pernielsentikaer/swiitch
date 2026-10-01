@@ -19,6 +19,9 @@ final class WindowDiscovery {
     private(set) var lastCollection: WindowEnumerator.Collection?
     private(set) var timeoutCount = 0
     private(set) var cacheHits = 0
+    /// Durations of the most recent collections, newest last, for Diagnostics percentiles.
+    private(set) var recentDurations: [TimeInterval] = []
+    static let recentDurationCapacity = 50
 
     /// A user-facing request (opening the picker, changing a list preference) accepts a
     /// snapshot up to this old.
@@ -104,6 +107,10 @@ final class WindowDiscovery {
                 self.lastCollection = result
                 self.cacheKey = key
                 self.collectedAt = self.now()
+                self.recentDurations.append(result.duration)
+                if self.recentDurations.count > Self.recentDurationCapacity {
+                    self.recentDurations.removeFirst(self.recentDurations.count - Self.recentDurationCapacity)
+                }
             } else {
                 self.timeoutCount += 1
             }

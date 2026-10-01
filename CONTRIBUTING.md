@@ -129,6 +129,8 @@ Swiitch/
   Preferences/LoginItemController.swift  SMAppService is the only source of truth
   Updates/UpdateController.swift  Sparkle wrapper + gentle menu-bar update reminder
   Support/DiagnosticsReport.swift allowlisted, count-only diagnostics
+  Support/OpenLatency.swift       hotkey→snapshot→armed→panel→thumbnail timings (signposts + percentiles)
+  Support/WindowCensus.swift      per-window WindowServer/AX/Spaces dump for troubleshooting
 SwiitchTests/                     one file per subsystem; SwitcherModelTests and
                                   SwitcherInteractionTests cover the state machine,
                                   LocalizationTests the Danish catalog, and

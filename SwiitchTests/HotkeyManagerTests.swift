@@ -143,6 +143,10 @@ final class HotkeyManagerTests: XCTestCase {
         }
         XCTAssertEqual(fixture.focus.windowIDs, [2, 3])
         XCTAssertFalse(fixture.model.isArmed)
+        let samples = Array(OpenLatency.shared.samples.suffix(2))
+        XCTAssertEqual(samples.count, 2)
+        XCTAssertTrue(samples.allSatisfy { $0[.snapshotReady] != nil && $0[.armed] != nil },
+                      "Each queued open must retain its own snapshot and armed marks")
     }
 
     func testUninstallDuringColdDiscoveryCannotReopenOrCommit() async {
@@ -152,6 +156,11 @@ final class HotkeyManagerTests: XCTestCase {
         fixture.release()
         await drain()
         fixture.manager.uninstall()
+        let cancelledSamples = OpenLatency.shared.samples
+        OpenLatency.shared.mark(.armed)
+        OpenLatency.shared.end()
+        XCTAssertEqual(OpenLatency.shared.samples, cancelledSamples,
+                       "Cancelling discovery must finalize the measurement before any later open")
         await gate.release()
         try? await Task.sleep(for: .milliseconds(30))
         XCTAssertFalse(fixture.model.isArmed)

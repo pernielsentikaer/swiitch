@@ -149,7 +149,11 @@ final class SwitcherModel: ObservableObject {
     func prepareForArm(completion: @escaping () -> Void) {
         guard !isArmed else { completion(); return }
         dependencies.cancelPendingFocus()
-        guard let prepare = dependencies.prepareSnapshot else { completion(); return }
+        guard let prepare = dependencies.prepareSnapshot else {
+            OpenLatency.shared.mark(.snapshotReady)
+            completion()
+            return
+        }
         preparationGeneration &+= 1
         let generation = preparationGeneration
         capturePreArmFocus()
@@ -159,6 +163,7 @@ final class SwitcherModel: ObservableObject {
             await prepare(options)
             guard let self, !Task.isCancelled, self.preparationGeneration == generation else { return }
             self.preparationTask = nil
+            OpenLatency.shared.mark(.snapshotReady)
             completion()
         }
     }
@@ -197,6 +202,7 @@ final class SwitcherModel: ObservableObject {
         ownsFocusTrackingSuspension = true
         focusTracker.isTrackingSuspended = true
         isArmed = true
+        OpenLatency.shared.mark(.armed)
         scheduleShow()
 
         if shouldLoadThumbnails(for: displayMode) {
@@ -247,6 +253,7 @@ final class SwitcherModel: ObservableObject {
         ownsFocusTrackingSuspension = true
         focusTracker.isTrackingSuspended = true
         isArmed = true
+        OpenLatency.shared.mark(.armed)
         scheduleShow()
 
         previews.requestInitial(for: app.windows)
@@ -969,6 +976,7 @@ final class SwitcherModel: ObservableObject {
     }
 
     private func teardown() {
+        OpenLatency.shared.end()
         dependencies.cancelPendingFocus()
         capabilityTasks.values.forEach { $0.cancel() }
         capabilityTasks.removeAll()
@@ -1025,6 +1033,7 @@ final class SwitcherModel: ObservableObject {
         guard isArmed, !panelShown else { return }
         panelShown = true
         onShow?()
+        OpenLatency.shared.mark(.panelShown)
     }
 
     private func cancelShowTimer() {

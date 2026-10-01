@@ -289,6 +289,7 @@ final class ThumbnailCoordinator: ObservableObject {
             guard scope.isArmed, scope.generation == generation,
                   scope.windows.contains(where: { $0.id == id }) else { return }
             self.thumbnails[id] = image
+            OpenLatency.shared.mark(.firstThumbnail)
             self.thumbnailStates[id] = .ready
         }
         let current = self.scope()
@@ -296,7 +297,10 @@ final class ThumbnailCoordinator: ObservableObject {
         pendingIDs.subtract(ids)
         let currentIDs = Set(current.windows.map(\.id))
         for id in ids where currentIDs.contains(id) {
-            if let image = loaded[id] { thumbnails[id] = image }
+            if let image = loaded[id] {
+                thumbnails[id] = image
+                OpenLatency.shared.mark(.firstThumbnail)
+            }
             thumbnailStates[id] = thumbnails[id] == nil ? .unavailable : .ready
         }
     }

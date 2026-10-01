@@ -14,10 +14,14 @@ final class DiagnosticsTests: XCTestCase {
         let report = DiagnosticsReport.Snapshot(version: "0.1.5-dev", build: "48", osVersion: "macOS test", architecture: "arm64",
             accessibilityGranted: true, screenRecordingGranted: false, keyboardStatus: "ready", loginItemStatus: "disabled",
             automaticUpdateChecks: false,
-            discovery: .init(collection: collection, timeoutCount: 1, cacheHits: 2),
+            discovery: .init(collection: collection, timeoutCount: 1, cacheHits: 2, recentDurations: [0.010, 0.020, 0.123]),
             thumbnails: .init(cachedImages: 1, cacheBytes: 2048, pendingWindows: 0, activeBatches: 0,
                               backoffWindows: 0, timedOutBatches: 0, failedCaptures: 0,
-                              cacheHits: 12, cacheMisses: 3, cacheEvictions: 1))
+                              cacheHits: 12, cacheMisses: 3, cacheEvictions: 1),
+            timing: .init(opens: 3, shownOpens: 2, hotkeyToSnapshotMs: .init([0.4, 0.6, 18]),
+                          hotkeyToArmedMs: .init([1, 2, 20]), hotkeyToPanelMs: .init([160, 170]),
+                          panelToFirstThumbnailMs: .init([5, 9]),
+                          lastOpen: .init(milliseconds: ["hotkey": 0, "armed": 2])))
         let text = try DiagnosticsReport.render(report)
         for sensitive in ["PRIVATE TITLE", "PRIVATE APP", "private.example", "private.bundle", "99123", "12345", "screenshots", "bounds"] {
             XCTAssertFalse(text.contains(sensitive), sensitive)
@@ -25,15 +29,21 @@ final class DiagnosticsTests: XCTestCase {
         let object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any])
         XCTAssertEqual(Set(object.keys), ["schemaVersion", "version", "build", "osVersion", "architecture",
             "accessibilityGranted", "accessibilityWindowIDsAvailable", "spacesMembershipAvailable", "screenRecordingGranted", "keyboardStatus", "loginItemStatus",
-            "automaticUpdateChecks", "discovery", "thumbnails"])
+            "automaticUpdateChecks", "discovery", "thumbnails", "timing"])
         XCTAssertEqual(report.discovery.windowCount, 1)
         XCTAssertEqual(report.discovery.lastCollectionMilliseconds, 123)
         XCTAssertEqual(report.discovery.reusedAXAppCount, 1)
         XCTAssertEqual(object["accessibilityWindowIDsAvailable"] as? Bool, true)
         let discovery = try XCTUnwrap(object["discovery"] as? [String: Any])
         XCTAssertEqual(Set(discovery.keys), ["appCount", "windowCount", "candidateCount", "filteredCount",
-            "unavailableAXAppCount", "reusedAXAppCount", "lastCollectionMilliseconds", "timeoutCount", "cacheHits", "filterReasons"])
+            "unavailableAXAppCount", "reusedAXAppCount", "lastCollectionMilliseconds", "collectionMilliseconds",
+            "timeoutCount", "cacheHits", "filterReasons"])
         XCTAssertEqual(discovery["reusedAXAppCount"] as? Int, 1)
+        XCTAssertEqual(report.discovery.collectionMilliseconds?.count, 3)
+        XCTAssertEqual(report.discovery.collectionMilliseconds?.max, 123)
+        let timing = try XCTUnwrap(object["timing"] as? [String: Any])
+        XCTAssertEqual(Set(timing.keys), ["opens", "shownOpens", "hotkeyToSnapshotMs", "hotkeyToArmedMs",
+            "hotkeyToPanelMs", "panelToFirstThumbnailMs", "lastOpen"])
         let thumbnails = try XCTUnwrap(object["thumbnails"] as? [String: Any])
         XCTAssertEqual(Set(thumbnails.keys), ["cachedImages", "cacheBytes", "pendingWindows", "activeBatches",
             "backoffWindows", "timedOutBatches", "failedCaptures", "cacheHits", "cacheMisses", "cacheEvictions"])
