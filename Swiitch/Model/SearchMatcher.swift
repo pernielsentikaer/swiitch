@@ -36,17 +36,34 @@ enum SearchMatcher {
         text.map { String($0).folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current) }
     }
 
+    /// Case folding can expand a character (ß → ss). Match the expanded sequence but
+    /// keep a map back to the original graphemes so highlights never shift or split them.
+    private struct FoldedField {
+        let characters: [String]
+        let originalOffsets: [Int]
+
+        init(_ text: String) {
+            let parts = fold(text)
+            characters = parts.flatMap { $0.map(String.init) }
+            originalOffsets = parts.enumerated().flatMap { offset, part in part.map { _ in offset } }
+        }
+
+        func originalRanges(_ ranges: [Range<Int>]) -> [Range<Int>] {
+            merged(ranges.map { originalOffsets[$0.lowerBound]..<(originalOffsets[$0.upperBound - 1] + 1) })
+        }
+    }
+
     static func match(terms: [Substring], appName: String, title: String?) -> Match? {
         guard !terms.isEmpty else { return Match(score: 0, appRanges: [], titleRanges: []) }
-        let app = fold(appName)
-        let titleFolded = title.map(fold)
+        let app = FoldedField(appName)
+        let titleFolded = title.map(FoldedField.init)
         var score = 0
         var appRanges: [Range<Int>] = []
         var titleRanges: [Range<Int>] = []
         for term in terms {
-            let folded = fold(String(term))
-            let inApp = match(term: folded, in: app)
-            let inTitle = titleFolded.flatMap { match(term: folded, in: $0) }
+            let folded = fold(String(term)).flatMap { $0.map(String.init) }
+            let inApp = match(term: folded, in: app.characters)
+            let inTitle = titleFolded.flatMap { match(term: folded, in: $0.characters) }
             switch (inApp, inTitle) {
             case (nil, nil):
                 return nil
@@ -59,7 +76,8 @@ enum SearchMatcher {
                 else { score += t.score; titleRanges += t.ranges }
             }
         }
-        return Match(score: score, appRanges: merged(appRanges), titleRanges: merged(titleRanges))
+        return Match(score: score, appRanges: app.originalRanges(appRanges),
+                     titleRanges: titleFolded?.originalRanges(titleRanges) ?? [])
     }
 
     /// Stable sort by descending score: equal scores keep their incoming (recency) order.
@@ -97,18 +115,31 @@ enum SearchMatcher {
 
     /// Greedy in-order subsequence that prefers landing each character on a word start.
     private static func fuzzyMatch(term: [String], in field: [String]) -> FieldMatch? {
+        // Find the latest viable position for every character in one reverse pass.
+        // A preferred word start may only be chosen if the remaining suffix still fits.
+        var latest = [Int](repeating: 0, count: term.count)
+        var end = field.count
+        for index in term.indices.reversed() {
+            var found: Int?
+            while end > 0 {
+                end -= 1
+                if field[end] == term[index] { found = end; break }
+            }
+            guard let found else { return nil }
+            latest[index] = found
+        }
         var position = 0
         var offsets: [Int] = []
         var wordStartHits = 0
-        for character in term {
+        for (index, character) in term.enumerated() {
             var found: Int?
             var scan = position
-            while scan < field.count {
+            while scan <= latest[index] {
+                // Keep looking only a little further for a word-start occurrence.
+                if let found, scan - found > 24 { break }
                 if field[scan] == character {
                     if isWordStart(field, at: scan) { found = scan; break }
                     if found == nil { found = scan }
-                    // Keep looking only a little further for a word-start occurrence.
-                    if scan - found! > 24 { break }
                 }
                 scan += 1
             }

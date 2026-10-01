@@ -5,6 +5,25 @@ import XCTest
 
 @MainActor
 final class SwitcherPreviewTests: XCTestCase {
+    func testRenderSearchHighlightsInLightAndDark() throws {
+        for dark in [false, true] {
+            let app = AppEntry(pid: 101, bundleIdentifier: nil, name: "Visual Studio Code", icon: nil, windows: [])
+            let view = HStack(alignment: .top, spacing: 24) {
+                AppCell(app: app, isSelected: false, highlightRanges: [0..<1, 7..<8, 14..<15])
+                    .frame(width: 180)
+                WindowCell(title: "🗺️ Résumé Straße", thumbnail: Theme.previewThumbnail(index: 0),
+                    appIcon: nil, overlayPosition: .hidden, secondaryLabel: "Visual Studio Code",
+                    titleHighlightRanges: [2..<8, 9..<15], secondaryHighlightRanges: [0..<1, 7..<8, 14..<15],
+                    isSelected: true, thumbHeight: 140)
+                    .frame(width: 260)
+            }
+            .environment(\.swiitchAccent, .blue)
+            .frame(width: 560, height: 300)
+            .background(Color(nsColor: .windowBackgroundColor))
+            try attachSnapshot(view, name: "Search-highlights-\(dark ? "dark" : "light")", dark: dark, height: 300)
+        }
+    }
+
     func testRenderMinimizedWindowsWithCachedPreviewsAtCompactAndNormalSizes() throws {
         for dark in [false, true] {
             let view = VStack(spacing: 20) {

@@ -1,3 +1,4 @@
+import SwiftUI
 @testable import Swiitch
 import XCTest
 
@@ -65,5 +66,45 @@ final class SearchMatcherTests: XCTestCase {
     func testMergedRangesCoalesceOverlapsAndSort() {
         XCTAssertEqual(SearchMatcher.merged([5..<7, 0..<2, 1..<3, 7..<8]), [0..<3, 5..<8])
         XCTAssertEqual(SearchMatcher.merged([]), [])
+    }
+
+    func testFuzzyWordStartPreferenceDoesNotDiscardAValidEarlierMatch() {
+        let match = SearchMatcher.match(terms: terms("osr"), appName: "Browser — Other", title: nil)
+        XCTAssertNotNil(match, "The later word-start O must not strand the remaining s and r")
+        XCTAssertEqual(match?.appRanges, [2..<3, 4..<5, 6..<7])
+    }
+
+    func testMatcherFindsEverySubsequenceInShortFields() {
+        var fields: [[String]] = [[]]
+        for _ in 0..<4 { fields = fields.flatMap { field in ["a", "b", " "].map { field + [$0] } } }
+        let pairs = ["a", "b"].flatMap { first in ["a", "b"].map { [first, $0] } }
+        let queries = pairs + pairs.flatMap { pair in ["a", "b"].map { pair + [$0] } }
+        for field in fields {
+            for query in queries {
+                var matched = 0
+                for character in field where matched < query.count {
+                    if character == query[matched] { matched += 1 }
+                }
+                XCTAssertEqual(SearchMatcher.match(term: query, in: field) != nil, matched == query.count,
+                               "\(query.joined()) in \(field.joined())")
+            }
+        }
+    }
+
+    func testExpandedCaseFoldingPreservesOriginalHighlightOffsets() {
+        let match = SearchMatcher.match(terms: terms("strasse"), appName: "Straße", title: nil)
+        XCTAssertEqual(match?.score, SearchMatcher.prefixScore)
+        XCTAssertEqual(match?.appRanges, [0..<6], "The two folded s characters belong to one original character")
+        XCTAssertEqual(SearchMatcher.match(terms: terms("STRASSE"), appName: "Maps", title: "🗺️ Straße")?.titleRanges, [2..<8])
+        XCTAssertEqual(SearchMatcher.match(terms: terms("straße"), appName: "STRASSE", title: nil)?.appRanges, [0..<7])
+    }
+
+    func testHighlightPreservesGraphemesAndRejectsOutOfBoundsRanges() {
+        let text = "🗺️ Re\u{301}sume\u{301} Straße"
+        let highlighted = SearchHighlight.attributed(text, ranges: [2..<8, -1..<1, 0..<100], color: .blue)
+        XCTAssertEqual(String(highlighted.characters), text)
+        let emphasized = highlighted.runs.filter { $0.inlinePresentationIntent?.contains(.stronglyEmphasized) == true }
+        XCTAssertEqual(emphasized.map { String(highlighted[$0.range].characters) }, ["Re\u{301}sume\u{301}"])
+        XCTAssertTrue(emphasized.allSatisfy { $0.foregroundColor == .blue })
     }
 }
