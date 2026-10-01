@@ -165,6 +165,26 @@ final class SwitcherModelTests: XCTestCase {
         XCTAssertEqual(model.filteredFlatWindows.map(\.id), recency)
     }
 
+    func testFlatEntriesReportWhereEachWindowIs() {
+        defaults.set(Preferences.DisplayMode.windows.rawValue, forKey: Preferences.Key.displayMode)
+        let visible = makeWindow(id: 1, pid: 101, title: "Here")
+        let elsewhere = WindowInfo(id: 2, pid: 101, title: "Elsewhere", bounds: .zero, isOnScreen: false)
+        let minimized = WindowInfo(id: 3, pid: 101, title: "Docked", bounds: .zero, isOnScreen: false, isMinimized: true)
+        let hiddenApp = AppEntry(pid: 102, bundleIdentifier: "com.example.hidden", name: "Hidden", icon: nil,
+                                 windows: [WindowInfo(id: 4, pid: 102, title: "Behind ⌘H", bounds: .zero, isOnScreen: false)],
+                                 isHidden: true)
+        let model = makeModel(apps: [makeApp(pid: 101, name: "Alpha", windows: [visible, elsewhere, minimized]), hiddenApp])
+        model.arm(reverse: false)
+        defer { model.cancel() }
+        let presence = Dictionary(uniqueKeysWithValues: model.flatWindows.map { ($0.id, $0.presence) })
+        XCTAssertEqual(presence, [1: .current, 2: .otherSpace, 3: .minimized, 4: .hidden])
+        XCTAssertNil(WindowPresence.current.label)
+        XCTAssertNotNil(WindowPresence.otherSpace.label, "Elsewhere is worth a word; the catalog supplies the language")
+        XCTAssertTrue(WindowPresence.hidden.isOutOfSight)
+        XCTAssertFalse(WindowPresence.otherSpace.isOutOfSight, "A window on another Space is live; its preview is not dimmed")
+        XCTAssertEqual(model.flatWindows.first?.id, 1, "Among never-focused windows the one on the current Space leads")
+    }
+
     func testFlatWindowArmSkipsActualFocusedWindowWhenDiaOrderIsReversed() {
         defaults.set(Preferences.DisplayMode.windows.rawValue, forKey: Preferences.Key.displayMode)
         let apps = [

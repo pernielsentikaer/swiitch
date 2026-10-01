@@ -33,7 +33,7 @@ final class SwitcherPreviewTests: XCTestCase {
                             WindowCell(title: "Example document", thumbnail: Theme.previewThumbnail(index: 0),
                                 appIcon: NSImage(systemSymbolName: "app.fill", accessibilityDescription: nil),
                                 overlayPosition: .bottomLeading, secondaryLabel: "Example app",
-                                isMinimized: index != 0, isSelected: index == 2, thumbHeight: width * 0.62)
+                                presence: index != 0 ? .minimized : .current, isSelected: index == 2, thumbHeight: width * 0.62)
                                 .frame(width: width)
                         }
                     }
