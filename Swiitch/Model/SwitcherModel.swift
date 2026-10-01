@@ -97,8 +97,10 @@ final class SwitcherModel: ObservableObject {
     init(
         focusTracker: FocusTracker,
         defaults: UserDefaults = .standard,
-        dependencies: Dependencies = .live
+        dependencies: Dependencies? = nil
     ) {
+        // Resolve actor-isolated defaults here, not in the caller's default-argument context.
+        let dependencies = dependencies ?? .live
         self.focusTracker = focusTracker
         resumeFocusTracking = { focusTracker.isTrackingSuspended = false }
         self.defaults = defaults

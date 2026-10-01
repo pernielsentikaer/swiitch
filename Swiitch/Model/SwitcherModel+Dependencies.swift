@@ -89,46 +89,50 @@ extension SwitcherModel {
             self.cancelPendingFocus = cancelPendingFocus
         }
 
-        static let live = Dependencies(
-            enumerate: { focusTracker, options in
-                WindowDiscovery.shared.entries(focusTracker: focusTracker, options: options)
-            },
-            focusApp: { WindowFocuser.focus(app: $0) },
-            focusWindow: { WindowFocuser.focus(window: $0) },
-            closeWindow: { WindowFocuser.close(window: $0) },
-            minimizeWindow: { WindowFocuser.minimize(window: $0) },
-            zoomWindow: { WindowFocuser.zoom(window: $0) },
-            hideApp: { WindowFocuser.hide(pid: $0) },
-            focusPID: { WindowFocuser.focus(pid: $0) },
-            restoreWindowFocus: { WindowFocuser.restoreFocus(pid: $0, windowID: $1) },
-            frontmostPID: { NSWorkspace.shared.frontmostApplication?.processIdentifier },
-            frontmostBundleID: { NSWorkspace.shared.frontmostApplication?.bundleIdentifier },
-            focusedWindowID: { AXPrivate.focusedWindowID(forPID: $0) },
-            thumbnails: { windowIDs, fresh, onUpdate in
-                // Only the picker asks for progress. Idle prewarming fills what the cache
-                // has room for and never recaptures or evicts; see `WindowThumbnails.prewarm`.
-                guard let onUpdate else { return await WindowThumbnails.shared.prewarm(windowIDs) }
-                return await WindowThumbnails.shared.images(
-                    for: windowIDs, fresh: fresh, maximumAge: 3, onUpdate: onUpdate
-                )
-            },
-            cancelThumbnailCaptures: {
-                await WindowThumbnails.shared.cancelPendingCaptures()
-            },
-            retainThumbnails: { liveIDs in
-                await WindowThumbnails.shared.retain(only: liveIDs)
-            },
-            invalidateThumbnail: { windowID in
-                await WindowThumbnails.shared.invalidate(windowID)
-            },
-            screenCaptureGranted: { CGPreflightScreenCaptureAccess() },
-            setThumbnailCaptureAllowed: { allowed in
-                await WindowThumbnails.shared.setCaptureAllowed(allowed)
-            },
-            prepareSnapshot: { await WindowDiscovery.shared.prepare(options: $0) },
-            readWindowCapabilities: { await WindowActionCapabilityReader.shared.read($0) },
-            performWindowAction: { WindowFocuser.perform($0, window: $1) },
-            cancelPendingFocus: { WindowFocuser.cancelPendingActivation() }
-        )
+        /// Construct inside an actor-isolated function, rather than a stored initializer.
+        /// Swift 5 complete checking otherwise diagnoses conflicting default-argument isolation.
+        @MainActor static var live: Dependencies {
+            Dependencies(
+                enumerate: { focusTracker, options in
+                    WindowDiscovery.shared.entries(focusTracker: focusTracker, options: options)
+                },
+                focusApp: { WindowFocuser.focus(app: $0) },
+                focusWindow: { WindowFocuser.focus(window: $0) },
+                closeWindow: { WindowFocuser.close(window: $0) },
+                minimizeWindow: { WindowFocuser.minimize(window: $0) },
+                zoomWindow: { WindowFocuser.zoom(window: $0) },
+                hideApp: { WindowFocuser.hide(pid: $0) },
+                focusPID: { WindowFocuser.focus(pid: $0) },
+                restoreWindowFocus: { WindowFocuser.restoreFocus(pid: $0, windowID: $1) },
+                frontmostPID: { NSWorkspace.shared.frontmostApplication?.processIdentifier },
+                frontmostBundleID: { NSWorkspace.shared.frontmostApplication?.bundleIdentifier },
+                focusedWindowID: { AXPrivate.focusedWindowID(forPID: $0) },
+                thumbnails: { windowIDs, fresh, onUpdate in
+                    // Only the picker asks for progress. Idle prewarming fills what the cache
+                    // has room for and never recaptures or evicts; see `WindowThumbnails.prewarm`.
+                    guard let onUpdate else { return await WindowThumbnails.shared.prewarm(windowIDs) }
+                    return await WindowThumbnails.shared.images(
+                        for: windowIDs, fresh: fresh, maximumAge: 3, onUpdate: onUpdate
+                    )
+                },
+                cancelThumbnailCaptures: {
+                    await WindowThumbnails.shared.cancelPendingCaptures()
+                },
+                retainThumbnails: { liveIDs in
+                    await WindowThumbnails.shared.retain(only: liveIDs)
+                },
+                invalidateThumbnail: { windowID in
+                    await WindowThumbnails.shared.invalidate(windowID)
+                },
+                screenCaptureGranted: { CGPreflightScreenCaptureAccess() },
+                setThumbnailCaptureAllowed: { allowed in
+                    await WindowThumbnails.shared.setCaptureAllowed(allowed)
+                },
+                prepareSnapshot: { await WindowDiscovery.shared.prepare(options: $0) },
+                readWindowCapabilities: { await WindowActionCapabilityReader.shared.read($0) },
+                performWindowAction: { WindowFocuser.perform($0, window: $1) },
+                cancelPendingFocus: { WindowFocuser.cancelPendingActivation() }
+            )
+        }
     }
 }
