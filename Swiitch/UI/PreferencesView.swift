@@ -45,8 +45,12 @@ struct PreferencesView: View {
             }
             .listStyle(.sidebar)
             .frame(minWidth: 170, idealWidth: 190, maxWidth: 220, maxHeight: .infinity)
-            detailView
-                .frame(minWidth: 500, maxWidth: .infinity, maxHeight: .infinity)
+            // Keep the split pane itself stable while its selected content changes.
+            // Replacing a direct split child resets the user's divider position.
+            ZStack {
+                detailView
+            }
+            .frame(minWidth: 500, maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(
             minWidth: 720,
