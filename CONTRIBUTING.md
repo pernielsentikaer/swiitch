@@ -131,6 +131,7 @@ Swiitch/
   Support/DiagnosticsReport.swift allowlisted, count-only diagnostics
   Support/OpenLatency.swift       hotkey→snapshot→armed→panel→thumbnail timings (signposts + percentiles)
   Support/WindowCensus.swift      per-window WindowServer/AX/Spaces dump for troubleshooting
+  Support/IssueReport.swift       prefilled GitHub issue link carrying the diagnostics report
 SwiitchTests/                     one file per subsystem; SwitcherModelTests and
                                   SwitcherInteractionTests cover the state machine,
                                   LocalizationTests the Danish catalog, and

@@ -94,7 +94,7 @@ Four sidebar sections in Preferences (⌘, from the menu bar):
 - **General** — Permission recovery, actual Launch at Login status and approval/error guidance, menu-bar / Dock icon visibility, shortcut recorders, automatic update checks, and reset-to-defaults.
 - **Switcher** — Display mode (Apps first / All windows), screen scope, excluded apps, show-delay, Automatic / Fill Screen layout, peek, navigation, and optional thumbnail window controls.
 - **Appearance** — Theme presets, system appearance (Light / Dark / System), accent color, panel material + corner radius, thumbnail size, app-icon overlay position.
-- **About** — Version, Check for Updates, and Review Diagnostics. The report is shown before copying and contains only versions, permission states, counts, timings, and aggregate filtering reasons—not titles, URLs, screenshots, paths, or an app list.
+- **About** — Version, Check for Updates, and Review Diagnostics. The report is shown before copying and contains only versions, permission states, counts, timings, and aggregate filtering reasons—not titles, URLs, screenshots, paths, or an app list. Report a Problem… opens a GitHub issue with that report already filled in; the window census stays a separate copy step because it names running apps.
 
 Thumbnail diagnostics include lifetime cache hits, misses, and capacity evictions. Each
 unique window lookup counts once; a hit may still refresh an old image. Evictions count

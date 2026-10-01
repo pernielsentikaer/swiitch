@@ -2151,6 +2151,36 @@
         }
       }
     },
+    "Opens a new GitHub issue with this report filled in. Add what happened before posting.": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Åbner en ny GitHub-sag med denne rapport udfyldt. Tilføj, hvad der skete, før du sender."
+          }
+        }
+      }
+    },
+    "Report a Problem…": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rapportér et problem…"
+          }
+        }
+      }
+    },
+    "The report is on your clipboard. Paste it into the issue.": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rapporten ligger i din udklipsholder. Indsæt den i sagen."
+          }
+        }
+      }
+    },
     "zoom or restore": {
       "localizations": {
         "da": {
