@@ -17,7 +17,7 @@ final class DiagnosticsTests: XCTestCase {
             discovery: .init(collection: collection, timeoutCount: 1, cacheHits: 2, recentDurations: [0.010, 0.020, 0.123]),
             thumbnails: .init(cachedImages: 1, cacheBytes: 2048, pendingWindows: 0, activeBatches: 0,
                               backoffWindows: 0, timedOutBatches: 0, failedCaptures: 0,
-                              cacheHits: 12, cacheMisses: 3, cacheEvictions: 1),
+                              cacheHits: 12, cacheMisses: 3, cacheEvictions: 1, memoryPressureClears: 0),
             timing: .init(opens: 3, shownOpens: 2, hotkeyToSnapshotMs: .init([0.4, 0.6, 18]),
                           hotkeyToArmedMs: .init([1, 2, 20]), hotkeyToPanelMs: .init([160, 170]),
                           panelToFirstThumbnailMs: .init([5, 9]),
@@ -46,7 +46,8 @@ final class DiagnosticsTests: XCTestCase {
             "hotkeyToPanelMs", "panelToFirstThumbnailMs", "lastOpen"])
         let thumbnails = try XCTUnwrap(object["thumbnails"] as? [String: Any])
         XCTAssertEqual(Set(thumbnails.keys), ["cachedImages", "cacheBytes", "pendingWindows", "activeBatches",
-            "backoffWindows", "timedOutBatches", "failedCaptures", "cacheHits", "cacheMisses", "cacheEvictions"])
+            "backoffWindows", "timedOutBatches", "failedCaptures", "cacheHits", "cacheMisses", "cacheEvictions",
+            "memoryPressureClears"])
         XCTAssertEqual(thumbnails["cacheHits"] as? Int, 12)
         XCTAssertEqual(thumbnails["cacheMisses"] as? Int, 3)
         XCTAssertEqual(thumbnails["cacheEvictions"] as? Int, 1)
