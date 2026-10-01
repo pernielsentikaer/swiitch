@@ -10,9 +10,10 @@ final class WindowDiscovery {
     private let now: () -> TimeInterval
     private let timeout: TimeInterval
     private let runner = CaptureDeadlineRunner(limit: 1)
-    private var inFlight: (id: UInt64, key: Key, task: Task<Void, Never>)?
+    private var inFlight: (id: UInt64, key: Key, eventCount: Int?, task: Task<Void, Never>)?
     private var nextRequestID: UInt64 = 0
     private var cacheKey: Key?
+    private var cachedEventCount: Int?
     private var collectedAt: TimeInterval = -.infinity
     private var lastUserRequest: TimeInterval = -.infinity
     private var timer: Timer?
@@ -102,7 +103,9 @@ final class WindowDiscovery {
         // Re-check the cache and whatever is in flight after every wait, so a caller never
         // starts a collection that another waiter has already started for the same key.
         while true {
-            if !force, cacheKey == key, lastCollection != nil, now() - collectedAt < snapshotLifetime(background: background) {
+            if !force, cacheKey == key, lastCollection != nil,
+               cachedEventCount == eventMonitor?.eventCount,
+               now() - collectedAt < snapshotLifetime(background: background) {
                 cacheHits += 1
                 return
             }
@@ -110,13 +113,17 @@ final class WindowDiscovery {
             let sameRequest = inFlight.key == key
             coalescedRequestCount += 1
             await inFlight.task.value
-            if (sameRequest && !force) || Task.isCancelled { return }
+            if Task.isCancelled { return }
+            // A failed collection is bounded too. Only an event newer than the request
+            // requires another collection before this waiter can reuse its result.
+            if sameRequest && !force && inFlight.eventCount == eventMonitor?.eventCount { return }
         }
         guard !Task.isCancelled else { return }
         let collector = self.collector
         let timeout = self.timeout
         nextRequestID &+= 1
         let id = nextRequestID
+        let eventCountAtStart = eventMonitor?.eventCount
         // Hand the previous collection's Accessibility reads to the next one so an app
         // whose bridge is momentarily slow keeps its ghost-window filtering.
         var context = context
@@ -128,11 +135,12 @@ final class WindowDiscovery {
                 self.lastCollection = result
                 self.cacheKey = key
                 self.collectedAt = self.now()
+                self.cachedEventCount = eventCountAtStart
                 self.recentDurations.append(result.duration)
                 if self.recentDurations.count > Self.recentDurationCapacity {
                     self.recentDurations.removeFirst(self.recentDurations.count - Self.recentDurationCapacity)
                 }
-                self.eventMonitor?.reconcile(with: result)
+                self.eventMonitor?.reconcile(with: result, applicationPIDs: key.pids)
             } else {
                 self.timeoutCount += 1
             }
@@ -140,7 +148,7 @@ final class WindowDiscovery {
             // be in flight, and a third caller must still be able to coalesce onto it.
             if self.inFlight?.id == id { self.inFlight = nil }
         }
-        inFlight = (id, key, task)
+        inFlight = (id, key, eventCountAtStart, task)
         await task.value
     }
 

@@ -40,6 +40,9 @@ struct DiagnosticsView: View {
                 }
                 .disabled(isCollectingCensus)
                 .help(String(localized: "For troubleshooting duplicate or missing windows. Lists running app identifiers and window geometry; no titles or content."))
+                Spacer()
+            }
+            HStack {
                 Button("Report a Problem…") { reportProblem() }
                     .disabled(report == nil)
                     .help(String(localized: "Opens a new GitHub issue with this report filled in. Add what happened before posting."))
@@ -62,7 +65,10 @@ struct DiagnosticsView: View {
     private func reportProblem() {
         guard let report, let prepared = IssueReport.prepare(diagnostics: report) else { return }
         if !prepared.includesDiagnostics {
-            _ = DiagnosticsReport.copy(report)
+            guard DiagnosticsReport.copy(report) else {
+                message = String(localized: "Couldn’t copy the report. Please try again.")
+                return
+            }
             message = String(localized: "The report is on your clipboard. Paste it into the issue.")
         }
         NSWorkspace.shared.open(prepared.url)

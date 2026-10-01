@@ -66,7 +66,7 @@ enum IssueReport {
 
     /// RFC 3986 unreserved characters only. URLComponents would leave `&`, `+` and `=`
     /// alone, and GitHub reads those as query syntax or spaces.
-    private static let unreserved = CharacterSet(charactersIn: "-._~").union(.alphanumerics)
+    private static let unreserved = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
 
     private static func issueURL(body: String, repository: URL) -> URL? {
         guard let encoded = body.addingPercentEncoding(withAllowedCharacters: unreserved) else { return nil }

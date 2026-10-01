@@ -32,6 +32,7 @@ final class WindowEventMonitor {
         private(set) var trackedWindowIDs: Set<CGWindowID> = []
         /// The subset whose Accessibility element accepted notifications.
         private var windowElements: [CGWindowID: AXUIElement] = [:]
+        private var fullySubscribedWindowIDs: Set<CGWindowID> = []
         var subscribedWindowCount: Int { windowElements.count }
 
         static let applicationNotifications = [
@@ -59,13 +60,10 @@ final class WindowEventMonitor {
             let application = AXUIElementCreateApplication(pid)
             AXUIElementSetMessagingTimeout(application, 0.05)
             let context = Unmanaged.passUnretained(monitor).toOpaque()
-            var subscribed = false
-            for notification in Self.applicationNotifications {
-                if AXObserverAddNotification(created, application, notification as CFString, context) == .success {
-                    subscribed = true
-                }
+            let results = Self.applicationNotifications.map { notification in
+                AXObserverAddNotification(created, application, notification as CFString, context)
             }
-            guard subscribed else { return nil }
+            guard Self.subscriptionsAreComplete(results) else { return nil }
             observer = created
             CFRunLoopAddSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(created), .commonModes)
         }
@@ -74,6 +72,7 @@ final class WindowEventMonitor {
         /// available. Already-subscribed windows keep their element so notifications continue.
         func observe(windowIDs: Set<CGWindowID>, elements: [(CGWindowID, AXUIElement)], monitor: WindowEventMonitor) {
             for id in trackedWindowIDs.subtracting(windowIDs) {
+                fullySubscribedWindowIDs.remove(id)
                 if let observer, let element = windowElements.removeValue(forKey: id) {
                     for notification in Self.windowNotifications {
                         AXObserverRemoveNotification(observer, element, notification as CFString)
@@ -82,18 +81,27 @@ final class WindowEventMonitor {
             }
             if let observer {
                 let context = Unmanaged.passUnretained(monitor).toOpaque()
-                for (id, element) in elements where windowIDs.contains(id) && windowElements[id] == nil {
+                for (id, element) in elements where windowIDs.contains(id) && !fullySubscribedWindowIDs.contains(id) {
                     AXUIElementSetMessagingTimeout(element, 0.02)
-                    var subscribed = false
-                    for notification in Self.windowNotifications {
-                        if AXObserverAddNotification(observer, element, notification as CFString, context) == .success {
-                            subscribed = true
-                        }
+                    let results = Self.windowNotifications.map { notification in
+                        AXObserverAddNotification(observer, element, notification as CFString, context)
                     }
-                    if subscribed { windowElements[id] = element }
+                    // Retain partial registrations too so closed windows unsubscribe.
+                    windowElements[id] = element
+                    if Self.subscriptionsAreComplete(results) { fullySubscribedWindowIDs.insert(id) }
                 }
             }
             trackedWindowIDs = windowIDs
+        }
+
+        /// One accepted notification does not cover creation, destruction and geometry.
+        /// Retried registrations may already exist after a partially successful attempt.
+        static func subscriptionsAreComplete(_ results: [AXError]) -> Bool {
+            !results.isEmpty && results.allSatisfy { $0 == .success || $0 == .notificationAlreadyRegistered }
+        }
+
+        var hasCompleteCoverage: Bool {
+            observer != nil && fullySubscribedWindowIDs == trackedWindowIDs
         }
 
         func stop() {
@@ -101,6 +109,7 @@ final class WindowEventMonitor {
             CFRunLoopRemoveSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .commonModes)
             self.observer = nil
             windowElements.removeAll()
+            fullySubscribedWindowIDs.removeAll()
             trackedWindowIDs.removeAll()
         }
     }
@@ -113,6 +122,7 @@ final class WindowEventMonitor {
     private var workspaceObservers: [NSObjectProtocol] = []
     private var screenObserver: NSObjectProtocol?
     private var pendingRefresh: Task<Void, Never>?
+    private var needsRefresh = false
     private(set) var isActive = false
     private(set) var eventCount = 0
     private(set) var refreshCount = 0
@@ -183,13 +193,16 @@ final class WindowEventMonitor {
         observations.removeAll()
         pendingRefresh?.cancel()
         pendingRefresh = nil
+        needsRefresh = false
     }
 
     /// After each collection: observe apps that are new, drop apps that are gone, and
     /// subscribe the switchable windows of apps whose window set changed.
-    func reconcile(with collection: WindowEnumerator.Collection) {
+    func reconcile(with collection: WindowEnumerator.Collection, applicationPIDs: Set<pid_t>? = nil) {
         guard isActive else { return }
-        let live = Dictionary(uniqueKeysWithValues: collection.apps.map { ($0.pid, Set($0.windows.map(\.id))) })
+        var live = Dictionary(uniqueKeysWithValues: collection.apps.map { ($0.pid, Set($0.windows.map(\.id))) })
+        // The collection omits windowless apps, but their first-window event matters.
+        for pid in applicationPIDs ?? [] where live[pid] == nil { live[pid] = [] }
         for pid in observations.keys where live[pid] == nil { forget(pid: pid) }
         var uncovered = 0
         for (pid, windowIDs) in live {
@@ -203,25 +216,34 @@ final class WindowEventMonitor {
                 uncovered += 1
                 continue
             }
-            if observation.observer == nil { uncovered += 1 }
-            guard observation.trackedWindowIDs != windowIDs else { continue }
-            let elements = observation.observer == nil ? [] : dependencies.windowElements(pid)
-            observation.observe(windowIDs: windowIDs, elements: elements, monitor: self)
+            if observation.trackedWindowIDs != windowIDs || !observation.hasCompleteCoverage {
+                let elements = observation.observer == nil ? [] : dependencies.windowElements(pid)
+                observation.observe(windowIDs: windowIDs, elements: elements, monitor: self)
+            }
+            if !observation.hasCompleteCoverage { uncovered += 1 }
         }
         coversEveryApp = uncovered == 0
     }
 
-    /// Any change notification: coalesce into one refresh shortly after the last event.
+    /// Batch bursts into one refresh. Events during collection request a single trailing
+    /// refresh, never a concurrent one. eventCount invalidates discovery immediately.
     func handle(_ notification: String) {
         guard isActive else { return }
         eventCount += 1
-        pendingRefresh?.cancel()
+        needsRefresh = true
+        guard pendingRefresh == nil else { return }
         pendingRefresh = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .seconds(Self.coalescingInterval))
-            guard !Task.isCancelled, let self else { return }
+            guard let self else { return }
+            while self.needsRefresh {
+                try? await Task.sleep(for: .seconds(Self.coalescingInterval))
+                guard !Task.isCancelled, self.isActive else { return }
+                self.needsRefresh = false
+                self.refreshCount += 1
+                await self.dependencies.refresh()
+                // stop() may have installed a new task since this await began.
+                guard !Task.isCancelled, self.isActive else { return }
+            }
             self.pendingRefresh = nil
-            self.refreshCount += 1
-            await self.dependencies.refresh()
         }
     }
 

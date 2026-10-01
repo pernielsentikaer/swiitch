@@ -8,7 +8,7 @@ final class IssueReportTests: XCTestCase {
     }
 
     func testIssueLinkCarriesTheReportFoldedUnderTheDescription() throws {
-        let diagnostics = "{\n  \"version\": \"0.1.15\",\n  \"note\": \"a&b=c+d #1 100%\"\n}"
+        let diagnostics = "{\n  \"version\": \"0.1.15\",\n  \"note\": \"a&b=c+d #1 100% æøå\"\n}"
         let prepared = try XCTUnwrap(IssueReport.prepare(diagnostics: diagnostics))
         XCTAssertTrue(prepared.includesDiagnostics)
         XCTAssertTrue(prepared.url.absoluteString.hasPrefix(
@@ -21,6 +21,7 @@ final class IssueReportTests: XCTestCase {
         for forbidden in ["&", "+", "=", "#", " ", "\n"] {
             XCTAssertFalse(encodedBody.contains(forbidden), "'\(forbidden)' must be percent-encoded")
         }
+        XCTAssertTrue(encodedBody.unicodeScalars.allSatisfy { $0.isASCII })
     }
 
     func testAnOversizedReportFallsBackToTheClipboardWording() throws {
