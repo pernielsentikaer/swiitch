@@ -141,6 +141,9 @@ final class HotkeyManager {
         inputSession = nil
         presentedSession = nil
         model.cancel()
+        // Cancellation during discovery happens before the model is armed, so its
+        // teardown has not run and the pending measurement needs to end here.
+        OpenLatency.shared.end()
     }
 
     private func removeTap() {
@@ -270,7 +273,7 @@ final class HotkeyManager {
     }
 
     private func beginSession(_ match: HotkeyMatch, flags: CGEventFlags) {
-        OpenLatency.shared.begin()
+        let hotkeyTime = ProcessInfo.processInfo.systemUptime
         let session = Session(modifiers: match.modifiers, flags: flags)
         inputSession = session
         let generation = dispatchGeneration
@@ -278,6 +281,7 @@ final class HotkeyManager {
             guard let self, self.dispatchGeneration == generation else { return }
             self.performWhenPrepared { [weak self] in
                 guard let self, self.dispatchGeneration == generation else { return }
+                if !self.model.isArmed { OpenLatency.shared.begin(startedAt: hotkeyTime) }
                 self.preparingSnapshot = true
                 self.presentedSession = session
                 self.model.prepareForArm { [weak self] in

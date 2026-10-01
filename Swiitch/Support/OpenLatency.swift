@@ -2,7 +2,7 @@ import Foundation
 import os
 
 /// Records how long each stage of opening the switcher takes, from the hotkey event to
-/// the first preview on screen. Marks are cheap (one uptime read, no allocation on the
+/// the first preview delivered to the model. Marks are cheap (one uptime read, no allocation on the
 /// hotkey path beyond a dictionary insert) and are also emitted as signposts, so the same
 /// data is visible in Instruments. Diagnostics reports percentiles over recent opens.
 @MainActor
@@ -77,9 +77,11 @@ final class OpenLatency {
     }
 
     /// A new open is starting. A previous open that never ended is finalized first.
-    func begin() {
+    /// Queued sessions pass their original hotkey time, retaining time spent waiting
+    /// without replacing the sample of an earlier session still being presented.
+    func begin(startedAt: TimeInterval? = nil) {
         if start != nil { end() }
-        start = now()
+        start = startedAt ?? now()
         current = [:]
         if let signposter {
             let id = signposter.makeSignpostID()
@@ -113,7 +115,9 @@ final class OpenLatency {
         func values(_ mark: Mark) -> [Double] { samples.compactMap { $0[mark] } }
         let panelToThumbnail = samples.compactMap { sample -> Double? in
             guard let panel = sample[.panelShown], let thumbnail = sample[.firstThumbnail] else { return nil }
-            return thumbnail - panel
+            // Warm previews can arrive during the configured panel-show delay. They
+            // are ready immediately when the panel opens, not a negative wait later.
+            return Swift.max(0, thumbnail - panel)
         }
         return Summary(
             opens: samples.count,

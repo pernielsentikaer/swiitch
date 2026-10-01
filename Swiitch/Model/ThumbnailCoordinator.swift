@@ -297,7 +297,10 @@ final class ThumbnailCoordinator: ObservableObject {
         pendingIDs.subtract(ids)
         let currentIDs = Set(current.windows.map(\.id))
         for id in ids where currentIDs.contains(id) {
-            if let image = loaded[id] { thumbnails[id] = image; OpenLatency.shared.mark(.firstThumbnail) }
+            if let image = loaded[id] {
+                thumbnails[id] = image
+                OpenLatency.shared.mark(.firstThumbnail)
+            }
             thumbnailStates[id] = thumbnails[id] == nil ? .unavailable : .ready
         }
     }

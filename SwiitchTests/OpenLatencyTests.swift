@@ -64,6 +64,33 @@ final class OpenLatencyTests: XCTestCase {
         XCTAssertEqual(latency.samples.count, OpenLatency.capacity)
     }
 
+    func testPreviewReadyBeforeThePanelHasNoVisibleWait() {
+        let clock = Clock()
+        let latency = OpenLatency(now: { clock.now }, signposts: false)
+        latency.begin()
+        clock.now += 0.005
+        latency.mark(.firstThumbnail)
+        clock.now += 0.145
+        latency.mark(.panelShown)
+        latency.end()
+
+        XCTAssertEqual(latency.summary.panelToFirstThumbnailMs?.p50, 0,
+                       "A cached preview ready before the panel opens cannot have negative visible latency")
+    }
+
+    func testQueuedOpenIncludesTimeSinceItsOriginalHotkey() throws {
+        let clock = Clock()
+        let latency = OpenLatency(now: { clock.now }, signposts: false)
+        let hotkeyTime = clock.now
+        clock.now += 0.020
+        latency.begin(startedAt: hotkeyTime)
+        clock.now += 0.005
+        latency.mark(.armed)
+        latency.end()
+
+        XCTAssertEqual(try XCTUnwrap(latency.samples.last?[.armed]), 25, accuracy: 0.001)
+    }
+
     func testPercentilesRoundToTenthsAndRejectEmptyInput() throws {
         XCTAssertNil(OpenLatency.Percentiles([]))
         let percentiles = try XCTUnwrap(OpenLatency.Percentiles([0.04, 0.26, 3.333, 9.99]))
