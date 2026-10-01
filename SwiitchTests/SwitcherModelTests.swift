@@ -1152,9 +1152,9 @@ final class SwitcherModelTests: XCTestCase {
         attachment.lifetime = .keepAlways
         add(attachment)
         print(report)
-        // Shared CI runners stall for hundreds of milliseconds at a time: one run measured an
-        // opening p95 of 259 ms where a laptop measures about 1 ms. A few stalls cannot move
-        // the median, so that is the regression guard; the tail stays in the attachment.
+        // Wall-clock tail timings vary across shared CI runners: one run measured a search
+        // p95 of 259 ms against the former 250 ms guard. Use the median to reduce sensitivity
+        // to occasional scheduling stalls; p95 and maximum remain in the attachment.
         // The bound is far above the real cost on purpose: it catches a gross model
         // regression, not machine-specific timing noise.
         XCTAssertLessThan(opening.sorted()[50], 250, "Opening 500 windows got drastically slower")
