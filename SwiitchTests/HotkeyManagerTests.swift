@@ -173,10 +173,100 @@ final class HotkeyManagerTests: XCTestCase {
         fixture.send(kVK_Escape)
         await drain()
         await gate.release()
-        try? await Task.sleep(for: .milliseconds(30))
-        XCTAssertFalse(fixture.model.isArmed)
+        await waitUntil("the queued search and Escape to run after opening") { fixture.model.isArmed }
+        XCTAssertTrue(fixture.model.filterText.isEmpty, "Escape cleared the search typed ahead of it")
+        fixture.send(kVK_Escape)
+        await drain()
+        XCTAssertFalse(fixture.model.isArmed, "A second Escape closes the picker")
         XCTAssertTrue(fixture.focus.windowIDs.isEmpty)
         XCTAssertTrue(fixture.focus.hiddenAppPIDs.isEmpty)
+    }
+
+    func testEscapeClearsATypedSearchBeforeClosing() async {
+        let fixture = Fixture()
+        fixture.send()
+        fixture.send(kVK_ANSI_3)
+        await drain()
+        XCTAssertEqual(fixture.model.filterText, "3")
+        XCTAssertEqual(fixture.model.flatWindows[fixture.model.selectedFlatIndex].id, 3)
+        XCTAssertTrue(fixture.send(kVK_Escape))
+        await drain()
+        XCTAssertTrue(fixture.model.isArmed, "Escape on a search clears it instead of closing")
+        XCTAssertTrue(fixture.model.filterText.isEmpty)
+        XCTAssertEqual(fixture.model.flatWindows[fixture.model.selectedFlatIndex].id, 3,
+                       "The narrowed selection survives, as it does after Backspace")
+        fixture.release()
+        await drain()
+        XCTAssertEqual(fixture.focus.windowIDs, [3], "Releasing the shortcut still commits")
+    }
+
+    func testEscapeOnAnEmptySearchClosesAndLetsTheShortcutReopen() async {
+        let fixture = Fixture()
+        fixture.send()
+        await drain()
+        XCTAssertTrue(fixture.send(kVK_Escape))
+        await drain()
+        XCTAssertFalse(fixture.model.isArmed)
+        XCTAssertTrue(fixture.focus.windowIDs.isEmpty)
+        fixture.send()
+        await drain()
+        XCTAssertTrue(fixture.model.isArmed, "The held shortcut opens a new session after Escape")
+        fixture.release()
+        await drain()
+        XCTAssertEqual(fixture.focus.windowIDs, [2])
+    }
+
+    func testControlCommandDigitSwitchesToThatVisibleItemAtOnce() async {
+        let fixture = Fixture()
+        fixture.send()
+        await drain()
+        XCTAssertTrue(fixture.send(kVK_ANSI_3, flags: [.maskCommand, .maskControl]))
+        await drain()
+        XCTAssertFalse(fixture.model.isArmed)
+        XCTAssertEqual(fixture.focus.windowIDs, [3], "The third item in list order")
+        fixture.release()
+        await drain()
+        XCTAssertEqual(fixture.focus.windowIDs, [3], "The later release has nothing left to commit")
+    }
+
+    func testDigitsWithoutTheActionChordStaySearchText() async {
+        let fixture = Fixture()
+        fixture.send()
+        await drain()
+        XCTAssertTrue(fixture.send(kVK_ANSI_3))
+        await drain()
+        XCTAssertTrue(fixture.model.isArmed)
+        XCTAssertEqual(fixture.model.filterText, "3")
+        XCTAssertTrue(fixture.focus.windowIDs.isEmpty)
+    }
+
+    func testDigitPastTheVisibleListLeavesThePickerOpen() async {
+        let fixture = Fixture()
+        fixture.send()
+        await drain()
+        XCTAssertTrue(fixture.send(kVK_ANSI_9, flags: [.maskCommand, .maskControl]))
+        await drain()
+        XCTAssertTrue(fixture.model.isArmed)
+        XCTAssertTrue(fixture.focus.windowIDs.isEmpty)
+        fixture.release()
+        await drain()
+        XCTAssertEqual(fixture.focus.windowIDs, [2], "The original selection commits on release")
+    }
+
+    func testHomeAndEndSelectTheEndsOfTheVisibleList() async {
+        let fixture = Fixture()
+        fixture.send()
+        await drain()
+        XCTAssertEqual(fixture.model.flatWindows[fixture.model.selectedFlatIndex].id, 2)
+        XCTAssertTrue(fixture.send(kVK_End))
+        await drain()
+        XCTAssertEqual(fixture.model.flatWindows[fixture.model.selectedFlatIndex].id, 3)
+        XCTAssertTrue(fixture.send(kVK_Home))
+        await drain()
+        XCTAssertEqual(fixture.model.flatWindows[fixture.model.selectedFlatIndex].id, 1)
+        fixture.release()
+        await drain()
+        XCTAssertEqual(fixture.focus.windowIDs, [1])
     }
 
     /// Use the current keyboard layout without changing a user's system input source.
@@ -344,8 +434,10 @@ final class HotkeyManagerTests: XCTestCase {
             await drain()
             fixture.send(kVK_ANSI_H, flags: flags)
             fixture.send(kVK_ANSI_W, flags: flags)
+            fixture.send(kVK_ANSI_1, flags: flags)
             await drain()
-            XCTAssertEqual(fixture.model.filterText.lowercased(), "hw")
+            XCTAssertEqual(fixture.model.filterText.lowercased(), "hw1")
+            XCTAssertTrue(fixture.model.isArmed, "A digit is search text, not a jump, under this binding")
             XCTAssertTrue(fixture.focus.hiddenAppPIDs.isEmpty)
             XCTAssertTrue(fixture.focus.closedWindowIDs.isEmpty)
         }
