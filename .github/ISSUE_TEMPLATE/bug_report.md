@@ -16,6 +16,7 @@ labels: bug
 <!-- What did you expect Swiitch to do? -->
 
 ## Environment
+<!-- Preferences → About → Review Diagnostics → Report a Problem… fills this in for you. -->
 - macOS version:
 - Swiitch version (Preferences → About):
 - Hardware (Apple Silicon / Intel):
