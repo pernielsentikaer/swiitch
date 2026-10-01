@@ -15,6 +15,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var hotkey: HotkeyManager!
     private var focusTracker: FocusTracker!
     private var memoryPressure: MemoryPressureMonitor?
+    private var windowEvents: WindowEventMonitor?
     private var lastAXTrusted: Bool = false
     private var defaultsObserver: NSObjectProtocol?
     private var permissionObservations: [AnyCancellable] = []
@@ -53,6 +54,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         model = SwitcherModel(focusTracker: focusTracker)
         WindowDiscovery.shared.start()
+        // Change notifications keep the window list current between polls. Observers need
+        // Accessibility, so the monitor follows the permission transitions below.
+        windowEvents = WindowEventMonitor(dependencies: .init(
+            refresh: { await WindowDiscovery.shared.refreshAfterChange() }
+        ))
+        WindowDiscovery.shared.eventMonitor = windowEvents
         model.onShow = { [weak self] in self?.showPanel() }
         model.onHide = { [weak self] in self?.hidePanel() }
         model.onUpdate = { [weak self] in self?.panel?.refresh() }
@@ -100,6 +107,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         PermissionsMonitor.shared.stop()
         permissionObservations.removeAll()
         hotkey?.uninstall()
+        windowEvents?.stop()
         WindowDiscovery.shared.stop()
         if let defaultsObserver {
             NotificationCenter.default.removeObserver(defaultsObserver)
@@ -187,6 +195,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         lastAXTrusted = permissions.accessibilityGranted
         if lastAXTrusted {
             hotkey.install()
+            windowEvents?.start()
         }
         permissionObservations = [
             permissions.$accessibilityGranted.removeDuplicates().sink { [weak self] granted in
@@ -208,12 +217,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // wasn't already running. Safe to call repeatedly — HotkeyManager.install
             // is idempotent (no-ops if already installed).
             hotkey.install()
+            windowEvents?.start()
         } else {
             // Revoked mid-session. The event tap is now dead — ⌘+Tab events won't
             // reach us. Tear it down, cancel any in-progress switcher state, and
             // Show the compact permission recovery UI so the user has a one-click path back
             // to System Settings without being sent through onboarding again.
             hotkey.uninstall()
+            windowEvents?.stop()
             model.cancel()
             Task { @MainActor in
                 let hasCompletedOnboarding = UserDefaults.standard.bool(

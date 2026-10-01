@@ -110,6 +110,7 @@ Swiitch/
   Hotkey/Shortcut.swift           keycode + flags <-> human label helpers
   Hotkey/ShortcutRecordingSession.swift  suspends switching while a recorder is active
   Windows/WindowDiscovery.swift   background enumeration cache shared by picker + prewarm
+  Windows/WindowEventMonitor.swift  AX/NSWorkspace change notifications → coalesced fresh collections
   Windows/WindowEnumerator.swift  CGWindowList + AX ghost-filter, AX title fallback, screen scope
   Windows/WindowFocuser.swift     AX raise + frontmost + activate, close/minimize/zoom, hide
   Windows/WindowThumbnails.swift  ScreenCaptureKit + CGWindowList fallback (actor)

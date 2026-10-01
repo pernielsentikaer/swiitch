@@ -217,6 +217,40 @@ final class WindowDiscoveryTests: XCTestCase {
         XCTAssertEqual(total, 5, "The idle lifetime still expires")
     }
 
+    func testCoveringEventMonitorLetsUserRequestsReuseAFreshSnapshot() async {
+        let count = DiscoveryCount()
+        let clock = DiscoveryClock()
+        let service = WindowDiscovery(now: { clock.now }, collector: { _ in await count.add(); return Self.collection() })
+        let monitor = WindowEventMonitor(dependencies: .init(
+            trusted: { true }, refresh: { await service.refreshAfterChange() },
+            observeApplication: { pid, _ in .init(pid: pid) }, windowElements: { _ in [] }))
+        service.eventMonitor = monitor
+        monitor.start()
+
+        XCTAssertEqual(service.snapshotLifetime(background: false), WindowDiscovery.activeSnapshotLifetime,
+                       "Until a collection has been reconciled, a user request accepts only a one-second-old snapshot")
+        // The fixture collection has no apps, so after it the monitor trivially covers every app.
+        await service.prepare(context: context())
+        XCTAssertTrue(monitor.coversEveryApp)
+        XCTAssertEqual(service.snapshotLifetime(background: false), WindowDiscovery.eventDrivenSnapshotLifetime)
+
+        clock.now = 3
+        await service.prepare(context: context())
+        var total = await count.value
+        XCTAssertEqual(total, 1, "Covered and quiet: the picker opens on the cached snapshot")
+
+        clock.now = WindowDiscovery.eventDrivenSnapshotLifetime + 0.5
+        await service.prepare(context: context())
+        total = await count.value
+        XCTAssertEqual(total, 2, "The guard interval still forces a collection")
+
+        // A change notification forces a fresh collection regardless of age.
+        monitor.handle("AXWindowCreated")
+        await waitUntil("the change notification to force a collection") { await count.value == 3 }
+        monitor.stop()
+        XCTAssertEqual(service.snapshotLifetime(background: false), WindowDiscovery.activeSnapshotLifetime)
+    }
+
     func testWaitersWithDifferentKeysNeverLoseTrackOfEachOthersRequests() async {
         let count = DiscoveryCount()
         let gateA = DiscoveryGate()
