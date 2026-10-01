@@ -4,6 +4,7 @@ import CoreGraphics
 
 /// A single scoped recorder owner. Replacing a recorder cannot leave the global
 /// interceptor suspended; only the current owner may end the session.
+@MainActor
 final class ShortcutRecordingSession: NSObject, ObservableObject {
     static let shared = ShortcutRecordingSession()
     static let didBegin = Notification.Name("SwiitchShortcutRecordingDidBegin")

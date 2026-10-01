@@ -378,7 +378,7 @@ private final class CaptureModelFixture {
 
     init(granted: Bool = true, blocked: Bool = false, returnImages: Bool = false, windowCount: Int = 2,
          displayMode: Preferences.DisplayMode = .windows, frontmostPID: pid_t? = nil,
-         focus: @escaping (WindowInfo) -> Void = { _ in }) {
+         focus: @escaping @MainActor @Sendable (WindowInfo) -> Void = { _ in }) {
         defaults = UserDefaults(suiteName: suite)!
         defaults.set(displayMode.rawValue, forKey: Preferences.Key.displayMode)
         defaults.set(0, forKey: Preferences.Key.switcherShowDelayMs)

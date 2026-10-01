@@ -1,5 +1,6 @@
 import AppKit
-import ApplicationServices
+// The SDK exports the immutable AX prompt key as a mutable C global.
+@preconcurrency import ApplicationServices
 import CoreGraphics
 
 /// Polls the two TCC permissions Swiitch uses so UI can reflect live state.

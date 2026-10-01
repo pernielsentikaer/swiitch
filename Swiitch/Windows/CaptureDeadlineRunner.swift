@@ -24,7 +24,7 @@ actor CaptureDeadlineRunner {
     /// would otherwise make the next foreground batch fail immediately and back off
     /// windows that were never actually captured. Waiting for a slot is bounded by the
     /// same `timeout`; cancellation releases a queued caller at once.
-    func run<Value>(
+    func run<Value: Sendable>(
         timeout: TimeInterval,
         operation: @escaping @Sendable () async -> Value?
     ) async -> Value? {
@@ -97,7 +97,7 @@ actor CaptureDeadlineRunner {
     }
 }
 
-private actor CaptureDeadlineResult<Value> {
+private actor CaptureDeadlineResult<Value: Sendable> {
     private var resolved = false
     private var result: Value?
     private var waiter: CheckedContinuation<Value?, Never>?

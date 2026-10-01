@@ -1,5 +1,6 @@
 import AppKit
-import ApplicationServices
+// The SDK exports the immutable AX prompt key as a mutable C global.
+@preconcurrency import ApplicationServices
 
 enum PermissionsCheck {
     /// Checks whether the app is a trusted Accessibility client; prompts the user once if not.

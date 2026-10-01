@@ -66,7 +66,28 @@ private actor ThumbnailCapturePromise {
 actor WindowThumbnails {
     static let shared = WindowThumbnails(permissionCheck: { CGPreflightScreenCaptureAccess() })
     private static let nativeCaptures = CaptureDeadlineRunner()
-    private static let shareableContent = ShareableContentCache<SCShareableContent> { Set($0.windows.map(\.windowID)) }
+    private static let shareableContent = ShareableContentCache<[CaptureTarget]> { Set($0.map(\.windowID)) }
+
+    /// ScreenCaptureKit publishes immutable, read-only window snapshots, but older SDKs
+    /// do not mark SCWindow Sendable. Keep that interop exception private: callers only
+    /// see copied metadata and a fresh filter per capture, never a mutable SDK object.
+    private struct CaptureTarget: @unchecked Sendable {
+        private let window: SCWindow
+        private let filterLock = NSLock()
+        let windowID: CGWindowID
+        let size: CGSize
+
+        init(_ window: SCWindow) {
+            self.window = window
+            windowID = window.windowID
+            size = window.frame.size
+        }
+
+        func makeFilter() -> SCContentFilter {
+            // Serialize SDK access even if overlapping batches reuse this snapshot.
+            filterLock.withLock { SCContentFilter(desktopIndependentWindow: window) }
+        }
+    }
 
     private struct CacheEntry {
         let image: NSImage
@@ -503,16 +524,17 @@ actor WindowThumbnails {
                 guard CGPreflightScreenCaptureAccess() else { return nil }
                 // Include off-screen windows so we can grab thumbnails for things the user
                 // isn't currently looking at (other Spaces, etc.).
-                return try? await SCShareableContent.excludingDesktopWindows(
+                let content = try? await SCShareableContent.excludingDesktopWindows(
                     true,
                     onScreenWindowsOnly: false
                 )
+                return content?.windows.map(CaptureTarget.init)
             }
         }
         if let content {
             let requested = Set(windowIDs)
             let targetsByID = Dictionary(
-                uniqueKeysWithValues: content.windows.compactMap { window in
+                uniqueKeysWithValues: content.compactMap { window in
                     requested.contains(window.windowID) ? (window.windowID, window) : nil
                 }
             )
@@ -552,7 +574,7 @@ actor WindowThumbnails {
         }
     }
 
-    private nonisolated static func captureWithRetry(target: SCWindow) async -> CGImage? {
+    private nonisolated static func captureWithRetry(target: CaptureTarget) async -> CGImage? {
         if let image = await capture(target: target) {
             return image
         }
@@ -561,12 +583,12 @@ actor WindowThumbnails {
         return await capture(target: target)
     }
 
-    private nonisolated static func capture(target: SCWindow) async -> CGImage? {
+    private nonisolated static func capture(target: CaptureTarget) async -> CGImage? {
         await nativeCaptures.run(timeout: 1.5) {
             guard !Task.isCancelled, CGPreflightScreenCaptureAccess() else { return nil }
-            let filter = SCContentFilter(desktopIndependentWindow: target)
+            let filter = target.makeFilter()
             let config = SCStreamConfiguration()
-            let size = thumbnailPixelSize(for: target.frame.size)
+            let size = thumbnailPixelSize(for: target.size)
             config.width = Int(size.width)
             config.height = Int(size.height)
             config.showsCursor = false
@@ -651,7 +673,7 @@ actor WindowThumbnails {
 /// a window created after the listing forces a new fetch. Concurrent callers share one
 /// in-flight fetch instead of each paying for their own. Generic so tests can use a
 /// stand-in listing; ScreenCaptureKit's type cannot be constructed directly.
-actor ShareableContentCache<Content> {
+actor ShareableContentCache<Content: Sendable> {
     private let ttl: TimeInterval
     private let clock: @Sendable () -> TimeInterval
     private let windowIDs: @Sendable (Content) -> Set<CGWindowID>

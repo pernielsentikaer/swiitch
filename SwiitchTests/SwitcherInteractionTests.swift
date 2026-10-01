@@ -797,7 +797,7 @@ final class SwitcherInteractionTests: XCTestCase {
         let model: SwitcherModel
 
         init(displayMode: Preferences.DisplayMode = .windows,
-             cancelPendingFocus: @escaping () -> Void = {},
+             cancelPendingFocus: @escaping @MainActor @Sendable () -> Void = {},
              prepareSnapshot: ((EnumerateOptions) async -> Void)? = nil) {
             defaults = UserDefaults(suiteName: suite)!
             defaults.set(displayMode.rawValue, forKey: Preferences.Key.displayMode)
@@ -848,8 +848,10 @@ final class SwitcherInteractionTests: XCTestCase {
 
         deinit {
             // deinit is nonisolated; the fixture only ever dies on the main-actor test.
-            MainActor.assumeIsolated { model.cancel() }
-            defaults.removePersistentDomain(forName: suite)
+            MainActor.assumeIsolated {
+                model.cancel()
+                defaults.removePersistentDomain(forName: suite)
+            }
         }
     }
 }

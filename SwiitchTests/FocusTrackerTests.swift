@@ -2,6 +2,7 @@ import AppKit
 @testable import Swiitch
 import XCTest
 
+@MainActor
 final class FocusTrackerTests: XCTestCase {
     func testAppHistoryIgnoresPreviewVisitsAndResumesForRealActivations() {
         let tracker = FocusTracker()

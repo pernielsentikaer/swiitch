@@ -247,8 +247,10 @@ final class WindowActionFeedbackTests: XCTestCase {
 
         deinit {
             // deinit is nonisolated; the fixture only ever dies on the main-actor test.
-            MainActor.assumeIsolated { model.cancel() }
-            defaults.removePersistentDomain(forName: suite)
+            MainActor.assumeIsolated {
+                model.cancel()
+                defaults.removePersistentDomain(forName: suite)
+            }
         }
     }
 }

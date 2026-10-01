@@ -7,26 +7,19 @@ final class SwitcherModelTests: XCTestCase {
     private var defaults: UserDefaults!
     private var defaultsSuiteName: String!
 
-    // XCTest's lifecycle hooks are nonisolated; they run on the main thread, so the
-    // isolated fixture state is reached through `assumeIsolated` rather than by
-    // overriding them with a different isolation.
-    nonisolated override func setUp() {
-        super.setUp()
-        MainActor.assumeIsolated {
-            defaultsSuiteName = "com.swiitch.tests.\(UUID().uuidString)"
-            defaults = UserDefaults(suiteName: defaultsSuiteName)
-            defaults.set(0, forKey: Preferences.Key.switcherShowDelayMs)
-            defaults.set(false, forKey: Preferences.Key.peekOnHover)
-        }
+    // Async lifecycle hooks let XCTest hop to the fixture's actor without sending
+    // the non-Sendable XCTestCase through a synchronous assumeIsolated closure.
+    override func setUp() async throws {
+        defaultsSuiteName = "com.swiitch.tests.\(UUID().uuidString)"
+        defaults = UserDefaults(suiteName: defaultsSuiteName)
+        defaults.set(0, forKey: Preferences.Key.switcherShowDelayMs)
+        defaults.set(false, forKey: Preferences.Key.peekOnHover)
     }
 
-    nonisolated override func tearDown() {
-        MainActor.assumeIsolated {
-            defaults.removePersistentDomain(forName: defaultsSuiteName)
-            defaults = nil
-            defaultsSuiteName = nil
-        }
-        super.tearDown()
+    override func tearDown() async throws {
+        defaults.removePersistentDomain(forName: defaultsSuiteName)
+        defaults = nil
+        defaultsSuiteName = nil
     }
 
     func testAppFilterUsesWindowTitlesAndKeepsAbsoluteSelection() {
@@ -1272,13 +1265,13 @@ final class SwitcherModelTests: XCTestCase {
     private func makeModel(
         apps: [AppEntry],
         enumerate: ((EnumerateOptions) -> [AppEntry])? = nil,
-        focusApp: @escaping (AppEntry) -> Void = { _ in },
-        focusWindow: @escaping (WindowInfo) -> Void = { _ in },
+        focusApp: @escaping @MainActor @Sendable (AppEntry) -> Void = { _ in },
+        focusWindow: @escaping @MainActor @Sendable (WindowInfo) -> Void = { _ in },
         closeWindow: @escaping (WindowInfo) -> Bool = { _ in true },
         minimizeWindow: @escaping (WindowInfo) -> Bool = { _ in true },
         zoomWindow: @escaping (WindowInfo) -> Bool = { _ in true },
         hideApp: @escaping (pid_t) -> Bool = { _ in true },
-        focusPID: @escaping (pid_t) -> Void = { _ in },
+        focusPID: @escaping @MainActor @Sendable (pid_t) -> Void = { _ in },
         frontmostPID: @escaping () -> pid_t? = { nil },
         frontmostBundleID: @escaping () -> String? = { nil },
         focusedWindowID: @escaping (pid_t) -> CGWindowID? = { _ in nil },
@@ -1288,7 +1281,7 @@ final class SwitcherModelTests: XCTestCase {
             ThumbnailProgressHandler?
         ) async -> [CGWindowID: NSImage])? = nil,
         cancelThumbnailCaptures: (() async -> Void)? = nil,
-        scheduleCloseReconciliation: @escaping (@escaping () -> Void) -> Void = { $0() },
+        scheduleCloseReconciliation: @escaping (@escaping @MainActor @Sendable () -> Void) -> Void = { $0() },
         focusTracker: FocusTracker = FocusTracker()
     ) -> SwitcherModel {
         let dependencies = SwitcherModel.Dependencies(

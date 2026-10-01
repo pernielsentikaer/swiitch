@@ -56,17 +56,12 @@ final class ThumbnailCoordinator: ObservableObject {
     private var permissionTransition: Task<Void, Never>?
     private var updatingCapturePermission = false
     private var prewarmInFlight = false
-    private var prewarmTimer: Timer?
-    private var refreshTimer: Timer?
+    private var prewarmTimer: MainActorResource<Timer>?
+    private var refreshTimer: MainActorResource<Timer>?
 
     init(dependencies: SwitcherModel.Dependencies) {
         self.dependencies = dependencies
         screenCaptureGranted = dependencies.screenCaptureGranted()
-    }
-
-    deinit {
-        prewarmTimer?.invalidate()
-        refreshTimer?.invalidate()
     }
 
     // MARK: - Read
@@ -305,10 +300,10 @@ final class ThumbnailCoordinator: ObservableObject {
     /// `Timer.scheduledTimer` only fires in `.default` mode, which pauses while a context
     /// menu or other tracking loop runs; previews must keep refreshing under one.
     private static func scheduleTimer(interval: TimeInterval, repeats: Bool, tolerance: TimeInterval = 0,
-                                      block: @escaping () -> Void) -> Timer {
-        let timer = Timer(timeInterval: interval, repeats: repeats) { _ in block() }
+                                      block: @escaping @MainActor @Sendable () -> Void) -> MainActorResource<Timer> {
+        let timer = Timer(timeInterval: interval, repeats: repeats) { _ in MainActor.assumeIsolated { block() } }
         timer.tolerance = tolerance
         RunLoop.main.add(timer, forMode: .common)
-        return timer
+        return MainActorResource(timer) { $0.invalidate() }
     }
 }

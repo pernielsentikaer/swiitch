@@ -285,7 +285,7 @@ enum WindowEnumerator {
                           filterReasons: filterReasons, accessibilityMemory: memory)
     }
 
-    static func ordered(_ apps: [AppEntry], focusTracker: FocusTracker) -> [AppEntry] {
+    @MainActor static func ordered(_ apps: [AppEntry], focusTracker: FocusTracker) -> [AppEntry] {
         var entries = apps
         // Sort: pinned apps first (in pin order), then everything else by MRU rank,
         // ties broken alphabetically by name.

@@ -19,6 +19,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var lastAXTrusted: Bool = false
     private var defaultsObserver: NSObjectProtocol?
     private var permissionObservations: [AnyCancellable] = []
+    private var lastDock = false
+    private var lastAppearance = "system"
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Hosted unit tests load the app executable, which also calls its delegate. Do not
@@ -126,26 +128,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Defaults observation (side effects for preference changes)
 
     private func observeDefaults() {
-        var lastDock = UserDefaults.standard.bool(forKey: Preferences.Key.showDockIcon)
-        var lastAppearance = UserDefaults.standard.string(forKey: Preferences.Key.appearance) ?? "system"
+        lastDock = UserDefaults.standard.bool(forKey: Preferences.Key.showDockIcon)
+        lastAppearance = UserDefaults.standard.string(forKey: Preferences.Key.appearance) ?? "system"
 
         defaultsObserver = NotificationCenter.default.addObserver(
             forName: UserDefaults.didChangeNotification,
             object: UserDefaults.standard,
             queue: .main
         ) { [weak self] _ in
-            let dock = UserDefaults.standard.bool(forKey: Preferences.Key.showDockIcon)
-            if dock != lastDock {
-                lastDock = dock
-                Task { @MainActor [weak self] in
-                    self?.applyDockIconPreference()
-                }
+            MainActor.assumeIsolated { self?.defaultsDidChange() }
+        }
+    }
+
+    private func defaultsDidChange() {
+        let dock = UserDefaults.standard.bool(forKey: Preferences.Key.showDockIcon)
+        if dock != lastDock {
+            lastDock = dock
+            Task { @MainActor [weak self] in
+                self?.applyDockIconPreference()
             }
-            let appearance = UserDefaults.standard.string(forKey: Preferences.Key.appearance) ?? "system"
-            if appearance != lastAppearance {
-                lastAppearance = appearance
-                Preferences.applyAppearance()
-            }
+        }
+        let appearance = UserDefaults.standard.string(forKey: Preferences.Key.appearance) ?? "system"
+        if appearance != lastAppearance {
+            lastAppearance = appearance
+            Preferences.applyAppearance()
         }
     }
 

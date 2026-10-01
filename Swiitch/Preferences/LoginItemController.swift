@@ -12,7 +12,7 @@ final class LoginItemController: ObservableObject {
         var status: () -> Status
         var register: () throws -> Void
         var unregister: () throws -> Void
-        static let live = Self(
+        @MainActor static let live = Self(
             status: {
                 switch SMAppService.mainApp.status {
                 case .enabled: return .enabled

@@ -28,7 +28,7 @@ extension SwitcherModel {
         var invalidateThumbnail: ((CGWindowID) async -> Void)?
         var screenCaptureGranted: () -> Bool
         var setThumbnailCaptureAllowed: ((Bool) async -> Void)?
-        var scheduleCloseReconciliation: (@escaping () -> Void) -> Void
+        var scheduleCloseReconciliation: (@escaping @MainActor @Sendable () -> Void) -> Void
         var readWindowCapabilities: ((WindowInfo) async -> WindowActionCapabilities)?
         var performWindowAction: ((WindowAction, WindowInfo) -> WindowActionResult)?
         var cancelPendingFocus: @MainActor () -> Void
@@ -56,7 +56,7 @@ extension SwitcherModel {
             invalidateThumbnail: ((CGWindowID) async -> Void)? = nil,
             screenCaptureGranted: @escaping () -> Bool = { true },
             setThumbnailCaptureAllowed: ((Bool) async -> Void)? = nil,
-            scheduleCloseReconciliation: @escaping (@escaping () -> Void) -> Void = { action in
+            scheduleCloseReconciliation: @escaping (@escaping @MainActor @Sendable () -> Void) -> Void = { action in
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: action)
             },
             prepareSnapshot: ((EnumerateOptions) async -> Void)? = nil,
@@ -89,8 +89,8 @@ extension SwitcherModel {
             self.cancelPendingFocus = cancelPendingFocus
         }
 
-        /// Construct inside an actor-isolated function, rather than a stored initializer.
-        /// Swift 5 complete checking otherwise diagnoses conflicting default-argument isolation.
+        /// Construct inside the actor; default arguments must not instantiate UI dependencies
+        /// from a caller's nonisolated context, including on older supported toolchains.
         @MainActor static var live: Dependencies {
             Dependencies(
                 enumerate: { focusTracker, options in
