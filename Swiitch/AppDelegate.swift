@@ -14,6 +14,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var model: SwitcherModel!
     private var hotkey: HotkeyManager!
     private var focusTracker: FocusTracker!
+    private var memoryPressure: MemoryPressureMonitor?
     private var lastAXTrusted: Bool = false
     private var defaultsObserver: NSObjectProtocol?
     private var permissionObservations: [AnyCancellable] = []
@@ -58,6 +59,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         hotkey = HotkeyManager(model: model)
 
+        // Previews are cheap to recapture; give the memory back when the system asks.
+        memoryPressure = MemoryPressureMonitor { constrained in
+            Task { await WindowThumbnails.shared.setMemoryConstrained(constrained) }
+        }
+        memoryPressure?.start()
+
         WelcomeWindowController.shared.onFinish = { [weak self] in
             self?.applyDockIconPreference()
         }
@@ -97,6 +104,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let defaultsObserver {
             NotificationCenter.default.removeObserver(defaultsObserver)
         }
+        memoryPressure?.stop()
     }
 
     /// Dock click / Finder double-click / `open` while we're already running.

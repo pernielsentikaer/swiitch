@@ -98,6 +98,30 @@ final class ThumbnailFreshnessTests: XCTestCase {
         XCTAssertEqual(batches, [[1], foreground], "All foreground previews remain cached")
     }
 
+    func testMemoryPressureDropsTheCacheAndPausesPrewarmingUntilNormal() async {
+        let provider = ThumbnailTestCapture()
+        let cache = makeCache(ThumbnailTestClock(), provider)
+        _ = await cache.images(for: [1, 2])
+        await cache.setMemoryConstrained(true)
+        var stats = await cache.statistics
+        XCTAssertEqual(stats.cachedImages, 0, "Pressure empties the cache")
+        XCTAssertEqual(stats.memoryPressureClears, 1)
+        XCTAssertEqual(stats.cacheEvictions, 0, "A pressure clear is not a capacity eviction")
+
+        await cache.prewarm([1, 2])
+        var batches = await provider.batches.count
+        XCTAssertEqual(batches, 1, "Idle prewarming stays off while constrained")
+        let onDemand = await cache.images(for: [1])
+        XCTAssertNotNil(onDemand[1], "The picker still captures what it shows")
+
+        await cache.setMemoryConstrained(false)
+        await cache.prewarm([1, 2])
+        batches = await provider.batches.count
+        stats = await cache.statistics
+        XCTAssertEqual(batches, 3, "Normal pressure resumes prewarming of what is missing")
+        XCTAssertEqual(stats.cachedImages, 2)
+    }
+
     func testBytePressureAlsoCountsAsCapacityEviction() async {
         let cache = WindowThumbnails(captureProvider: { ids, deliver in
             for id in ids {

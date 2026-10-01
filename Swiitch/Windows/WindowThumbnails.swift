@@ -117,6 +117,8 @@ actor WindowThumbnails {
     private var cacheHitCount = 0
     private var cacheMissCount = 0
     private var cacheEvictionCount = 0
+    private var memoryConstrained = false
+    private var memoryPressureClearCount = 0
 
     /// Aggregate-only diagnostics. Never expose window IDs, images, titles, or URLs.
     struct Statistics: Codable {
@@ -132,13 +134,16 @@ actor WindowThumbnails {
         let cacheMisses: Int
         /// Capacity removals only; closing windows, pruning, and permission clears do not count.
         let cacheEvictions: Int
+        /// Times the system's memory-pressure signal emptied the cache.
+        let memoryPressureClears: Int
     }
 
     var statistics: Statistics {
         Statistics(cachedImages: images.count, cacheBytes: totalByteCost,
                    pendingWindows: inFlight.count, activeBatches: captureTasks.count,
                    backoffWindows: failures.count, timedOutBatches: timeoutCount, failedCaptures: failureCount,
-                   cacheHits: cacheHitCount, cacheMisses: cacheMissCount, cacheEvictions: cacheEvictionCount)
+                   cacheHits: cacheHitCount, cacheMisses: cacheMissCount, cacheEvictions: cacheEvictionCount,
+                   memoryPressureClears: memoryPressureClearCount)
     }
 
     init(
@@ -166,6 +171,7 @@ actor WindowThumbnails {
     /// pass can never overflow the byte budget either.
     @discardableResult
     func prewarm(_ windowIDs: [CGWindowID]) async -> [CGWindowID: NSImage] {
+        guard !memoryConstrained else { return [:] }
         let countRoom = Self.cacheCountLimit - images.count - inFlight.count
         let reservedBytes = inFlight.count * Self.worstCaseByteCost
         let byteRoom = (Self.cacheByteLimit - totalByteCost - reservedBytes) / Self.worstCaseByteCost
@@ -341,6 +347,15 @@ actor WindowThumbnails {
         failures.removeAll()
         totalByteCost = 0
         await cancelPendingCaptures()
+    }
+
+    /// Under memory pressure the cache is dropped and idle prewarming pauses until the
+    /// system reports normal again; the picker's own loads still capture on demand.
+    func setMemoryConstrained(_ constrained: Bool) async {
+        memoryConstrained = constrained
+        guard constrained else { return }
+        memoryPressureClearCount += 1
+        await clear()
     }
 
     /// Called on Screen Recording transitions. Denial never prompts and revokes cached
