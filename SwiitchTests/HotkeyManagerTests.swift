@@ -426,7 +426,7 @@ final class HotkeyManagerTests: XCTestCase {
         }
     }
 
-    func testModifiersAlreadyRequiredByBindingCannotTriggerWindowActions() async {
+    func testModifiersAlreadyRequiredByBindingCannotTriggerWindowActions() async throws {
         let variants: [CGEventFlags] = [[.maskCommand, .maskControl], [.maskCommand, .maskControl, .maskShift]]
         for flags in variants {
             let fixture = Fixture(primary: [.maskCommand, .maskControl])
@@ -436,7 +436,13 @@ final class HotkeyManagerTests: XCTestCase {
             fixture.send(kVK_ANSI_W, flags: flags)
             fixture.send(kVK_ANSI_1, flags: flags)
             await drain()
-            XCTAssertEqual(fixture.model.filterText.lowercased(), "hw1")
+            // Shift remains meaningful for search text (e.g. Shift-1 types "!").
+            // Resolve it through the current layout without changing the input source.
+            let event = try XCTUnwrap(CGEvent(keyboardEventSource: CGEventSource(stateID: .combinedSessionState),
+                                              virtualKey: CGKeyCode(kVK_ANSI_1), keyDown: true))
+            event.flags = flags
+            let character = try XCTUnwrap(NSEvent(cgEvent: event)?.charactersIgnoringModifiers?.first)
+            XCTAssertEqual(fixture.model.filterText.lowercased(), "hw" + String(character).lowercased())
             XCTAssertTrue(fixture.model.isArmed, "A digit is search text, not a jump, under this binding")
             XCTAssertTrue(fixture.focus.hiddenAppPIDs.isEmpty)
             XCTAssertTrue(fixture.focus.closedWindowIDs.isEmpty)
