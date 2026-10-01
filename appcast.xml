@@ -7,6 +7,28 @@
         <language>en</language>
 
         <item>
+            <title>0.1.13</title>
+            <pubDate>Thu, 01 Oct 2026 12:35:58 +0200</pubDate>
+            <sparkle:version>68</sparkle:version>
+            <sparkle:shortVersionString>0.1.13</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[
+                <ul>
+                    <li>Ranks app and window search results by match quality, with recent windows breaking ties.</li>
+                    <li>Finds apps by initials, such as vsc for Visual Studio Code, and highlights matched characters in your accent color.</li>
+                    <li>Preserves case- and accent-insensitive matching and correct highlights for emoji, accented titles, and expanded spellings such as Straße / strasse.</li>
+                    <li>Reuses search calculations across typing, navigation, and rendering to keep large window lists responsive.</li>
+                </ul>
+                <p><b>Not notarized by Apple.</b> This ad-hoc-signed app uses a separately verified Sparkle update signature. macOS may require manual first-launch approval and renewed Accessibility or Screen Recording permissions.</p>
+            ]]></description>
+            <enclosure
+                url="https://github.com/pernielsentikaer/swiitch/releases/download/v0.1.13/Swiitch-v0.1.13.zip"
+                length="3237428"
+                type="application/octet-stream"
+                sparkle:edSignature="y4Cmr/k+cVGp7HkBEtRFo1aSFPQQmUyZu985zghSIxIPumvYCdakiDRVmvh63q1MveSWvg439fy3/HdOHdxpDQ==" />
+        </item>
+
+        <item>
             <title>0.1.12</title>
             <pubDate>Thu, 01 Oct 2026 12:01:18 +0200</pubDate>
             <sparkle:version>67</sparkle:version>
