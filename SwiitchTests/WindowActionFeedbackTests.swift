@@ -215,11 +215,7 @@ final class WindowActionFeedbackTests: XCTestCase {
     }
 
     private func eventually(_ condition: () -> Bool, file: StaticString = #filePath, line: UInt = #line) async {
-        for _ in 0..<100 {
-            if condition() { return }
-            try? await Task.sleep(for: .milliseconds(5))
-        }
-        XCTFail("Timed out waiting for test state", file: file, line: line)
+        await waitUntil("the test state", file: file, line: line) { condition() }
     }
 
     @MainActor

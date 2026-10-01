@@ -657,11 +657,7 @@ final class WindowThumbnailsTests: XCTestCase {
         }
         await controller.waitUntilFirstDelivery()
 
-        for _ in 0..<100 {
-            let ids = await MainActor.run { recorder.ids }
-            if ids == [1] { break }
-            try await Task.sleep(nanoseconds: 10_000_000)
-        }
+        await waitUntil("the first delivery to land") { recorder.ids == [1] }
         let partialIDs = await MainActor.run { recorder.ids }
         XCTAssertEqual(partialIDs, [1])
 
