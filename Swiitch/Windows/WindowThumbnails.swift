@@ -3,7 +3,7 @@ import ScreenCaptureKit
 import os
 
 typealias ThumbnailProgressHandler = @MainActor @Sendable (CGWindowID, NSImage) -> Void
-typealias ThumbnailCaptureDelivery = @Sendable (CGWindowID, NSImage?) async -> Void
+typealias ThumbnailCaptureDelivery = @Sendable (CGWindowID, CapturedThumbnail?) async -> Void
 typealias ThumbnailCaptureProvider = @Sendable (
     [CGWindowID],
     ThumbnailCaptureDelivery
@@ -30,17 +30,17 @@ private final class ThumbnailGeneration: @unchecked Sendable {
 
 private actor ThumbnailCapturePromise {
     private var isResolved = false
-    private var image: NSImage?
-    private var waiters: [CheckedContinuation<NSImage?, Never>] = []
+    private var image: CapturedThumbnail?
+    private var waiters: [CheckedContinuation<CapturedThumbnail?, Never>] = []
 
-    func value() async -> NSImage? {
+    func value() async -> CapturedThumbnail? {
         if isResolved { return image }
         return await withCheckedContinuation { continuation in
             waiters.append(continuation)
         }
     }
 
-    func resolve(_ image: NSImage?) {
+    func resolve(_ image: CapturedThumbnail?) {
         guard !isResolved else { return }
         isResolved = true
         self.image = image
@@ -90,7 +90,7 @@ actor WindowThumbnails {
     }
 
     private struct CacheEntry {
-        let image: NSImage
+        let image: CapturedThumbnail
         let byteCost: Int
         let capturedAt: TimeInterval
         let generation: ThumbnailGeneration
@@ -191,7 +191,7 @@ actor WindowThumbnails {
     /// were the ones missing. Room is judged against the largest possible capture so a
     /// pass can never overflow the byte budget either.
     @discardableResult
-    func prewarm(_ windowIDs: [CGWindowID]) async -> [CGWindowID: NSImage] {
+    func prewarm(_ windowIDs: [CGWindowID]) async -> [CGWindowID: CapturedThumbnail] {
         guard !memoryConstrained else { return [:] }
         let countRoom = Self.cacheCountLimit - images.count - inFlight.count
         let reservedBytes = inFlight.count * Self.worstCaseByteCost
@@ -220,7 +220,7 @@ actor WindowThumbnails {
         fresh: Bool = false,
         maximumAge: TimeInterval = 3,
         onUpdate: ThumbnailProgressHandler? = nil
-    ) async -> [CGWindowID: NSImage] {
+    ) async -> [CGWindowID: CapturedThumbnail] {
         await loadImages(for: windowIDs, fresh: fresh, maximumAge: maximumAge,
                          onUpdate: onUpdate, allowsCacheEviction: true)
     }
@@ -231,12 +231,12 @@ actor WindowThumbnails {
         maximumAge: TimeInterval = 3,
         onUpdate: ThumbnailProgressHandler? = nil,
         allowsCacheEviction: Bool
-    ) async -> [CGWindowID: NSImage] {
+    ) async -> [CGWindowID: CapturedThumbnail] {
         guard captureAllowed, permissionCheck() else {
             await clear()
             return [:]
         }
-        var result: [CGWindowID: NSImage] = [:]
+        var result: [CGWindowID: CapturedThumbnail] = [:]
         var generations: [CGWindowID: ThumbnailGeneration] = [:]
         var requests: [(CGWindowID, ThumbnailCapturePromise)] = []
         var newCaptureIDs: [CGWindowID] = []
@@ -292,12 +292,12 @@ actor WindowThumbnails {
             // each image can let the grid paint a partially restored cache.
             await MainActor.run {
                 for (windowID, image, generation) in cached {
-                    if generation.isValid { onUpdate(windowID, image) }
+                    if generation.isValid { onUpdate(windowID, image.image) }
                 }
             }
         }
 
-        await withTaskGroup(of: (CGWindowID, NSImage?).self) { group in
+        await withTaskGroup(of: (CGWindowID, CapturedThumbnail?).self) { group in
             for (windowID, promise) in requests {
                 group.addTask {
                     (windowID, await promise.value())
@@ -308,7 +308,7 @@ actor WindowThumbnails {
                 result[windowID] = image
                 if let onUpdate {
                     await MainActor.run {
-                        if generation.isValid { onUpdate(windowID, image) }
+                        if generation.isValid { onUpdate(windowID, image.image) }
                     }
                 }
             }
@@ -387,9 +387,9 @@ actor WindowThumbnails {
         else { failures.removeAll() }
     }
 
-    private func store(_ image: NSImage, for windowID: CGWindowID,
+    private func store(_ image: CapturedThumbnail, for windowID: CGWindowID,
                        generation: ThumbnailGeneration, allowsEviction: Bool) {
-        let byteCost = estimatedByteCost(of: image)
+        let byteCost = image.byteCost
         if !allowsEviction {
             // Foreground captures may have filled the cache while prewarm was suspended.
             // A late background result must never displace a preview the picker just used.
@@ -433,15 +433,6 @@ actor WindowThumbnails {
         totalByteCost = max(0, totalByteCost - removed.byteCost)
     }
 
-    private func estimatedByteCost(of image: NSImage) -> Int {
-        if let representation = image.representations.max(by: {
-            $0.pixelsWide * $0.pixelsHigh < $1.pixelsWide * $1.pixelsHigh
-        }) {
-            return max(1, representation.pixelsWide) * max(1, representation.pixelsHigh) * 4
-        }
-        return max(1, Int(image.size.width)) * max(1, Int(image.size.height)) * 4
-    }
-
     private func startCapture(windowIDs: [CGWindowID], token: UInt64) {
         let provider = captureProvider
         let task = Task(priority: .userInitiated) { [weak self] in
@@ -467,7 +458,7 @@ actor WindowThumbnails {
         await resolveUnfinished(windowIDs: windowIDs, token: token)
     }
 
-    private func finishCapture(windowID: CGWindowID, image: NSImage?, token: UInt64) async {
+    private func finishCapture(windowID: CGWindowID, image: CapturedThumbnail?, token: UInt64) async {
         guard let capture = inFlight[windowID], capture.token == token else { return }
         guard captureAllowed, permissionCheck() else { await clear(); return }
         inFlight.removeValue(forKey: windowID)
@@ -551,7 +542,7 @@ actor WindowThumbnails {
                         }
                     }
                     for await (windowID, image) in group {
-                        guard let image, let thumbnail = thumbnailImage(from: image) else { continue }
+                        guard let image, let thumbnail = thumbnail(from: image) else { continue }
                         successfulIDs.insert(windowID)
                         await deliver(windowID, thumbnail)
                     }
@@ -599,7 +590,7 @@ actor WindowThumbnails {
         }
     }
 
-    private nonisolated static func boundedCoreGraphicsCapture(windowID: CGWindowID) async -> NSImage? {
+    private nonisolated static func boundedCoreGraphicsCapture(windowID: CGWindowID) async -> CapturedThumbnail? {
         await nativeCaptures.run(timeout: 1) {
             guard !Task.isCancelled, CGPreflightScreenCaptureAccess() else { return nil }
             return captureUsingCoreGraphics(windowID: windowID)
@@ -619,7 +610,7 @@ actor WindowThumbnails {
         )
     }
 
-    private nonisolated static func captureUsingCoreGraphics(windowID: CGWindowID) -> NSImage? {
+    private nonisolated static func captureUsingCoreGraphics(windowID: CGWindowID) -> CapturedThumbnail? {
         let options: CGWindowImageOption = [.boundsIgnoreFraming, .nominalResolution]
         guard let cgImage = CGWindowListCreateImage(
             .null,
@@ -630,13 +621,13 @@ actor WindowThumbnails {
             return nil
         }
         guard cgImage.width > 0, cgImage.height > 0 else { return nil }
-        return Self.thumbnailImage(from: cgImage)
+        return Self.thumbnail(from: cgImage)
     }
 
     /// Enforce the returned bitmap's dimensions, not just the size requested from
     /// ScreenCaptureKit. Both native capture paths must pass through this boundary
     /// before images reach the cache or UI. The 8-bit bitmap also bounds byte cost.
-    nonisolated static func thumbnailImage(from cgImage: CGImage) -> NSImage? {
+    nonisolated static func thumbnail(from cgImage: CGImage) -> CapturedThumbnail? {
         let size = thumbnailPixelSize(
             for: CGSize(width: cgImage.width, height: cgImage.height)
         )
@@ -654,17 +645,7 @@ actor WindowThumbnails {
         context.interpolationQuality = .high
         context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
         guard let scaled = context.makeImage() else { return nil }
-        return nsImage(from: scaled)
-    }
-
-    private nonisolated static func nsImage(from cgImage: CGImage) -> NSImage {
-        // NSImage(cgImage:size:) may create a display-scaled backing representation
-        // (e.g. 1440 pixels for a 720-point image on Retina). Keep the actual bitmap
-        // explicitly so both retained pixels and cache accounting stay bounded.
-        let representation = NSBitmapImageRep(cgImage: cgImage)
-        let image = NSImage(size: NSSize(width: cgImage.width, height: cgImage.height))
-        image.addRepresentation(representation)
-        return image
+        return CapturedThumbnail(bitmap: scaled)
     }
 }
 

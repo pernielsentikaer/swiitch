@@ -647,7 +647,7 @@ final class SwitcherModelTests: XCTestCase {
         XCTAssertNotNil(model.thumbnails[2], "The highlighted window should receive its image first")
         XCTAssertNil(model.thumbnails[1], "The first image should appear while the rest of the batch is still running")
 
-        await capture.finish()
+        capture.finish()
         await waitUntil("the rest of the batch to land") { model.thumbnails.count == 3 }
         XCTAssertEqual(Set(model.thumbnails.keys), Set([1, 2, 3]))
     }
@@ -1275,7 +1275,7 @@ final class SwitcherModelTests: XCTestCase {
         frontmostPID: @escaping () -> pid_t? = { nil },
         frontmostBundleID: @escaping () -> String? = { nil },
         focusedWindowID: @escaping (pid_t) -> CGWindowID? = { _ in nil },
-        thumbnails: ((
+        thumbnails: (@MainActor (
             [CGWindowID],
             Bool,
             ThumbnailProgressHandler?
@@ -1372,7 +1372,8 @@ private actor ThumbnailLifecycleRecorder {
     }
 }
 
-private actor ProgressiveModelThumbnailCapture {
+@MainActor
+private final class ProgressiveModelThumbnailCapture {
     private var didDeliverFirst = false
     private var mayFinish = false
     private var firstDeliveryWaiters: [CheckedContinuation<Void, Never>] = []
@@ -1384,7 +1385,7 @@ private actor ProgressiveModelThumbnailCapture {
     ) async -> [CGWindowID: NSImage] {
         guard let first = ids.first else { return [:] }
         let image = NSImage(size: NSSize(width: 32, height: 24))
-        await onUpdate?(first, image)
+        onUpdate?(first, image)
         didDeliverFirst = true
         firstDeliveryWaiters.forEach { $0.resume() }
         firstDeliveryWaiters.removeAll()

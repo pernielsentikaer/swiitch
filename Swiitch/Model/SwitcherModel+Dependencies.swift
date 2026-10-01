@@ -18,7 +18,7 @@ extension SwitcherModel {
         var frontmostPID: () -> pid_t?
         var frontmostBundleID: () -> String?
         var focusedWindowID: (pid_t) -> CGWindowID?
-        var thumbnails: ((
+        var thumbnails: (@MainActor (
             [CGWindowID],
             Bool,
             ThumbnailProgressHandler?
@@ -46,7 +46,7 @@ extension SwitcherModel {
             frontmostPID: @escaping () -> pid_t? = { NSWorkspace.shared.frontmostApplication?.processIdentifier },
             frontmostBundleID: @escaping () -> String? = { NSWorkspace.shared.frontmostApplication?.bundleIdentifier },
             focusedWindowID: @escaping (pid_t) -> CGWindowID? = { AXPrivate.focusedWindowID(forPID: $0) },
-            thumbnails: ((
+            thumbnails: (@MainActor (
                 [CGWindowID],
                 Bool,
                 ThumbnailProgressHandler?
@@ -110,10 +110,14 @@ extension SwitcherModel {
                 thumbnails: { windowIDs, fresh, onUpdate in
                     // Only the picker asks for progress. Idle prewarming fills what the cache
                     // has room for and never recaptures or evicts; see `WindowThumbnails.prewarm`.
-                    guard let onUpdate else { return await WindowThumbnails.shared.prewarm(windowIDs) }
-                    return await WindowThumbnails.shared.images(
+                    guard let onUpdate else {
+                        await WindowThumbnails.shared.prewarm(windowIDs)
+                        return [:] // Idle warming does not need AppKit wrappers.
+                    }
+                    let captured = await WindowThumbnails.shared.images(
                         for: windowIDs, fresh: fresh, maximumAge: 3, onUpdate: onUpdate
                     )
+                    return captured.mapValues(\.image)
                 },
                 cancelThumbnailCaptures: {
                     await WindowThumbnails.shared.cancelPendingCaptures()

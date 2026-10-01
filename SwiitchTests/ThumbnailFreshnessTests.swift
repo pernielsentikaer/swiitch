@@ -125,7 +125,7 @@ final class ThumbnailFreshnessTests: XCTestCase {
     func testBytePressureAlsoCountsAsCapacityEviction() async {
         let cache = WindowThumbnails(captureProvider: { ids, deliver in
             for id in ids {
-                await deliver(id, NSImage(size: NSSize(width: 2_000, height: 2_000)))
+                await deliver(id, thumbnailFixture(size: NSSize(width: 2_000, height: 2_000)))
             }
         })
         _ = await cache.images(for: (1...7).map { CGWindowID($0) })
@@ -144,19 +144,21 @@ final class ThumbnailFreshnessTests: XCTestCase {
         XCTAssertEqual(stats.cacheEvictions, 0)
     }
 
-    func testReturnedBitmapIsBoundedWithoutUpscaling() throws {
+    @MainActor func testReturnedBitmapIsBoundedWithoutUpscaling() throws {
         for (width, height, expectedWidth, expectedHeight) in [
             (2_880, 1_760, 720, 440),
             (1_760, 2_880, 440, 720),
             (120, 80, 120, 80),
         ] {
             let source = try bitmap(width: width, height: height)
-            let image = try XCTUnwrap(WindowThumbnails.thumbnailImage(from: source))
+            let captured = try XCTUnwrap(WindowThumbnails.thumbnail(from: source))
+            let image = captured.image
             let representation = try XCTUnwrap(image.representations.first)
             XCTAssertTrue(representation is NSBitmapImageRep, "Retain the real bitmap, not a display-scaled snapshot")
             XCTAssertEqual(representation.pixelsWide, expectedWidth)
             XCTAssertEqual(representation.pixelsHigh, expectedHeight)
             XCTAssertEqual(image.size, NSSize(width: expectedWidth, height: expectedHeight))
+            XCTAssertTrue(image === captured.image, "UI wrappers are reused, not recreated on every delivery")
         }
     }
 
@@ -515,7 +517,7 @@ private actor BitmapThumbnailCapture {
     func capture(_ ids: [CGWindowID], deliver: ThumbnailCaptureDelivery) async {
         batches.append(ids)
         for id in ids {
-            await deliver(id, WindowThumbnails.thumbnailImage(from: source))
+            await deliver(id, WindowThumbnails.thumbnail(from: source))
         }
     }
 }
@@ -528,8 +530,8 @@ private final class ThumbnailBatchRecorder {
 
 private actor ThumbnailCompletion {
     private(set) var finished = false
-    private(set) var images: [CGWindowID: NSImage] = [:]
-    func complete(_ result: [CGWindowID: NSImage]) { images = result; finished = true }
+    private(set) var images: [CGWindowID: CapturedThumbnail] = [:]
+    func complete(_ result: [CGWindowID: CapturedThumbnail]) { images = result; finished = true }
 }
 
 private final class ThumbnailTestClock: @unchecked Sendable {
@@ -559,7 +561,7 @@ private actor ThumbnailTestCapture {
             await withCheckedContinuation { waiters[batch] = $0 }
         }
         // Intentionally ignores cancellation to model a native capture finishing late.
-        let image = failed.contains(batch) ? nil : NSImage(size: imageSize ?? NSSize(width: 100 + batch, height: 24))
+        let image = failed.contains(batch) ? nil : thumbnailFixture(size: imageSize ?? NSSize(width: 100 + batch, height: 24))
         for id in ids { await deliver(id, image) }
     }
 
