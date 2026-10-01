@@ -471,7 +471,7 @@ private final class ModelCaptureProbe {
     private(set) var freshRequests: [Bool] = []
     private(set) var permissions: [Bool] = []
     private var progressHandlers: [Int: ThumbnailProgressHandler] = [:]
-    private var waiters: [Int: CheckedContinuation<[CGWindowID: NSImage], Never>] = [:]
+    private var waiters: [Int: CheckedContinuation<CGWindowID?, Never>] = [:]
     init(blocked: Bool, returnImages: Bool = false) { self.blocked = blocked; self.returnImages = returnImages }
 
     func load(_ ids: [CGWindowID], fresh: Bool, progress: ThumbnailProgressHandler?) async -> [CGWindowID: NSImage] {
@@ -479,7 +479,12 @@ private final class ModelCaptureProbe {
         freshRequests.append(fresh)
         let batch = calls.count
         progressHandlers[batch] = progress
-        if blocked { return await withCheckedContinuation { waiters[batch] = $0 } }
+        if blocked {
+            // Continuations transfer their result even when resumed on the same actor.
+            // Send only the fixture ID and construct AppKit images after resuming on main.
+            let imageID = await withCheckedContinuation { waiters[batch] = $0 }
+            return imageID.map { [$0: NSImage(size: NSSize(width: 100 + batch, height: 24))] } ?? [:]
+        }
         if returnImages {
             return Dictionary(uniqueKeysWithValues: ids.map { ($0, NSImage(size: NSSize(width: 100 + batch, height: 24))) })
         }
@@ -491,7 +496,6 @@ private final class ModelCaptureProbe {
         progressHandlers[batch]?(id, NSImage(size: NSSize(width: 100 + batch, height: 24)))
     }
     func finish(batch: Int, imageID: CGWindowID? = nil) {
-        let result = imageID.map { [$0: NSImage(size: NSSize(width: 100 + batch, height: 24))] } ?? [:]
-        waiters.removeValue(forKey: batch)?.resume(returning: result)
+        waiters.removeValue(forKey: batch)?.resume(returning: imageID)
     }
 }
