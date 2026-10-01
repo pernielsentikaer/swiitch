@@ -44,9 +44,9 @@ final class ShareableContentCacheTests: XCTestCase {
         let cache = ShareableContentCache<Listing>(ttl: 1, clock: { 0 }, windowIDs: \.ids)
         let gate = FetchGate()
         async let a = cache.content(covering: [1]) { await gate.wait(); return Listing(ids: [1, 2], serial: 1) }
-        try? await Task.sleep(for: .milliseconds(30))
+        await waitUntil("the first fetch to start") { await cache.fetchCount == 1 }
         async let b = cache.content(covering: [2]) { Listing(ids: [2], serial: 2) }
-        try? await Task.sleep(for: .milliseconds(30))
+        await waitUntil("the second caller to join the in-flight fetch") { await cache.inFlightJoinCount == 1 }
         await gate.release()
         let (first, second) = await (a, b)
         XCTAssertEqual(first?.serial, 1)
@@ -63,7 +63,7 @@ final class ShareableContentCacheTests: XCTestCase {
             await firstGate.wait()
             return Listing(ids: [1], serial: 1)
         }
-        try? await Task.sleep(for: .milliseconds(30))
+        await waitUntil("the first fetch to start") { await cache.fetchCount == 1 }
         async let second = cache.content(covering: [9]) {
             await nextGate.wait()
             return Listing(ids: [1, 9], serial: 2)
@@ -72,9 +72,10 @@ final class ShareableContentCacheTests: XCTestCase {
             await nextGate.wait()
             return Listing(ids: [1, 9], serial: 2)
         }
-        try? await Task.sleep(for: .milliseconds(30))
+        await waitUntil("both callers to join the first fetch") { await cache.inFlightJoinCount == 2 }
         await firstGate.release()
-        try? await Task.sleep(for: .milliseconds(30))
+        // Whichever waiter resumes first starts the follow-up fetch; the other must join it.
+        await waitUntil("the other waiter to join the follow-up fetch") { await cache.inFlightJoinCount == 3 }
         await nextGate.release()
         let (a, b, c) = await (first, second, third)
         XCTAssertEqual(a?.serial, 1)

@@ -255,9 +255,10 @@ final class ThumbnailStateTests: XCTestCase {
         let fixture = CaptureModelFixture(granted: false, focus: { focused = $0.id })
         defer { fixture.close() }
         fixture.model.arm(reverse: false)
-        try await Task.sleep(for: .milliseconds(40))
         XCTAssertEqual(fixture.model.flatWindows.count, 2)
         XCTAssertEqual(fixture.model.thumbnailState(for: 1), .permissionRequired)
+        // Settle so a capture wrongly started in the background would have landed by now.
+        try await Task.sleep(for: .milliseconds(40))
         let calls = await fixture.capture.calls.count
         XCTAssertEqual(calls, 0)
         fixture.model.commitWindow(id: 1)
@@ -306,7 +307,7 @@ final class ThumbnailStateTests: XCTestCase {
         try await eventually { fixture.model.thumbnailState(for: 2) == .ready }
         await fixture.capture.progress(batch: 1, id: 2)
         await fixture.capture.finish(batch: 1, imageID: 2)
-        try await Task.sleep(for: .milliseconds(10))
+        try await eventually { fixture.model.thumbnails[2]?.size.width == 102 }
         XCTAssertEqual(fixture.model.thumbnails[2]?.size.width, 102)
         let transitions = await fixture.capture.permissions
         XCTAssertEqual(transitions, [false, true])
@@ -349,20 +350,13 @@ final class ThumbnailStateTests: XCTestCase {
         await fixture.capture.finish(batch: 1)
     }
 
-    private func eventually(_ condition: () -> Bool) async throws {
-        for _ in 0..<100 {
-            if condition() { return }
-            try await Task.sleep(for: .milliseconds(5))
-        }
-        XCTFail("State transition did not complete")
+    private func eventually(_ condition: () -> Bool, file: StaticString = #filePath, line: UInt = #line) async throws {
+        await waitUntil("the state transition", file: file, line: line) { condition() }
     }
 
-    private func waitForCalls(_ count: Int, _ capture: ModelCaptureProbe) async throws {
-        for _ in 0..<100 {
-            if await capture.calls.count >= count { return }
-            try await Task.sleep(for: .milliseconds(5))
-        }
-        XCTFail("Capture did not start")
+    private func waitForCalls(_ count: Int, _ capture: ModelCaptureProbe,
+                              file: StaticString = #filePath, line: UInt = #line) async throws {
+        await waitUntil("capture call \(count) to start", file: file, line: line) { await capture.calls.count >= count }
     }
 }
 

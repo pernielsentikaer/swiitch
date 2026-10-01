@@ -102,9 +102,8 @@ final class ThumbnailFreshnessTests: XCTestCase {
                 recorder.countsObservedAfterYield.append(recorder.received.count)
             }
         }
-        for _ in 0..<100 {
-            if await MainActor.run(body: { recorder.countsObservedAfterYield.count == ids.count }) { break }
-            try await Task.sleep(for: .milliseconds(1))
+        await waitUntil("every delivery to be observed after a yield") {
+            recorder.countsObservedAfterYield.count == ids.count
         }
         let received = await MainActor.run { recorder.received }
         let counts = await MainActor.run { recorder.countsObservedAfterYield }
@@ -139,10 +138,7 @@ final class ThumbnailFreshnessTests: XCTestCase {
             await cache.images(for: [1]) { _, image in recorder.widths.append(image.size.width) }
         }
         try await waitForBatch(2, provider)
-        for _ in 0..<100 {
-            if await MainActor.run(body: { !recorder.widths.isEmpty }) { break }
-            try await Task.sleep(nanoseconds: 1_000_000)
-        }
+        await waitUntil("the first partial image") { !recorder.widths.isEmpty }
         let partial = await MainActor.run { recorder.widths }
         XCTAssertEqual(partial, [101])
         await provider.release(2)
@@ -300,9 +296,9 @@ final class ThumbnailFreshnessTests: XCTestCase {
             await completion.complete(result)
         }
         try await waitForBatch(1, provider)
-        try await Task.sleep(for: .milliseconds(100))
-        let finished = await completion.finished
-        XCTAssertTrue(finished, "A non-cooperative capture must not hold its caller indefinitely")
+        await waitUntil("the deadline to release the caller of a non-cooperative capture") {
+            await completion.finished
+        }
         let next = await cache.images(for: [1])
         XCTAssertEqual(next[1]?.size.width, 102)
         await provider.release(1)
@@ -318,11 +314,9 @@ final class ThumbnailFreshnessTests: XCTestCase {
         let completion = ThumbnailCompletion()
         let request = Task { await completion.complete(await cache.images(for: [1], fresh: true)) }
         try await waitForBatch(2, provider)
-        try await Task.sleep(for: .milliseconds(100))
-        let finished = await completion.finished
+        await waitUntil("the stalled refresh to time out") { await completion.finished }
         let width = await completion.images[1]?.size.width
-        XCTAssertTrue(finished)
-        XCTAssertEqual(width, 101)
+        XCTAssertEqual(width, 101, "The caller keeps the last good image")
         await provider.release(2)
         await request.value
     }
@@ -413,13 +407,12 @@ final class ThumbnailFreshnessTests: XCTestCase {
         }
     }
 
-    private func waitForBatch(_ count: Int, _ provider: ThumbnailTestCapture) async throws {
-        for _ in 0..<1000 {
-            if await provider.batches.count >= count { return }
-            try await Task.sleep(nanoseconds: 1_000_000)
+    private func waitForBatch(_ count: Int, _ provider: ThumbnailTestCapture,
+                              file: StaticString = #filePath, line: UInt = #line) async throws {
+        let started = await waitUntil("capture batch \(count) to start", file: file, line: line) {
+            await provider.batches.count >= count
         }
-        XCTFail("Capture did not start")
-        throw NSError(domain: "ThumbnailTestTimeout", code: 1)
+        if !started { throw NSError(domain: "ThumbnailTestTimeout", code: 1) }
     }
 }
 

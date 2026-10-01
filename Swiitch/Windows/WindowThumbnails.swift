@@ -587,6 +587,9 @@ actor ShareableContentCache<Content> {
     private var inFlight: (id: UInt64, task: Task<Content?, Never>)?
     private var nextFetchID: UInt64 = 0
     private(set) var fetchCount = 0
+    /// Times a caller joined a fetch another caller had started, so tests can confirm a
+    /// request actually coalesced before they release the gated fetch.
+    private(set) var inFlightJoinCount = 0
 
     init(ttl: TimeInterval = 1.0,
          clock: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
@@ -604,6 +607,7 @@ actor ShareableContentCache<Content> {
             return cached.content
         }
         if let inFlight {
+            inFlightJoinCount += 1
             let shared = await inFlight.task.value
             if let shared, requested.isSubset(of: windowIDs(shared)) {
                 return shared
@@ -614,6 +618,7 @@ actor ShareableContentCache<Content> {
                 return cached.content
             }
             if let newer = self.inFlight, newer.id != inFlight.id {
+                inFlightJoinCount += 1
                 return await newer.task.value
             }
         }

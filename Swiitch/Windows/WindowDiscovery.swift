@@ -19,6 +19,8 @@ final class WindowDiscovery {
     private(set) var lastCollection: WindowEnumerator.Collection?
     private(set) var timeoutCount = 0
     private(set) var cacheHits = 0
+    /// Requests that joined a collection already in flight instead of starting their own.
+    private(set) var coalescedRequestCount = 0
     /// Durations of the most recent collections, newest last, for Diagnostics percentiles.
     private(set) var recentDurations: [TimeInterval] = []
     static let recentDurationCapacity = 50
@@ -88,6 +90,7 @@ final class WindowDiscovery {
             }
             guard let inFlight else { break }
             let sameRequest = inFlight.key == key
+            coalescedRequestCount += 1
             await inFlight.task.value
             if (sameRequest && !force) || Task.isCancelled { return }
         }

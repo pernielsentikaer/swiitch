@@ -13,7 +13,7 @@ final class CaptureDeadlineRunnerTests: XCTestCase {
         XCTAssertEqual(next, 43)
     }
 
-    func testTimeoutReleasesCallerButKeepsNonCooperativeWorkerBounded() async throws {
+    func testTimeoutReleasesCallerButKeepsNonCooperativeWorkerBounded() async {
         let runner = CaptureDeadlineRunner(limit: 1)
         let gate = NativeCaptureGate()
         let completion = DeadlineCompletion()
@@ -21,26 +21,21 @@ final class CaptureDeadlineRunnerTests: XCTestCase {
             let value = await runner.run(timeout: 0.03) { await gate.wait(); return 7 }
             await completion.finish(value)
         }
-        try await Task.sleep(for: .milliseconds(100))
-        let finished = await completion.finished
-        XCTAssertTrue(finished)
+        await waitUntil("the deadline to release the caller") { await completion.finished }
         let active = await runner.activeOperationCount
-        XCTAssertEqual(active, 1)
+        XCTAssertEqual(active, 1, "The non-cooperative worker keeps its slot past the deadline")
         let refused = await runner.run(timeout: 0.03) { 8 }
         XCTAssertNil(refused)
         await gate.release()
         await request.value
-        for _ in 0..<100 {
-            if await runner.activeOperationCount == 0 { break }
-            try await Task.sleep(for: .milliseconds(1))
-        }
+        await waitUntil("the released worker to free its slot") { await runner.activeOperationCount == 0 }
         let recovered = await runner.run(timeout: 1) { 9 }
         XCTAssertEqual(recovered, 9)
         let old = await completion.value
         XCTAssertNil(old, "A late result cannot replace the expired result")
     }
 
-    func testCancellationReleasesCallerWithoutWaitingForNativeWork() async throws {
+    func testCancellationReleasesCallerWithoutWaitingForNativeWork() async {
         let runner = CaptureDeadlineRunner(limit: 1)
         let gate = NativeCaptureGate()
         let completion = DeadlineCompletion()
@@ -48,30 +43,28 @@ final class CaptureDeadlineRunnerTests: XCTestCase {
             let value = await runner.run(timeout: 5) { await gate.wait(); return 7 }
             await completion.finish(value)
         }
-        try await Task.sleep(for: .milliseconds(30))
+        await waitUntil("the native work to start") { await runner.activeOperationCount == 1 }
         request.cancel()
-        try await Task.sleep(for: .milliseconds(70))
-        let finished = await completion.finished
-        XCTAssertTrue(finished)
+        await waitUntil("cancellation to release the caller") { await completion.finished }
         await gate.release()
         await request.value
         let value = await completion.value
         XCTAssertNil(value)
     }
 
-    func testSaturatedRunnerQueuesCallerUntilSlotFreesInsteadOfFailing() async throws {
+    func testSaturatedRunnerQueuesCallerUntilSlotFreesInsteadOfFailing() async {
         let runner = CaptureDeadlineRunner(limit: 1)
         let gate = NativeCaptureGate()
         let blocker = Task {
             await runner.run(timeout: 5) { await gate.wait(); return 1 }
         }
-        try await Task.sleep(for: .milliseconds(30))
+        await waitUntil("the blocker to occupy the only slot") { await runner.activeOperationCount == 1 }
         let queued = Task {
             await runner.run(timeout: 1) { 2 }
         }
-        try await Task.sleep(for: .milliseconds(30))
-        let waiting = await runner.waitingOperationCount
-        XCTAssertEqual(waiting, 1, "A saturated runner must queue, not refuse, a caller within its timeout")
+        await waitUntil("a saturated runner to queue, not refuse, a caller within its timeout") {
+            await runner.waitingOperationCount == 1
+        }
         await gate.release()
         let first = await blocker.value
         let second = await queued.value
@@ -81,23 +74,23 @@ final class CaptureDeadlineRunnerTests: XCTestCase {
         XCTAssertEqual(active, 0)
     }
 
-    func testCancellingQueuedCallerReleasesItImmediately() async throws {
+    func testCancellingQueuedCallerReleasesItImmediately() async {
         let runner = CaptureDeadlineRunner(limit: 1)
         let gate = NativeCaptureGate()
         let blocker = Task {
             await runner.run(timeout: 5) { await gate.wait(); return 1 }
         }
-        try await Task.sleep(for: .milliseconds(30))
+        await waitUntil("the blocker to occupy the only slot") { await runner.activeOperationCount == 1 }
         let completion = DeadlineCompletion()
         let queued = Task {
             let value = await runner.run(timeout: 5) { 2 }
             await completion.finish(value)
         }
-        try await Task.sleep(for: .milliseconds(30))
+        await waitUntil("the caller to queue behind the blocker") { await runner.waitingOperationCount == 1 }
         queued.cancel()
-        try await Task.sleep(for: .milliseconds(50))
-        let finished = await completion.finished
-        XCTAssertTrue(finished, "A cancelled queued caller must not wait for the native slot")
+        await waitUntil("a cancelled queued caller to return without waiting for the native slot") {
+            await completion.finished
+        }
         let waiting = await runner.waitingOperationCount
         XCTAssertEqual(waiting, 0)
         await gate.release()

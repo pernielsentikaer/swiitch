@@ -138,9 +138,7 @@ final class HotkeyManagerTests: XCTestCase {
         XCTAssertFalse(fixture.model.isArmed)
         XCTAssertTrue(fixture.focus.windowIDs.isEmpty)
         await gate.release()
-        for _ in 0..<100 where fixture.focus.windowIDs.count < 2 {
-            try? await Task.sleep(for: .milliseconds(5))
-        }
+        await waitUntil("both queued sessions to commit") { fixture.focus.windowIDs.count == 2 }
         XCTAssertEqual(fixture.focus.windowIDs, [2, 3])
         XCTAssertFalse(fixture.model.isArmed)
         let samples = Array(OpenLatency.shared.samples.suffix(2))
@@ -228,9 +226,7 @@ final class HotkeyManagerTests: XCTestCase {
         await drain()
         XCTAssertFalse(fixture.model.isArmed)
         await gate.release()
-        for _ in 0..<100 where !fixture.model.isArmed {
-            try await Task.sleep(for: .milliseconds(5))
-        }
+        await waitUntil("the queued session to open") { fixture.model.isArmed }
         XCTAssertEqual(fixture.model.filterText, candidate.character)
     }
 

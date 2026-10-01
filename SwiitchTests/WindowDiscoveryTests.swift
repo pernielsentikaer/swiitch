@@ -6,6 +6,8 @@ import XCTest
 actor DiscoveryGate {
     private var released = false
     private var waiters: [CheckedContinuation<Void, Never>] = []
+    /// Collectors currently blocked here; proves a collection is in flight.
+    var waiterCount: Int { waiters.count }
     func wait() async {
         if released { return }
         await withCheckedContinuation { waiters.append($0) }
@@ -70,7 +72,7 @@ final class WindowDiscoveryTests: XCTestCase {
         })
         let first = Task { await service.prepare(context: context()) }
         let second = Task { await service.prepare(context: context()) }
-        try? await Task.sleep(for: .milliseconds(20))
+        await waitUntil("the second request to join the first") { service.coalescedRequestCount == 1 }
         await gate.release()
         await first.value
         await second.value
@@ -93,15 +95,15 @@ final class WindowDiscoveryTests: XCTestCase {
         let task = Task { await service.prepare(context: context()); completed = true }
         var heartbeat = false
         DispatchQueue.main.async { heartbeat = true }
-        try? await Task.sleep(for: .milliseconds(100))
-        XCTAssertTrue(heartbeat)
-        XCTAssertTrue(completed, "Deadline must release the caller before the stalled worker returns")
+        await waitUntil("the deadline to release the caller before the stalled worker returns") { completed }
+        XCTAssertTrue(heartbeat, "The main thread kept running while the collector stalled")
         for _ in 0..<5 { await service.prepare(context: context()) }
         let total = await count.value
         XCTAssertEqual(total, 1, "Timed-out native work keeps its bounded slot")
         XCTAssertNil(service.lastCollection)
         await gate.release()
         await task.value
+        // Give the released worker a chance to misbehave before checking it was ignored.
         try? await Task.sleep(for: .milliseconds(20))
         XCTAssertNil(service.lastCollection, "Late results cannot replace the timed-out snapshot")
         await service.prepare(context: context())
@@ -160,7 +162,8 @@ final class WindowDiscoveryTests: XCTestCase {
         let warmStart = ProcessInfo.processInfo.systemUptime
         await service.prepare(context: context())
         let warm = ProcessInfo.processInfo.systemUptime - warmStart
-        XCTAssertLessThan(warm, cold / 4)
+        XCTAssertEqual(service.cacheHits, 1, "The warm request reuses the snapshot instead of collecting again")
+        XCTAssertLessThan(warm, cold / 2, "A cache hit must not pay for the injected 200 ms of metadata")
         let attachment = XCTAttachment(string: "Injected slow metadata: cold \(cold * 1000) ms; cached warm \(warm * 1000) ms. Not an installed-app latency benchmark.")
         attachment.name = "Discovery-cold-warm-timing"
         attachment.lifetime = .keepAlways
@@ -225,19 +228,20 @@ final class WindowDiscoveryTests: XCTestCase {
             return Self.collection()
         })
         let a = Task { await service.prepare(context: context()) }
-        try? await Task.sleep(for: .milliseconds(20))
+        await waitUntil("A's collector to block on its gate") { await gateA.waiterCount == 1 }
         // Two more callers with two further keys both wait on A.
         let b = Task { await service.prepare(context: context(excluded: ["b"])) }
         let c = Task { await service.prepare(context: context(excluded: ["c"])) }
-        try? await Task.sleep(for: .milliseconds(20))
+        await waitUntil("B and C to join A's collection") { service.coalescedRequestCount == 2 }
         await gateA.release()
         await a.value
         // B and C may resume in either order. Do not wait for B before releasing C:
         // if C starts first, B is legitimately queued behind C's closed gate.
         // A fourth caller must share C's collection regardless of that ordering.
-        try? await Task.sleep(for: .milliseconds(20))
+        await waitUntil("C's collector to block on its gate") { await gateC.waiterCount == 1 }
+        let joinedBeforeD = service.coalescedRequestCount
         let d = Task { await service.prepare(context: context(excluded: ["c"])) }
-        try? await Task.sleep(for: .milliseconds(20))
+        await waitUntil("D to join C's collection") { service.coalescedRequestCount == joinedBeforeD + 1 }
         await gateC.release()
         await b.value
         await c.value
