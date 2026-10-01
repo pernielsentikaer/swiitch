@@ -67,6 +67,36 @@ final class SwitcherModelTests: XCTestCase {
         XCTAssertFalse(model.isArmed)
     }
 
+    func testSearchRanksMatchQualityBeforeRecencyAndExposesHighlights() {
+        defaults.set(Preferences.DisplayMode.windows.rawValue, forKey: Preferences.Key.displayMode)
+        let apps = [
+            makeApp(pid: 101, name: "Cursor", windows: [makeWindow(id: 1, pid: 101, title: "main.swift")]),
+            makeApp(pid: 102, name: "Slack", windows: [makeWindow(id: 2, pid: 102, title: "#general")]),
+            makeApp(pid: 103, name: "Visual Studio Code", windows: [makeWindow(id: 3, pid: 103, title: "notes")]),
+            makeApp(pid: 104, name: "Safari", windows: [makeWindow(id: 4, pid: 104, title: "Swift forums")]),
+        ]
+        let model = makeModel(apps: apps)
+        model.arm(reverse: false)
+        let recency = model.flatWindows.map(\.id)
+
+        model.appendFilter("s")
+        let prefixes = recency.filter { $0 == 2 || $0 == 4 }
+        let wordStarts = recency.filter { $0 == 1 || $0 == 3 }
+        XCTAssertEqual(model.filteredFlatWindows.map(\.id), prefixes + wordStarts,
+                       "Name prefixes rank first, each class keeps recency order")
+        XCTAssertEqual(model.searchMatch(appName: "Slack", title: "#general")?.appRanges, [0..<1])
+        XCTAssertEqual(model.searchMatch(appName: "Cursor", title: "main.swift")?.titleRanges, [5..<6])
+
+        model.clearFilter()
+        model.appendFilter("vsc")
+        XCTAssertEqual(model.filteredFlatWindows.map(\.id), [3], "Initials reach an app no substring would")
+        XCTAssertEqual(model.flatWindows[model.selectedFlatIndex].id, 3, "Selection stays an absolute index into the unfiltered list")
+        XCTAssertNil(model.searchMatch(appName: "Slack", title: nil), "A non-matching tile has no highlight")
+        model.clearFilter()
+        XCTAssertNil(model.searchMatch(appName: "Slack", title: nil), "No query, no highlight")
+        XCTAssertEqual(model.filteredFlatWindows.map(\.id), recency)
+    }
+
     func testFlatWindowArmSkipsActualFocusedWindowWhenDiaOrderIsReversed() {
         defaults.set(Preferences.DisplayMode.windows.rawValue, forKey: Preferences.Key.displayMode)
         let apps = [
@@ -1114,8 +1144,12 @@ final class SwitcherModelTests: XCTestCase {
             for letter in "Project 24" { model.appendFilter(String(letter)) }
             model.advance(reverse: false)
             searching.append((ProcessInfo.processInfo.systemUptime - searchStart) * 1000)
-            XCTAssertEqual(model.filteredFlatWindows.count, 20)
-            XCTAssertEqual(model.filteredFlatWindows.first?.window.pid, 1024)
+            let results = model.filteredFlatWindows
+            XCTAssertEqual(results.count, 24)
+            XCTAssertTrue(results.prefix(20).allSatisfy { $0.window.pid == 1024 },
+                          "All 20 exact Project 24 matches must rank ahead of fuzzy matches")
+            XCTAssertEqual(Set(results.dropFirst(20).map(\.id)), [83, 93, 283, 293],
+                           "24 also matches Document 2/12 before Project 4/14, at a lower rank")
             model.cancel()
         }
         func summary(_ values: [Double]) -> String {
