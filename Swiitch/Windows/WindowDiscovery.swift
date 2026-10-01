@@ -24,6 +24,10 @@ final class WindowDiscovery {
     /// Durations of the most recent collections, newest last, for Diagnostics percentiles.
     private(set) var recentDurations: [TimeInterval] = []
     static let recentDurationCapacity = 50
+    /// When set and active, change notifications drive fresh collections and the periodic
+    /// poll only guards against missed events, so background requests accept an older
+    /// snapshot. Forced requests (the monitor's own) always collect.
+    var eventMonitor: WindowEventMonitor?
 
     /// A user-facing request (opening the picker, changing a list preference) accepts a
     /// snapshot up to this old.
@@ -34,6 +38,11 @@ final class WindowDiscovery {
     /// the next user request still gets a fresh collection.
     nonisolated static let idleSnapshotLifetime: TimeInterval = 15
     nonisolated static let idleAfter: TimeInterval = 120
+    /// With an event monitor covering every app, a snapshot with no change notification
+    /// since is current by construction: both the poll and a user opening the picker may
+    /// reuse it this long. Beyond that a collection runs anyway, as a guard against a
+    /// notification an app never posted.
+    nonisolated static let eventDrivenSnapshotLifetime: TimeInterval = 10
 
     private struct Key: Equatable {
         let pids: Set<pid_t>
@@ -67,8 +76,16 @@ final class WindowDiscovery {
 
     /// How old a snapshot may be for the given kind of request right now.
     func snapshotLifetime(background: Bool) -> TimeInterval {
-        guard background, now() - lastUserRequest > Self.idleAfter else { return Self.activeSnapshotLifetime }
-        return Self.idleSnapshotLifetime
+        let eventDriven = eventMonitor?.coversEveryApp == true
+        guard background else { return eventDriven ? Self.eventDrivenSnapshotLifetime : Self.activeSnapshotLifetime }
+        if now() - lastUserRequest > Self.idleAfter { return Self.idleSnapshotLifetime }
+        return eventDriven ? Self.eventDrivenSnapshotLifetime : Self.activeSnapshotLifetime
+    }
+
+    /// The monitor's request after a change notification: always a fresh collection.
+    func refreshAfterChange() async {
+        await prepare(options: EnumerateOptions(forceRefresh: true, isBackgroundRefresh: true,
+                                                excludedBundleIDs: Set(Preferences.excludedBundleIDs)))
     }
 
     func prepare(options: EnumerateOptions) async {
@@ -115,6 +132,7 @@ final class WindowDiscovery {
                 if self.recentDurations.count > Self.recentDurationCapacity {
                     self.recentDurations.removeFirst(self.recentDurations.count - Self.recentDurationCapacity)
                 }
+                self.eventMonitor?.reconcile(with: result)
             } else {
                 self.timeoutCount += 1
             }

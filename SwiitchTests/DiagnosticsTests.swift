@@ -37,7 +37,8 @@ final class DiagnosticsTests: XCTestCase {
         let discovery = try XCTUnwrap(object["discovery"] as? [String: Any])
         XCTAssertEqual(Set(discovery.keys), ["appCount", "windowCount", "candidateCount", "filteredCount",
             "unavailableAXAppCount", "reusedAXAppCount", "lastCollectionMilliseconds", "collectionMilliseconds",
-            "timeoutCount", "cacheHits", "filterReasons"])
+            "timeoutCount", "cacheHits", "filterReasons", "eventDriven", "eventsCoverEveryApp", "observedAppCount",
+            "subscribedWindowCount", "eventCount", "eventRefreshCount"])
         XCTAssertEqual(discovery["reusedAXAppCount"] as? Int, 1)
         XCTAssertEqual(report.discovery.collectionMilliseconds?.count, 3)
         XCTAssertEqual(report.discovery.collectionMilliseconds?.max, 123)

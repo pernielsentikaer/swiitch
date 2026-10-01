@@ -39,9 +39,16 @@ enum DiagnosticsReport {
         let timeoutCount: Int
         let cacheHits: Int
         let filterReasons: [String: Int]
+        /// Change notifications drive collections when true; counts since launch.
+        var eventDriven = false
+        var eventsCoverEveryApp = false
+        var observedAppCount = 0
+        var subscribedWindowCount = 0
+        var eventCount = 0
+        var eventRefreshCount = 0
 
         init(collection: WindowEnumerator.Collection?, timeoutCount: Int, cacheHits: Int,
-             recentDurations: [TimeInterval] = []) {
+             recentDurations: [TimeInterval] = [], events: WindowEventMonitor.Statistics? = nil) {
             appCount = collection?.apps.count ?? 0
             windowCount = collection?.apps.reduce(0) { $0 + $1.windows.count } ?? 0
             candidateCount = collection?.candidateCount ?? 0
@@ -59,6 +66,14 @@ enum DiagnosticsReport {
             filterReasons = Dictionary(uniqueKeysWithValues: WindowEnumerator.FilterReason.allCases.map {
                 ($0.rawValue, collection?.filterReasons[$0] ?? 0)
             })
+            if let events {
+                eventDriven = events.active
+                eventsCoverEveryApp = events.coversEveryApp
+                observedAppCount = events.observedApps
+                subscribedWindowCount = events.subscribedWindows
+                eventCount = events.events
+                eventRefreshCount = events.refreshes
+            }
         }
     }
 
@@ -83,7 +98,8 @@ enum DiagnosticsReport {
             loginItemStatus: LoginItemController.shared.status.rawValue,
             automaticUpdateChecks: UpdateController.shared.automaticChecksEnabled,
             discovery: Discovery(collection: discovery.lastCollection, timeoutCount: discovery.timeoutCount,
-                                 cacheHits: discovery.cacheHits, recentDurations: discovery.recentDurations),
+                                 cacheHits: discovery.cacheHits, recentDurations: discovery.recentDurations,
+                                 events: discovery.eventMonitor?.statistics),
             thumbnails: await WindowThumbnails.shared.statistics,
             timing: OpenLatency.shared.summary
         )
