@@ -67,9 +67,11 @@ Swiitch uses the private `_AXUIElementGetWindow` Accessibility SPI to reliably m
 | ← / → | Same as ⌘+Tab / ⌘+⇧+Tab |
 | `letters / digits / spaces / punctuation` | Filter list |
 | ⌫ | Backspace filter |
+| Home / End | First / last item |
+| ⌃ ⌘ 1–9 | Switch to that item of the visible list at once |
 | ⌃ ⌘ W | Close highlighted window |
 | ⌃ ⌘ H | Hide highlighted app |
-| Esc | Cancel |
+| Esc | Clear the search; on an empty search, cancel |
 | Release ⌘ | Commit |
 | ⌥ Tab | (Optional) Open picker in frontmost app's windows |
 
@@ -77,7 +79,7 @@ Both hotkeys are user-recordable in Preferences → General → Hotkeys.
 
 Recording suspends ordinary switching and catches reserved chords before macOS handles them. Escape, switching away from Swiitch, or leaving General ends recording. Conflicts with the other shortcut—including its Shift-reverse chord—are rejected without replacing the saved binding.
 
-Keep holding the switcher shortcut while typing to search, including H and W. With the default ⌘Tab binding, add Control for Close/Hide. If a custom opening shortcut already requires both Control and Command, H/W remain search text instead of triggering those actions.
+Keep holding the switcher shortcut while typing to search, including H, W and digits. With the default ⌘Tab binding, add Control for Close/Hide and for the numbered jump. If a custom opening shortcut already requires both Control and Command, H/W and digits remain search text instead of triggering those actions.
 
 Printable punctuation and symbols stay in search instead of reaching the app underneath.
 The existing navigation keys (including the backtick drill-in key) remain reserved;
