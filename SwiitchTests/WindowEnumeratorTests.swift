@@ -705,7 +705,7 @@ private actor BlockingThumbnailCapture {
                 releaseWaiters.append(continuation)
             }
         }
-        let image = NSImage(size: NSSize(width: 32, height: 24))
+        let image = thumbnailFixture(size: NSSize(width: 32, height: 24))
         for windowID in windowIDs {
             await deliver(windowID, image)
         }
@@ -734,7 +734,7 @@ private actor ProgressiveThumbnailCapture {
 
     func capture(windowIDs: [CGWindowID], deliver: ThumbnailCaptureDelivery) async {
         guard let first = windowIDs.first else { return }
-        let image = NSImage(size: NSSize(width: 32, height: 24))
+        let image = thumbnailFixture(size: NSSize(width: 32, height: 24))
         await deliver(first, image)
         didDeliverFirst = true
         firstWaiters.forEach { $0.resume() }
@@ -783,7 +783,7 @@ private actor CancellableThumbnailCapture {
             return
         }
 
-        let image = NSImage(size: NSSize(width: 32, height: 24))
+        let image = thumbnailFixture(size: NSSize(width: 32, height: 24))
         for windowID in windowIDs {
             await deliver(windowID, image)
         }

@@ -63,8 +63,10 @@ final class HotkeyManagerTests: XCTestCase {
 
         deinit {
             // deinit is nonisolated; the fixture only ever dies on the main-actor test.
-            MainActor.assumeIsolated { manager.uninstall() }
-            defaults.removePersistentDomain(forName: suiteName)
+            MainActor.assumeIsolated {
+                manager.uninstall()
+                defaults.removePersistentDomain(forName: suiteName)
+            }
         }
 
         @discardableResult

@@ -73,12 +73,12 @@ final class SwitcherModel: ObservableObject {
     private var ownsFocusTrackingSuspension = false
     private let defaults: UserDefaults
     private let dependencies: Dependencies
-    private var showTimer: Timer?
+    private var showTimer: MainActorResource<Timer>?
     private var panelShown: Bool = false
     private let previews: ThumbnailCoordinator
     private var previewObservation: AnyCancellable?
     private var hasArmedOnce = false
-    private var peekWorkItem: DispatchWorkItem?
+    private var peekWorkItem: MainActorResource<DispatchWorkItem>?
     private var preArmFrontmostPID: pid_t?
     private var preArmFrontmostBundleID: String?
     private var preArmFocusedWindowID: CGWindowID?
@@ -144,8 +144,6 @@ final class SwitcherModel: ObservableObject {
                 Task { @MainActor in resume() }
             }
         }
-        showTimer?.invalidate()
-        peekWorkItem?.cancel()
     }
 
     // MARK: - State transitions
@@ -737,7 +735,7 @@ final class SwitcherModel: ObservableObject {
         let item = DispatchWorkItem { [weak self] in
             MainActor.assumeIsolated { self?.peekCurrent() }
         }
-        peekWorkItem = item
+        peekWorkItem = MainActorResource(item) { $0.cancel() }
         DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(resolved), execute: item)
     }
 
@@ -1199,10 +1197,10 @@ final class SwitcherModel: ObservableObject {
     /// menu or other tracking loop runs. The picker has a context menu, so its show-delay,
     /// refresh, and prewarm timers must keep running in `.common` modes.
     private static func scheduleTimer(interval: TimeInterval, repeats: Bool,
-                                      block: @escaping () -> Void) -> Timer {
-        let timer = Timer(timeInterval: interval, repeats: repeats) { _ in block() }
+                                      block: @escaping @MainActor @Sendable () -> Void) -> MainActorResource<Timer> {
+        let timer = Timer(timeInterval: interval, repeats: repeats) { _ in MainActor.assumeIsolated { block() } }
         RunLoop.main.add(timer, forMode: .common)
-        return timer
+        return MainActorResource(timer) { $0.invalidate() }
     }
 
     // MARK: - Preference reads

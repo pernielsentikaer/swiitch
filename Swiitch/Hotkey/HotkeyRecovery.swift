@@ -3,6 +3,7 @@ import Combine
 
 /// Non-prompting recovery policy, driven on the main run loop. Injection keeps tests
 /// independent of actual keyboard taps and the user's Accessibility permission.
+@MainActor
 final class HotkeyRecovery {
     enum Status: String {
         case stopped, permissionRequired, retrying, ready
@@ -73,6 +74,7 @@ final class HotkeyRecovery {
 }
 
 /// Status only, never a setting. Shared by preferences and the diagnostics report.
+@MainActor
 final class HotkeyStatus: ObservableObject {
     static let shared = HotkeyStatus()
     @Published var value: HotkeyRecovery.Status = .stopped

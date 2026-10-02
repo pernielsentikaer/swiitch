@@ -6,7 +6,7 @@ Thanks for your interest in helping out! Swiitch is a small native macOS utility
 
 Prerequisites:
 - macOS 14 (Sonoma) or newer
-- Xcode 15 or newer (Xcode 16+ recommended for macOS 14 SDK with latest SwiftUI conveniences)
+- Xcode 16 or newer (Swift 6 compiler required; CI covers macOS 15 and 26 runner toolchains)
 - [`xcodegen`](https://github.com/yonaskolb/XcodeGen): `brew install xcodegen`
 
 Clone and generate the Xcode project:
@@ -77,7 +77,7 @@ The script writes PNGs into `Swiitch/Resources/Assets.xcassets/AppIcon.appiconse
 
 ## Code style
 
-- Swift 5.10, indented with 4 spaces.
+- Swift 6 language mode (data-race safety is enforced by the compiler), indented with 4 spaces.
 - Doc comments (`///`) on public types and non-obvious internals.
 - Prefer plain `@AppStorage` for user-facing settings over a shared `ObservableObject` — there's a SwiftUI gotcha where `@Published` bindings into `MenuBarExtra(isInserted:)` log "Publishing changes from within view updates is not allowed."
 - AppKit interop for windowing (`NSPanel`, `NSWindow`), SwiftUI for view bodies.

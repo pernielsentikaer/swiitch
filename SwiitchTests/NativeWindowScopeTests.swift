@@ -49,12 +49,13 @@ final class NativeWindowScopeTests: XCTestCase {
         let id = CGWindowID(window.windowNumber)
         let cache = WindowThumbnails(permissionCheck: { CGPreflightScreenCaptureAccess() })
         let first = await cache.images(for: [id])
-        let image = try XCTUnwrap(first[id], "The native path must capture the disposable test window")
+        let captured = try XCTUnwrap(first[id], "The native path must capture the disposable test window")
+        let image = captured.image
         let representation = try XCTUnwrap(image.representations.first)
         XCTAssertLessThanOrEqual(representation.pixelsWide, 720)
         XCTAssertLessThanOrEqual(representation.pixelsHigh, 720)
         let second = await cache.images(for: [id], maximumAge: .infinity)
-        XCTAssertTrue(image === second[id], "Warm cache reads must return the same captured image")
+        XCTAssertTrue(image === second[id]?.image, "Warm cache reads must return the same captured image")
         let stats = await cache.statistics
         XCTAssertEqual(stats.cachedImages, 1)
         XCTAssertLessThanOrEqual(stats.cacheBytes, 720 * 720 * 4)

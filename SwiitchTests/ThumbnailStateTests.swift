@@ -137,11 +137,11 @@ final class ThumbnailStateTests: XCTestCase {
             fixture.model.updateThumbnailViewport([2], context: fixture.model.thumbnailViewportContext)
             try await eventually { fixture.model.thumbnails[2]?.size.width == 102 }
             await fixture.model.refreshVisibleThumbnails()
-            let calls = await fixture.capture.calls
+            let calls = fixture.capture.calls
             XCTAssertEqual(Set(try XCTUnwrap(calls.last)), [1, 2], "Visible tiles plus selected target only: \(mode)")
             fixture.model.appendFilter("3")
             await fixture.model.refreshVisibleThumbnails()
-            let filtered = await fixture.capture.calls.last
+            let filtered = fixture.capture.calls.last
             XCTAssertEqual(filtered, [3], "A filter must exclude hidden windows even before new geometry arrives")
             XCTAssertEqual(fixture.model.thumbnails.count, 4, "Hidden previews remain cached in the presentation")
         }
@@ -152,10 +152,10 @@ final class ThumbnailStateTests: XCTestCase {
         defer { fixture.close() }
         fixture.model.arm(reverse: false)
         try await eventually { fixture.model.thumbnails.count == 4 }
-        let count = await fixture.capture.calls.count
+        let count = fixture.capture.calls.count
         fixture.model.appendFilter("missing")
         await fixture.model.refreshVisibleThumbnails()
-        let after = await fixture.capture.calls.count
+        let after = fixture.capture.calls.count
         XCTAssertEqual(after, count)
         XCTAssertTrue(fixture.model.thumbnailRefreshWindows.isEmpty)
         XCTAssertEqual(fixture.model.thumbnails.count, 4)
@@ -175,8 +175,8 @@ final class ThumbnailStateTests: XCTestCase {
         try await eventually { fixture.model.thumbnails[3]?.size.width == 103 }
         fixture.model.updateThumbnailViewport([3], context: context)
         await Task.yield()
-        let calls = await fixture.capture.calls
-        let fresh = await fixture.capture.freshRequests
+        let calls = fixture.capture.calls
+        let fresh = fixture.capture.freshRequests
         XCTAssertEqual(calls.suffix(2), [[1], [3]])
         XCTAssertEqual(calls.count, 3)
         XCTAssertEqual(fresh, [false, false, false], "Scroll requests reuse fresh cached images")
@@ -203,12 +203,12 @@ final class ThumbnailStateTests: XCTestCase {
         defer { fixture.close() }
         fixture.model.arm(reverse: false)
         try await eventually { fixture.model.thumbnails.count == 2 }
-        let count = await fixture.capture.calls.count
+        let count = fixture.capture.calls.count
         fixture.model.updateScreenCapturePermission(false)
         await fixture.model.refreshVisibleThumbnails()
         fixture.model.cancel()
         await fixture.model.refreshVisibleThumbnails()
-        let after = await fixture.capture.calls.count
+        let after = fixture.capture.calls.count
         XCTAssertEqual(after, count)
     }
 
@@ -268,7 +268,7 @@ final class ThumbnailStateTests: XCTestCase {
         XCTAssertEqual(fixture.model.thumbnailState(for: 1), .permissionRequired)
         // Settle so a capture wrongly started in the background would have landed by now.
         try await Task.sleep(for: .milliseconds(40))
-        let calls = await fixture.capture.calls.count
+        let calls = fixture.capture.calls.count
         XCTAssertEqual(calls, 0)
         fixture.model.commitWindow(id: 1)
         XCTAssertEqual(focused, 1)
@@ -292,7 +292,7 @@ final class ThumbnailStateTests: XCTestCase {
         await fixture.capture.progress(batch: 1, id: 2)
         XCTAssertEqual(fixture.model.thumbnailState(for: 2), .ready)
         XCTAssertEqual(fixture.model.thumbnailState(for: 1), .loading)
-        await fixture.capture.finish(batch: 1)
+        fixture.capture.finish(batch: 1)
         try await eventually { fixture.model.thumbnailState(for: 1) == .unavailable }
         XCTAssertEqual(fixture.model.thumbnailState(for: 2), .ready)
     }
@@ -312,13 +312,13 @@ final class ThumbnailStateTests: XCTestCase {
         XCTAssertTrue(fixture.model.thumbnails.isEmpty)
         fixture.model.updateScreenCapturePermission(true)
         try await waitForCalls(2, fixture.capture)
-        await fixture.capture.finish(batch: 2, imageID: 2)
+        fixture.capture.finish(batch: 2, imageID: 2)
         try await eventually { fixture.model.thumbnailState(for: 2) == .ready }
         await fixture.capture.progress(batch: 1, id: 2)
-        await fixture.capture.finish(batch: 1, imageID: 2)
+        fixture.capture.finish(batch: 1, imageID: 2)
         try await eventually { fixture.model.thumbnails[2]?.size.width == 102 }
         XCTAssertEqual(fixture.model.thumbnails[2]?.size.width, 102)
-        let transitions = await fixture.capture.permissions
+        let transitions = fixture.capture.permissions
         XCTAssertEqual(transitions, [false, true])
     }
 
@@ -329,9 +329,9 @@ final class ThumbnailStateTests: XCTestCase {
         try await waitForCalls(1, fixture.capture)
         for allowed in [false, true, false, true] { fixture.model.updateScreenCapturePermission(allowed) }
         try await waitForCalls(2, fixture.capture)
-        let transitions = await fixture.capture.permissions
+        let transitions = fixture.capture.permissions
         XCTAssertEqual(transitions, [false, true, false, true])
-        let calls = await fixture.capture.calls.count
+        let calls = fixture.capture.calls.count
         XCTAssertEqual(calls, 2)
         XCTAssertTrue(fixture.model.screenCaptureGranted)
     }
@@ -343,7 +343,7 @@ final class ThumbnailStateTests: XCTestCase {
         try await waitForCalls(1, fixture.capture)
         fixture.model.cancel()
         await fixture.capture.progress(batch: 1, id: 2)
-        await fixture.capture.finish(batch: 1, imageID: 2)
+        fixture.capture.finish(batch: 1, imageID: 2)
         XCTAssertTrue(fixture.model.thumbnails.isEmpty)
         XCTAssertTrue(fixture.model.thumbnailStates.isEmpty)
     }
@@ -354,9 +354,9 @@ final class ThumbnailStateTests: XCTestCase {
         fixture.model.arm(reverse: false)
         try await waitForCalls(1, fixture.capture)
         try await Task.sleep(for: .milliseconds(2200))
-        let calls = await fixture.capture.calls.count
+        let calls = fixture.capture.calls.count
         XCTAssertEqual(calls, 1)
-        await fixture.capture.finish(batch: 1)
+        fixture.capture.finish(batch: 1)
     }
 
     private func eventually(_ condition: () -> Bool, file: StaticString = #filePath, line: UInt = #line) async throws {
@@ -365,7 +365,7 @@ final class ThumbnailStateTests: XCTestCase {
 
     private func waitForCalls(_ count: Int, _ capture: ModelCaptureProbe,
                               file: StaticString = #filePath, line: UInt = #line) async throws {
-        await waitUntil("capture call \(count) to start", file: file, line: line) { await capture.calls.count >= count }
+        await waitUntil("capture call \(count) to start", file: file, line: line) { capture.calls.count >= count }
     }
 }
 
@@ -378,7 +378,7 @@ private final class CaptureModelFixture {
 
     init(granted: Bool = true, blocked: Bool = false, returnImages: Bool = false, windowCount: Int = 2,
          displayMode: Preferences.DisplayMode = .windows, frontmostPID: pid_t? = nil,
-         focus: @escaping (WindowInfo) -> Void = { _ in }) {
+         focus: @escaping @MainActor @Sendable (WindowInfo) -> Void = { _ in }) {
         defaults = UserDefaults(suiteName: suite)!
         defaults.set(displayMode.rawValue, forKey: Preferences.Key.displayMode)
         defaults.set(0, forKey: Preferences.Key.switcherShowDelayMs)
@@ -393,7 +393,7 @@ private final class CaptureModelFixture {
             frontmostBundleID: { nil }, focusedWindowID: { _ in nil },
             thumbnails: { ids, fresh, progress in await probe.load(ids, fresh: fresh, progress: progress) },
             screenCaptureGranted: { granted },
-            setThumbnailCaptureAllowed: { allowed in await probe.permission(allowed) }
+            setThumbnailCaptureAllowed: { allowed in await MainActor.run { probe.permission(allowed) } }
         ))
     }
 
@@ -420,7 +420,7 @@ private final class PrewarmFixture {
     let suite = "PrewarmFixture.\(UUID().uuidString)"
     let defaults: UserDefaults
     let cache = WindowThumbnails(captureProvider: { ids, deliver in
-        for id in ids { await deliver(id, NSImage(size: NSSize(width: 20, height: 20))) }
+        for id in ids { await deliver(id, thumbnailFixture(size: NSSize(width: 20, height: 20))) }
     })
     let model: SwitcherModel
 
@@ -441,7 +441,8 @@ private final class PrewarmFixture {
             focusedWindowID: { _ in 1 },
             thumbnails: { ids, fresh, progress in
                 state.loads.append(ids)
-                return await cache.images(for: ids, fresh: fresh, maximumAge: .infinity, onUpdate: progress)
+                let captured = await cache.images(for: ids, fresh: fresh, maximumAge: .infinity, onUpdate: progress)
+                return captured.mapValues(\.image)
             },
             retainThumbnails: { ids in
                 await cache.retain(only: ids)
@@ -462,14 +463,15 @@ private final class PrewarmFixture {
     }
 }
 
-private actor ModelCaptureProbe {
+@MainActor
+private final class ModelCaptureProbe {
     let blocked: Bool
     let returnImages: Bool
     private(set) var calls: [[CGWindowID]] = []
     private(set) var freshRequests: [Bool] = []
     private(set) var permissions: [Bool] = []
     private var progressHandlers: [Int: ThumbnailProgressHandler] = [:]
-    private var waiters: [Int: CheckedContinuation<[CGWindowID: NSImage], Never>] = [:]
+    private var waiters: [Int: CheckedContinuation<CGWindowID?, Never>] = [:]
     init(blocked: Bool, returnImages: Bool = false) { self.blocked = blocked; self.returnImages = returnImages }
 
     func load(_ ids: [CGWindowID], fresh: Bool, progress: ThumbnailProgressHandler?) async -> [CGWindowID: NSImage] {
@@ -477,7 +479,12 @@ private actor ModelCaptureProbe {
         freshRequests.append(fresh)
         let batch = calls.count
         progressHandlers[batch] = progress
-        if blocked { return await withCheckedContinuation { waiters[batch] = $0 } }
+        if blocked {
+            // Continuations transfer their result even when resumed on the same actor.
+            // Send only the fixture ID and construct AppKit images after resuming on main.
+            let imageID = await withCheckedContinuation { waiters[batch] = $0 }
+            return imageID.map { [$0: NSImage(size: NSSize(width: 100 + batch, height: 24))] } ?? [:]
+        }
         if returnImages {
             return Dictionary(uniqueKeysWithValues: ids.map { ($0, NSImage(size: NSSize(width: 100 + batch, height: 24))) })
         }
@@ -486,10 +493,9 @@ private actor ModelCaptureProbe {
 
     func permission(_ allowed: Bool) { permissions.append(allowed) }
     func progress(batch: Int, id: CGWindowID) async {
-        await progressHandlers[batch]?(id, NSImage(size: NSSize(width: 100 + batch, height: 24)))
+        progressHandlers[batch]?(id, NSImage(size: NSSize(width: 100 + batch, height: 24)))
     }
     func finish(batch: Int, imageID: CGWindowID? = nil) {
-        let result = imageID.map { [$0: NSImage(size: NSSize(width: 100 + batch, height: 24))] } ?? [:]
-        waiters.removeValue(forKey: batch)?.resume(returning: result)
+        waiters.removeValue(forKey: batch)?.resume(returning: imageID)
     }
 }

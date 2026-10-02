@@ -3,6 +3,10 @@ import AppKit
 import XCTest
 
 final class WindowActionMatchingTests: XCTestCase {
+    @MainActor private final class RetryState {
+        var needed = true
+        var activations = 0
+    }
     @MainActor
     func testActivationFallbackRequiresUnchangedKnownSourceApp() {
         XCTAssertTrue(WindowFocuser.ActivationRetry.isPending(targetPID: 102, sourcePID: 101, frontmostPID: 101))
@@ -16,19 +20,18 @@ final class WindowActionMatchingTests: XCTestCase {
     func testLatestActivationRunsAtMostOnceAndChecksNeedAtExecution() {
         let retry = WindowFocuser.ActivationRetry()
         var callbacks: [@MainActor () -> Void] = []
-        var needed = true
-        var activations = 0
-        retry.schedule(ifNeeded: { needed }, action: { activations += 1 }, using: { callbacks.append($0) })
-        needed = false
+        let state = RetryState()
+        retry.schedule(ifNeeded: { state.needed }, action: { state.activations += 1 }, using: { callbacks.append($0) })
+        state.needed = false
         callbacks[0]()
-        XCTAssertEqual(activations, 0, "An activation which succeeded during the delay must not be repeated")
-        needed = true
+        XCTAssertEqual(state.activations, 0, "An activation which succeeded during the delay must not be repeated")
+        state.needed = true
         callbacks[0]()
-        XCTAssertEqual(activations, 0, "A consumed callback cannot be revived")
-        retry.schedule(ifNeeded: { needed }, action: { activations += 1 }, using: { callbacks.append($0) })
+        XCTAssertEqual(state.activations, 0, "A consumed callback cannot be revived")
+        retry.schedule(ifNeeded: { state.needed }, action: { state.activations += 1 }, using: { callbacks.append($0) })
         callbacks[1]()
         callbacks[1]()
-        XCTAssertEqual(activations, 1, "The latest still-needed fallback must remain available, once only")
+        XCTAssertEqual(state.activations, 1, "The latest still-needed fallback must remain available, once only")
     }
 
     @MainActor

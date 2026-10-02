@@ -54,7 +54,8 @@ final class WindowEventMonitor {
                 guard let context else { return }
                 let monitor = Unmanaged<WindowEventMonitor>.fromOpaque(context).takeUnretainedValue()
                 // The observer's run-loop source lives on the main run loop.
-                MainActor.assumeIsolated { monitor.handle(notification as String) }
+                let name = notification as String
+                MainActor.assumeIsolated { monitor.handle(name) }
             }, &created)
             guard status == .success, let created else { return nil }
             let application = AXUIElementCreateApplication(pid)
@@ -165,10 +166,11 @@ final class WindowEventMonitor {
         ]
         for name in names {
             workspaceObservers.append(workspace.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
+                let terminatedPID = (note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication)?.processIdentifier
                 MainActor.assumeIsolated {
                     if name == NSWorkspace.didTerminateApplicationNotification,
-                       let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication {
-                        self?.forget(pid: app.processIdentifier)
+                       let terminatedPID {
+                        self?.forget(pid: terminatedPID)
                     }
                     self?.handle(name.rawValue)
                 }

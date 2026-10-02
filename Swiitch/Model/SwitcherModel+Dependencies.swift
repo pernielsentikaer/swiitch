@@ -18,7 +18,7 @@ extension SwitcherModel {
         var frontmostPID: () -> pid_t?
         var frontmostBundleID: () -> String?
         var focusedWindowID: (pid_t) -> CGWindowID?
-        var thumbnails: ((
+        var thumbnails: (@MainActor (
             [CGWindowID],
             Bool,
             ThumbnailProgressHandler?
@@ -28,7 +28,7 @@ extension SwitcherModel {
         var invalidateThumbnail: ((CGWindowID) async -> Void)?
         var screenCaptureGranted: () -> Bool
         var setThumbnailCaptureAllowed: ((Bool) async -> Void)?
-        var scheduleCloseReconciliation: (@escaping () -> Void) -> Void
+        var scheduleCloseReconciliation: (@escaping @MainActor @Sendable () -> Void) -> Void
         var readWindowCapabilities: ((WindowInfo) async -> WindowActionCapabilities)?
         var performWindowAction: ((WindowAction, WindowInfo) -> WindowActionResult)?
         var cancelPendingFocus: @MainActor () -> Void
@@ -46,7 +46,7 @@ extension SwitcherModel {
             frontmostPID: @escaping () -> pid_t? = { NSWorkspace.shared.frontmostApplication?.processIdentifier },
             frontmostBundleID: @escaping () -> String? = { NSWorkspace.shared.frontmostApplication?.bundleIdentifier },
             focusedWindowID: @escaping (pid_t) -> CGWindowID? = { AXPrivate.focusedWindowID(forPID: $0) },
-            thumbnails: ((
+            thumbnails: (@MainActor (
                 [CGWindowID],
                 Bool,
                 ThumbnailProgressHandler?
@@ -56,7 +56,7 @@ extension SwitcherModel {
             invalidateThumbnail: ((CGWindowID) async -> Void)? = nil,
             screenCaptureGranted: @escaping () -> Bool = { true },
             setThumbnailCaptureAllowed: ((Bool) async -> Void)? = nil,
-            scheduleCloseReconciliation: @escaping (@escaping () -> Void) -> Void = { action in
+            scheduleCloseReconciliation: @escaping (@escaping @MainActor @Sendable () -> Void) -> Void = { action in
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: action)
             },
             prepareSnapshot: ((EnumerateOptions) async -> Void)? = nil,
@@ -89,8 +89,8 @@ extension SwitcherModel {
             self.cancelPendingFocus = cancelPendingFocus
         }
 
-        /// Construct inside an actor-isolated function, rather than a stored initializer.
-        /// Swift 5 complete checking otherwise diagnoses conflicting default-argument isolation.
+        /// Construct inside the actor; default arguments must not instantiate UI dependencies
+        /// from a caller's nonisolated context, including on older supported toolchains.
         @MainActor static var live: Dependencies {
             Dependencies(
                 enumerate: { focusTracker, options in
@@ -110,10 +110,14 @@ extension SwitcherModel {
                 thumbnails: { windowIDs, fresh, onUpdate in
                     // Only the picker asks for progress. Idle prewarming fills what the cache
                     // has room for and never recaptures or evicts; see `WindowThumbnails.prewarm`.
-                    guard let onUpdate else { return await WindowThumbnails.shared.prewarm(windowIDs) }
-                    return await WindowThumbnails.shared.images(
+                    guard let onUpdate else {
+                        await WindowThumbnails.shared.prewarm(windowIDs)
+                        return [:] // Idle warming does not need AppKit wrappers.
+                    }
+                    let captured = await WindowThumbnails.shared.images(
                         for: windowIDs, fresh: fresh, maximumAge: 3, onUpdate: onUpdate
                     )
+                    return captured.mapValues(\.image)
                 },
                 cancelThumbnailCaptures: {
                     await WindowThumbnails.shared.cancelPendingCaptures()

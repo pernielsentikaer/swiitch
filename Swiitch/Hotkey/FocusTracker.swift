@@ -3,6 +3,7 @@ import ApplicationServices
 
 /// Tracks app and individual-window activation on the main run loop, including changes
 /// made outside Swiitch. WindowServer list order is only a fallback for unseen windows.
+@MainActor
 final class FocusTracker {
     struct WindowKey: Hashable {
         let pid: pid_t
@@ -73,17 +74,19 @@ final class FocusTracker {
     /// histories before recording an intentional commit or restoring original focus.
     var isTrackingSuspended = false
     private static let historyLimit = 512
-    private var observer: NSObjectProtocol?
-    private var terminationObserver: NSObjectProtocol?
-    private var windowObserver: AXObserver?
+    private var observer: MainActorResource<NSObjectProtocol>?
+    private var terminationObserver: MainActorResource<NSObjectProtocol>?
+    private var windowObserver: MainActorResource<(observer: AXObserver, context: CallbackContext)>?
+    @MainActor private final class CallbackContext {
+        weak var tracker: FocusTracker?
+        init(_ tracker: FocusTracker) { self.tracker = tracker }
+    }
     private var observedPID: pid_t?
     private var isRunning = false
 
     var windowOrder: WindowOrder {
         WindowOrder(ranks: Dictionary(uniqueKeysWithValues: mruWindows.enumerated().map { ($0.element, $0.offset) }))
     }
-
-    deinit { stop() }
 
     func start() {
         guard !isRunning else { return }
@@ -100,31 +103,34 @@ final class FocusTracker {
         }
         mruByBundle = seed
 
-        observer = NSWorkspace.shared.notificationCenter.addObserver(
+        observer = MainActorResource(NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification,
             object: nil,
             queue: .main
         ) { [weak self] note in
-            guard
-                let self,
-                let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
-            else { return }
-            if let id = app.bundleIdentifier { self.bump(id) }
-            self.refreshWindowObservation()
-            self.recordFrontmostWindow()
-        }
+            guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
+            let bundleID = app.bundleIdentifier
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                if let bundleID { self.bump(bundleID) }
+                self.refreshWindowObservation()
+                self.recordFrontmostWindow()
+            }
+        }) { NSWorkspace.shared.notificationCenter.removeObserver($0) }
 
-        terminationObserver = NSWorkspace.shared.notificationCenter.addObserver(
+        terminationObserver = MainActorResource(NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didTerminateApplicationNotification,
             object: nil,
             queue: .main
         ) { [weak self] note in
-            guard let self,
-                  let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
-            else { return }
-            self.removeWindows(forPID: app.processIdentifier)
-            if self.observedPID == app.processIdentifier { self.stopWindowObservation() }
-        }
+            guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
+            let pid = app.processIdentifier
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.removeWindows(forPID: pid)
+                if self.observedPID == pid { self.stopWindowObservation() }
+            }
+        }) { NSWorkspace.shared.notificationCenter.removeObserver($0) }
         refreshWindowObservation()
         recordFrontmostWindow()
     }
@@ -132,14 +138,8 @@ final class FocusTracker {
     func stop() {
         isRunning = false
         stopWindowObservation()
-        if let observer {
-            NSWorkspace.shared.notificationCenter.removeObserver(observer)
-            self.observer = nil
-        }
-        if let terminationObserver {
-            NSWorkspace.shared.notificationCenter.removeObserver(terminationObserver)
-            self.terminationObserver = nil
-        }
+        observer = nil
+        terminationObserver = nil
     }
 
     func bumpWindow(id: CGWindowID, pid: pid_t) {
@@ -170,13 +170,14 @@ final class FocusTracker {
         var newObserver: AXObserver?
         let result = AXObserverCreate(pid, { _, _, _, context in
             guard let context else { return }
-            let tracker = Unmanaged<FocusTracker>.fromOpaque(context).takeUnretainedValue()
-            tracker.recordFrontmostWindow()
+            let callback = Unmanaged<CallbackContext>.fromOpaque(context).takeUnretainedValue()
+            MainActor.assumeIsolated { callback.tracker?.recordFrontmostWindow() }
         }, &newObserver)
         guard result == .success, let newObserver else { return }
         let application = AXUIElementCreateApplication(pid)
         AXUIElementSetMessagingTimeout(application, 0.2)
-        let context = Unmanaged.passUnretained(self).toOpaque()
+        let callback = CallbackContext(self)
+        let context = Unmanaged.passUnretained(callback).toOpaque()
         var subscribed = false
         for notification in [kAXFocusedWindowChangedNotification, kAXMainWindowChangedNotification] {
             if AXObserverAddNotification(newObserver, application, notification as CFString, context) == .success {
@@ -185,14 +186,15 @@ final class FocusTracker {
         }
         guard subscribed else { return }
         observedPID = pid
-        windowObserver = newObserver
+        windowObserver = MainActorResource((observer: newObserver, context: callback)) { resource in
+            withExtendedLifetime(resource.context) {
+                CFRunLoopRemoveSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(resource.observer), .commonModes)
+            }
+        }
         CFRunLoopAddSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(newObserver), .commonModes)
     }
 
     private func stopWindowObservation() {
-        if let windowObserver {
-            CFRunLoopRemoveSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(windowObserver), .commonModes)
-        }
         windowObserver = nil
         observedPID = nil
     }

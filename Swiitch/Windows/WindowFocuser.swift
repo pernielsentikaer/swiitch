@@ -26,9 +26,9 @@ enum WindowFocuser {
         }
 
         func schedule(
-            ifNeeded: @escaping @MainActor () -> Bool,
-            action: @escaping @MainActor () -> Void,
-            using enqueue: (@escaping @MainActor () -> Void) -> Void = { callback in
+            ifNeeded: @escaping @MainActor @Sendable () -> Bool,
+            action: @escaping @MainActor @Sendable () -> Void,
+            using enqueue: (@escaping @MainActor @Sendable () -> Void) -> Void = { callback in
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { callback() }
             }
         ) {

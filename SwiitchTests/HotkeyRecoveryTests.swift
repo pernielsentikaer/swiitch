@@ -2,8 +2,9 @@ import AppKit
 @testable import Swiitch
 import XCTest
 
+@MainActor
 final class HotkeyRecoveryTests: XCTestCase {
-    private final class Fixture {
+    @MainActor private final class Fixture {
         var time: TimeInterval = 0
         var trusted = true
         var enabled = false

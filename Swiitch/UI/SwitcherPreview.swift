@@ -157,6 +157,7 @@ struct SwitcherPreviewCard: View {
     }
 }
 
+@MainActor
 private enum PreviewSamples {
     static let names = ["Safari", "Xcode", "Notes", "Mail", "Calendar", "Terminal"]
     static let icons = ["safari", "hammer", "note.text", "envelope", "calendar", "terminal"].map {

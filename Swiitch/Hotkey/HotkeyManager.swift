@@ -12,20 +12,23 @@ import Carbon.HIToolbox
 final class HotkeyManager {
     private let model: SwitcherModel
     private let defaults: UserDefaults
-    private var tap: CFMachPort?
-    private var runLoopSource: CFRunLoopSource?
-    private var healthCheckTimer: Timer?
-    private var wakeObserver: NSObjectProtocol?
-    private var screensWakeObserver: NSObjectProtocol?
+    private var tap: MainActorResource<(port: CFMachPort, source: CFRunLoopSource, context: CallbackContext)>?
+    private var healthCheckTimer: MainActorResource<Timer>?
+    private var wakeObserver: MainActorResource<NSObjectProtocol>?
+    private var screensWakeObserver: MainActorResource<NSObjectProtocol>?
     private let recording: ShortcutRecordingSession
-    private var recordingObserver: NSObjectProtocol?
-    /// Tracks whether `recovery` was ever created, so deinit can report a stopped status
-    /// without instantiating the lazy controller.
-    private var recoveryStarted = false
+    private var recordingObserver: MainActorResource<NSObjectProtocol>?
+    private var statusLifetime: MainActorResource<Void>?
+    /// Kept alive by the native tap's resource until teardown. A late callback sees nil
+    /// if the manager was released off-main before its main-run-loop cleanup executes.
+    @MainActor private final class CallbackContext {
+        weak var manager: HotkeyManager?
+        init(_ manager: HotkeyManager) { self.manager = manager }
+    }
     private lazy var recovery: HotkeyRecovery = {
         let controller = HotkeyRecovery(dependencies: .init(
             trusted: { AXIsProcessTrusted() },
-            enabled: { [weak self] in self?.tap.map { CGEvent.tapIsEnabled(tap: $0) } ?? false },
+            enabled: { [weak self] in self?.tap.map { CGEvent.tapIsEnabled(tap: $0.value.port) } ?? false },
             install: { [weak self] in self?.createOrEnableTap() ?? false }
         ))
         controller.onStatus = { HotkeyStatus.shared.value = $0 }
@@ -62,35 +65,26 @@ final class HotkeyManager {
         self.model = model
         self.defaults = defaults
         self.recording = recording
-        recordingObserver = NotificationCenter.default.addObserver(
+        recordingObserver = MainActorResource(NotificationCenter.default.addObserver(
             forName: ShortcutRecordingSession.didBegin, object: recording, queue: .main
-        ) { [weak self] _ in MainActor.assumeIsolated { self?.cancelInputSession() } }
-    }
-
-    deinit {
-        // Tear down system resources only, touching stored properties directly: deinit is
-        // nonisolated, so it cannot call the actor-isolated helpers, and `uninstall()` would
-        // also cancel the model as a deallocation side effect.
-        healthCheckTimer?.invalidate()
-        if let observer = wakeObserver { NSWorkspace.shared.notificationCenter.removeObserver(observer) }
-        if let observer = screensWakeObserver { NSWorkspace.shared.notificationCenter.removeObserver(observer) }
-        if let source = runLoopSource { CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes) }
-        if let tap { CGEvent.tapEnable(tap: tap, enable: false) }
-        if recoveryStarted { HotkeyStatus.shared.value = .stopped }
-        if let recordingObserver { NotificationCenter.default.removeObserver(recordingObserver) }
+        ) { [weak self] _ in MainActor.assumeIsolated { self?.cancelInputSession() } }) {
+            NotificationCenter.default.removeObserver($0)
+        }
     }
 
     func install() {
         if healthCheckTimer == nil { startHealthCheck() }
         if wakeObserver == nil { registerWakeObservers() }
-        recoveryStarted = true
+        if statusLifetime == nil {
+            statusLifetime = MainActorResource(()) { _ in HotkeyStatus.shared.value = .stopped }
+        }
         recovery.start()
     }
 
     private func createOrEnableTap() -> Bool {
         if let tap {
-            CGEvent.tapEnable(tap: tap, enable: true)
-            if CGEvent.tapIsEnabled(tap: tap) { return true }
+            CGEvent.tapEnable(tap: tap.value.port, enable: true)
+            if CGEvent.tapIsEnabled(tap: tap.value.port) { return true }
             removeTap()
         }
 
@@ -98,7 +92,8 @@ final class HotkeyManager {
             (1 << CGEventType.keyDown.rawValue) |
             (1 << CGEventType.flagsChanged.rawValue)
 
-        let refcon = Unmanaged.passUnretained(self).toOpaque()
+        let context = CallbackContext(self)
+        let refcon = Unmanaged.passUnretained(context).toOpaque()
 
         guard let tap = CGEvent.tapCreate(
             tap: .cgSessionEventTap,
@@ -112,12 +107,17 @@ final class HotkeyManager {
             return false
         }
 
-        let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
+        guard let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0) else { return false }
         CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
         CGEvent.tapEnable(tap: tap, enable: true)
 
-        self.tap = tap
-        self.runLoopSource = source
+        self.tap = MainActorResource((port: tap, source: source, context: context)) { resource in
+            withExtendedLifetime(resource.context) {
+                CFRunLoopRemoveSource(CFRunLoopGetMain(), resource.source, .commonModes)
+                CGEvent.tapEnable(tap: resource.port, enable: false)
+                CFMachPortInvalidate(resource.port)
+            }
+        }
 
         return CGEvent.tapIsEnabled(tap: tap)
     }
@@ -127,8 +127,6 @@ final class HotkeyManager {
         cancelInputSession()
         healthCheckTimer?.invalidate()
         healthCheckTimer = nil
-        if let observer = wakeObserver { NSWorkspace.shared.notificationCenter.removeObserver(observer) }
-        if let observer = screensWakeObserver { NSWorkspace.shared.notificationCenter.removeObserver(observer) }
         wakeObserver = nil
         screensWakeObserver = nil
         removeTap()
@@ -147,32 +145,26 @@ final class HotkeyManager {
     }
 
     private func removeTap() {
-        if let source = runLoopSource {
-            CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes)
-            runLoopSource = nil
-        }
-        if let tap = tap {
-            CGEvent.tapEnable(tap: tap, enable: false)
-            self.tap = nil
-        }
+        tap = nil
     }
 
     private func startHealthCheck() {
         healthCheckTimer?.invalidate()
-        healthCheckTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+        let timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.recovery.refresh() }
         }
-        healthCheckTimer?.tolerance = 0.25
+        timer.tolerance = 0.25
+        healthCheckTimer = MainActorResource(timer) { $0.invalidate() }
     }
 
     private func registerWakeObservers() {
         let center = NSWorkspace.shared.notificationCenter
-        wakeObserver = center.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
+        wakeObserver = MainActorResource(center.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.reinstallIfNeeded() }
-        }
-        screensWakeObserver = center.addObserver(forName: NSWorkspace.screensDidWakeNotification, object: nil, queue: .main) { [weak self] _ in
+        }) { NSWorkspace.shared.notificationCenter.removeObserver($0) }
+        screensWakeObserver = MainActorResource(center.addObserver(forName: NSWorkspace.screensDidWakeNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.reinstallIfNeeded() }
-        }
+        }) { NSWorkspace.shared.notificationCenter.removeObserver($0) }
     }
 
     private func reinstallIfNeeded() {
@@ -183,9 +175,15 @@ final class HotkeyManager {
 
     private static let tapCallback: CGEventTapCallBack = { _, type, event, refcon in
         guard let refcon else { return Unmanaged.passUnretained(event) }
-        let manager = Unmanaged<HotkeyManager>.fromOpaque(refcon).takeUnretainedValue()
+        let context = Unmanaged<CallbackContext>.fromOpaque(refcon).takeUnretainedValue()
+        let keyCode = Int(event.getIntegerValueField(.keyboardEventKeycode))
+        let flags = event.flags
         // The tap's run-loop source is added to the main run loop, so this is the main actor.
-        return MainActor.assumeIsolated { manager.handle(type: type, event: event) }
+        // Copy only value data across the isolation boundary; CGEvent stays borrowed here.
+        let swallowed = MainActor.assumeIsolated {
+            context.manager?.consume(type: type, keyCode: keyCode, flags: flags) ?? false
+        }
+        return swallowed ? nil : Unmanaged.passUnretained(event)
     }
 
     /// Internal entry point also used by synthetic-event tests; never posts input events.
@@ -193,21 +191,23 @@ final class HotkeyManager {
         type: CGEventType,
         event: CGEvent
     ) -> Unmanaged<CGEvent>? {
+        consume(type: type, keyCode: Int(event.getIntegerValueField(.keyboardEventKeycode)), flags: event.flags)
+            ? nil : Unmanaged.passUnretained(event)
+    }
+
+    private func consume(type: CGEventType, keyCode: Int, flags: CGEventFlags) -> Bool {
         // Re-enable if macOS disabled us for timeout / user input.
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
-            if let tap { CGEvent.tapEnable(tap: tap, enable: true) }
-            return Unmanaged.passUnretained(event)
+            if let tap { CGEvent.tapEnable(tap: tap.value.port, enable: true) }
+            return false
         }
 
         if recording.isRecording {
             if type == .keyDown, recording.consume(
-                keyCode: Int(event.getIntegerValueField(.keyboardEventKeycode)), flags: event.flags
-            ) { return nil }
-            return Unmanaged.passUnretained(event)
+                keyCode: keyCode, flags: flags
+            ) { return true }
+            return false
         }
-
-        let flags = event.flags
-        let keyCode = Int(event.getIntegerValueField(.keyboardEventKeycode))
 
         // A mouse click or external cancellation can end the model's session without a
         // keyboard release. Pending opening work is deliberately not treated as closed.
@@ -223,25 +223,25 @@ final class HotkeyManager {
                 } else {
                     beginSession(match, flags: flags)
                 }
-                return nil // swallow
+                return true // swallow
             }
 
             // Pending sessions intercept navigation too, so Esc/Tab immediately after
             // the first hotkey are ordered behind its queued opening operation.
             if let session = inputSession,
                handleKeyWhileArmed(keyCode: keyCode, flags: flags, session: session) {
-                return nil
+                return true
             }
 
-            return Unmanaged.passUnretained(event)
+            return false
 
         case .flagsChanged:
-            guard let session = inputSession else { return Unmanaged.passUnretained(event) }
+            guard let session = inputSession else { return false }
             // Releasing any required modifier ends this chord. Optional reverse Shift,
             // and modifiers belonging only to another configured shortcut, do not hold it.
             if flags.intersection(session.modifiers) != session.modifiers {
                 finishSession(session, cancel: false)
-                return Unmanaged.passUnretained(event)
+                return false
             }
 
             let shiftHeld = flags.contains(.maskShift)
@@ -252,10 +252,10 @@ final class HotkeyManager {
             }
             if !shiftHeld { session.advancedOnShiftPress = false }
             session.shiftWasPressed = shiftHeld
-            return Unmanaged.passUnretained(event)
+            return false
 
         default:
-            return Unmanaged.passUnretained(event)
+            return false
         }
     }
 

@@ -1,6 +1,6 @@
 name: Swiitch
 options:
-  # Keep generated projects readable by Xcode 15.4 on the macOS 14 CI runner.
+  # Keep a broadly readable project format; compilation requires Xcode 16+ / Swift 6.
   projectFormat: xcode15_3
   bundleIdPrefix: com.swiitch
   deploymentTarget:
@@ -24,7 +24,9 @@ configFiles:
 
 settings:
   base:
-    SWIFT_VERSION: "5.10"
+    # Swift 6 language mode: every isolation or Sendable gap is a compile error, not a
+    # warning. Complete checking below is implied by it and kept for readers.
+    SWIFT_VERSION: "6"
     MACOSX_DEPLOYMENT_TARGET: "14.0"
     ENABLE_HARDENED_RUNTIME: YES
     ENABLE_USER_SCRIPT_SANDBOXING: YES

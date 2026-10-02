@@ -40,13 +40,18 @@ enum AXPrivate {
 
     /// SkyLight is loaded dynamically so a renamed or unavailable private symbol degrades
     /// gracefully instead of preventing Swiitch from launching.
-    private static let skyLight: UnsafeMutableRawPointer? = dlopen(
+    private struct LibraryHandle: @unchecked Sendable {
+        // dlopen/dlsym are thread-safe. This immutable handle is never closed or used
+        // to access mutable Swift state; symbols must stay valid for the process lifetime.
+        let pointer: UnsafeMutableRawPointer?
+    }
+    private static let skyLight = LibraryHandle(pointer: dlopen(
         "/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight",
         RTLD_LAZY | RTLD_LOCAL
-    )
+    ))
 
     private static func skyLightSymbol<T>(_ name: String, as type: T.Type) -> T? {
-        guard let skyLight, let symbol = dlsym(skyLight, name) else { return nil }
+        guard let handle = skyLight.pointer, let symbol = dlsym(handle, name) else { return nil }
         return unsafeBitCast(symbol, to: type)
     }
 

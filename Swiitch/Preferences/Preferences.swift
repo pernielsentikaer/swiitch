@@ -467,7 +467,7 @@ enum Preferences {
         keys.forEach { defaults.removeObject(forKey: $0) }
     }
 
-    static func applyAppearance() {
+    @MainActor static func applyAppearance() {
         let raw = UserDefaults.standard.string(forKey: Key.appearance) ?? Appearance.system.rawValue
         switch Appearance(rawValue: raw) ?? .system {
         case .system:
