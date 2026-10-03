@@ -216,6 +216,17 @@ enum Preferences {
             case .solidDark:        return String(localized: "Solid Dark")
             }
         }
+        /// Reduce Transparency (System Settings → Accessibility → Display) asks for no
+        /// see-through surfaces. The translucent choices become the system-following solid
+        /// one; an explicit solid choice is kept as chosen.
+        func resolved(reduceTransparency: Bool) -> PanelMaterial {
+            guard reduceTransparency else { return self }
+            switch self {
+            case .translucentLight, .translucent, .frosted: return .solid
+            case .solid, .solidLight, .solidDark: return self
+            }
+        }
+
         var blurb: String {
             switch self {
             case .translucentLight: return String(localized: "Most see-through. Lets the desktop / app behind show clearly.")
