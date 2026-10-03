@@ -65,8 +65,12 @@ struct SwitcherView: View {
         Preferences.ThumbnailSize(rawValue: thumbnailSizeRaw) ?? .medium
     }
 
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     private var panelMaterial: Preferences.PanelMaterial {
-        Preferences.PanelMaterial(rawValue: panelMaterialRaw) ?? .translucentLight
+        (Preferences.PanelMaterial(rawValue: panelMaterialRaw) ?? .translucentLight)
+            .resolved(reduceTransparency: reduceTransparency)
     }
 
     private var overlayPosition: Preferences.OverlayPosition {
@@ -159,7 +163,8 @@ struct SwitcherView: View {
                 }
                 .onChange(of: selectedScrollTarget) { _, target in
                     guard let target else { return }
-                    withAnimation(.easeOut(duration: 0.12)) {
+                    // Reduce Motion: jump to the selection instead of gliding to it.
+                    withAnimation(reduceMotion ? nil : .easeOut(duration: 0.12)) {
                         proxy.scrollTo(target, anchor: .center)
                     }
                 }
@@ -600,6 +605,7 @@ struct WindowCell: View {
     var commit: (() -> Void)? = nil
 
     @Environment(\.swiitchAccent) private var accent: Color
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isHovering = false
     @State private var isHoveringControls = false
 
@@ -649,7 +655,8 @@ struct WindowCell: View {
                         Spacer()
                     }
                     .padding(7)
-                    .transition(.opacity.combined(with: .scale(scale: 0.94, anchor: .topLeading)))
+                    // A cross-fade is fine under Reduce Motion; the scale is what it asks to drop.
+                    .transition(reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.94, anchor: .topLeading)))
                 }
 
             }
