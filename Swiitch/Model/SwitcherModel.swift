@@ -64,6 +64,11 @@ final class SwitcherModel: ObservableObject {
 
     var onShow: (() -> Void)?
     var onHide: (() -> Void)?
+    /// The visible structure changed (mode, list membership): the panel re-measures and
+    /// re-frames. Selection moves do not fire it; no tile changes size when selected, and
+    /// SwiftUI restyles and scrolls on its own. Typing does not either: the panel keeps
+    /// its frame while the grid reflows inside it. Re-measuring a few hundred tiles on
+    /// every arrow key was the cost of getting that wrong.
     var onUpdate: (() -> Void)?
 
     private let focusTracker: FocusTracker
@@ -300,7 +305,8 @@ final class SwitcherModel: ObservableObject {
                 selectedFlatIndex = newIndex
             }
         }
-        if panelShown { onUpdate?() }
+        // Selection alone changes no tile's size: SwiftUI restyles and scrolls on its own.
+        // Only structural changes (mode, list membership) ask the panel to re-measure.
         schedulePeekIfEnabled()
     }
 
@@ -343,7 +349,6 @@ final class SwitcherModel: ObservableObject {
             }
         }
 
-        if panelShown { onUpdate?() }
         schedulePeekIfEnabled()
     }
 
@@ -391,7 +396,6 @@ final class SwitcherModel: ObservableObject {
                   let index = flatWindows.firstIndex(where: { $0.id == visible[offset].id }) else { return false }
             selectedFlatIndex = index
         }
-        if panelShown { onUpdate?() }
         schedulePeekIfEnabled()
         return true
     }
