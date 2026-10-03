@@ -64,7 +64,10 @@ final class SwitcherPanel: NSPanel {
             defer: false
         )
         isFloatingPanel = true
-        level = .floating
+        // Above other apps' floating windows (palettes, shelves, launchers), the way the
+        // system switcher is; the frame is clamped to the visible screen, so the menu bar
+        // and Dock are never covered. The peeked window stays underneath as it must.
+        level = .popUpMenu
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle, .stationary]
         isOpaque = false
         backgroundColor = .clear
