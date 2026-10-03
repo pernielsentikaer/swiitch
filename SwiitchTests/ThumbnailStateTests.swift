@@ -226,6 +226,14 @@ final class ThumbnailStateTests: XCTestCase {
     }
 
     func testHostedSwitcherReportsActualClippedViewport() async throws {
+        try await checkHostedViewport(reduceMotion: false)
+    }
+
+    func testReducedMotionScrollsSelectionWithoutReframingPanel() async throws {
+        try await checkHostedViewport(reduceMotion: true)
+    }
+
+    private func checkHostedViewport(reduceMotion: Bool) async throws {
         let fixture = CaptureModelFixture(returnImages: true, windowCount: 40)
         defer { fixture.close() }
         fixture.model.arm(reverse: false)
@@ -235,6 +243,8 @@ final class ThumbnailStateTests: XCTestCase {
         fixture.model.effectiveMaxHeight = 340
         let host = NSHostingView(rootView: SwitcherView(model: fixture.model)
             .defaultAppStorage(fixture.defaults)
+            // Test-only writable backing key; the public system setting is read-only.
+            .environment(\._accessibilityReduceMotion, reduceMotion)
             .transaction { $0.animation = nil; $0.disablesAnimations = true }
             .frame(width: 640, height: 340))
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 640, height: 340),
@@ -248,14 +258,17 @@ final class ThumbnailStateTests: XCTestCase {
         XCTAssertGreaterThan(fixture.model.thumbnailRefreshWindows.count, 0)
         XCTAssertLessThan(fixture.model.thumbnailRefreshWindows.count, 40)
         let initialCount = fixture.model.thumbnailRefreshWindows.count
-        fixture.model.mouseHasMoved = true
-        fixture.model.selectFlatWindow(at: 39)
-        fixture.model.mouseHasMoved = false
+        let initialFrame = window.frame
+        var reflows = 0
+        fixture.model.onUpdate = { reflows += 1 }
+        fixture.model.selectEdge(last: true)
         try await eventually {
             !fixture.model.thumbnailRefreshWindows.isEmpty &&
                 fixture.model.thumbnailRefreshWindows.allSatisfy { $0.id > 20 }
         }
         XCTAssertEqual(fixture.model.selectedFlatIndex, 39)
+        XCTAssertEqual(reflows, 0, "Keyboard selection scrolls without requesting a panel measurement")
+        XCTAssertEqual(window.frame, initialFrame, "Selection must not move or resize the panel")
         print("Hosted viewport refresh: initial=\(initialCount), afterScroll=\(fixture.model.thumbnailRefreshWindows.count), total=40")
     }
 

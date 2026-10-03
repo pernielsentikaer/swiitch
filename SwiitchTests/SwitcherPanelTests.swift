@@ -13,6 +13,8 @@ final class SwitcherPanelTests: XCTestCase {
             closeWindow: { _ in false }, hideApp: { _ in false }))
         let panel = SwitcherPanel(model: model)
         defer { panel.close() }
+        XCTAssertEqual(panel.level, .popUpMenu)
+        XCTAssertTrue(panel.styleMask.contains(.nonactivatingPanel))
         XCTAssertGreaterThan(panel.level.rawValue, NSWindow.Level.floating.rawValue,
                              "Another app's floating palette must not draw over the picker")
         XCTAssertTrue(panel.collectionBehavior.contains(.fullScreenAuxiliary), "Shown over full-screen apps")

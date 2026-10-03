@@ -64,9 +64,9 @@ final class SwitcherPanel: NSPanel {
             defer: false
         )
         isFloatingPanel = true
-        // Above other apps' floating windows (palettes, shelves, launchers), the way the
-        // system switcher is; the frame is clamped to the visible screen, so the menu bar
-        // and Dock are never covered. The peeked window stays underneath as it must.
+        // Above other apps' floating windows (palettes, shelves, launchers). Placement
+        // stays inside the visible screen frame, leaving room for the visible menu bar
+        // and Dock. The peeked window remains underneath the picker.
         level = .popUpMenu
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle, .stationary]
         isOpaque = false
@@ -167,8 +167,8 @@ final class SwitcherPanel: NSPanel {
             SwitcherPanelSizing.minimumPanelHeight,
             screenHeight - SwitcherPanelSizing.verticalScreenMargin * 2
         )
-        // `@Published` fires even for unchanged values, and refresh() runs on every
-        // selection change; only publish when the limits actually moved.
+        // `@Published` fires even for unchanged values. Structural refreshes can reuse
+        // the same screen limits, so only publish when those limits actually moved.
         if model.effectiveMaxWidth != limits.grid { model.effectiveMaxWidth = limits.grid }
         if model.effectiveMaxHeight != maxHeight { model.effectiveMaxHeight = maxHeight }
 

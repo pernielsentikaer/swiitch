@@ -133,6 +133,19 @@ final class SwitcherPreviewTests: XCTestCase {
         }
     }
 
+    func testRenderReducedTransparencyPreviewInBothAppearances() throws {
+        for dark in [false, true] {
+            let card = SwitcherPreviewCard(layout: layout(count: 6), panelMaterial: .translucentLight,
+                cornerRadius: 16, overlayPosition: .bottomLeading, thumbnailOverlay: .none, accent: .blue)
+                // The public key is read-only. Override its SDK backing key only in
+                // this synthetic host; never change the user's Accessibility settings.
+                .environment(\._accessibilityReduceTransparency, true)
+                .frame(width: 560, height: 350)
+                .background(Color(nsColor: .windowBackgroundColor))
+            try attachSnapshot(card, name: "Reduce-transparency-\(dark ? "dark" : "light")", dark: dark)
+        }
+    }
+
     func testRenderFixedMaterialsAgainstOppositeAppAppearance() throws {
         for windows in [true, false] {
             for dark in [false, true] {
