@@ -108,6 +108,11 @@ struct SwitcherPreviewCard: View {
     let overlayPosition: Preferences.OverlayPosition
     let thumbnailOverlay: Preferences.ThumbnailOverlay
     let accent: Color
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+
+    private var resolvedPanelMaterial: Preferences.PanelMaterial {
+        panelMaterial.resolved(reduceTransparency: reduceTransparency)
+    }
 
     var body: some View {
         GeometryReader { geometry in
@@ -151,9 +156,9 @@ struct SwitcherPreviewCard: View {
             .padding(20)
         }
         .frame(width: max(80, layout.panelWidth - 40), height: layout.viewportHeight)
-        .background(Theme.panelBackground(material: panelMaterial, cornerRadius: cornerRadius))
+        .background(Theme.panelBackground(material: resolvedPanelMaterial, cornerRadius: cornerRadius))
         .environment(\.swiitchAccent, accent)
-        .swiitchPanelAppearance(material: panelMaterial)
+        .swiitchPanelAppearance(material: resolvedPanelMaterial)
     }
 }
 

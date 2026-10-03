@@ -25,6 +25,16 @@ final class ThemeTests: XCTestCase {
         }
     }
 
+    func testReduceTransparencyMakesTranslucentMaterialsSolidAndKeepsExplicitSolids() {
+        for material: Preferences.PanelMaterial in [.translucentLight, .translucent, .frosted] {
+            XCTAssertEqual(material.resolved(reduceTransparency: true), .solid)
+            XCTAssertEqual(material.resolved(reduceTransparency: false), material)
+        }
+        for material: Preferences.PanelMaterial in [.solid, .solidLight, .solidDark] {
+            XCTAssertEqual(material.resolved(reduceTransparency: true), material, "A deliberate solid choice is kept")
+        }
+    }
+
     func testPanelOverrideIsLocalAndRespondsToAppearanceChanges() {
         let appAppearance = NSApp.appearance
         for material in Preferences.PanelMaterial.allCases {
