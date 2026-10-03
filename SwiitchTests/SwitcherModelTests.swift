@@ -178,6 +178,43 @@ final class SwitcherModelTests: XCTestCase {
         XCTAssertEqual(model.flatWindows.first?.id, 1, "Among never-focused windows the one on the current Space leads")
     }
 
+    func testPanelReflowFollowsStructureNotSelection() {
+        defaults.set(Preferences.DisplayMode.apps.rawValue, forKey: Preferences.Key.displayMode)
+        let apps = [
+            makeApp(pid: 101, name: "Alpha", windows: [makeWindow(id: 1, pid: 101, title: "One")]),
+            makeApp(pid: 102, name: "Beta", windows: [
+                makeWindow(id: 2, pid: 102, title: "Two"), makeWindow(id: 3, pid: 102, title: "Three"),
+            ]),
+        ]
+        let model = makeModel(apps: apps)
+        var reflows = 0
+        model.onUpdate = { reflows += 1 }
+        model.arm(reverse: false)
+        defer { model.cancel() }
+        XCTAssertEqual(reflows, 0)
+
+        model.advance(reverse: false)
+        model.advance(reverse: true)
+        model.selectEdge(last: true)
+        XCTAssertTrue(model.selectVisible(ordinal: 1))
+        XCTAssertEqual(reflows, 0, "Moving the selection never re-measures the panel")
+
+        model.appendFilter("b")
+        model.clearFilter()
+        XCTAssertEqual(reflows, 0, "The panel keeps its frame while typing; the grid reflows inside it")
+
+        let beta = model.filteredApps.firstIndex(where: { $0.id == 102 })! + 1
+        XCTAssertTrue(model.selectVisible(ordinal: beta))
+        model.enterWindowMode()
+        XCTAssertEqual(model.mode, .windowsForApp)
+        XCTAssertEqual(reflows, 1, "Drilling in changes the structure")
+        model.advance(reverse: false)
+        model.advanceRow(reverse: false)
+        XCTAssertEqual(reflows, 1, "Selection inside the window grid still does not")
+        model.exitWindowMode()
+        XCTAssertEqual(reflows, 2, "So does coming back out")
+    }
+
     func testFlatWindowArmSkipsActualFocusedWindowWhenDiaOrderIsReversed() {
         defaults.set(Preferences.DisplayMode.windows.rawValue, forKey: Preferences.Key.displayMode)
         let apps = [
