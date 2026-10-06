@@ -80,9 +80,13 @@ struct EnumerateOptions: Sendable {
     /// Bundle identifiers omitted before any Accessibility or thumbnail work begins.
     var excludedBundleIDs: Set<String> = []
 
-    func includes(_ window: WindowInfo) -> Bool {
+    /// A hidden app's windows are off screen on every Space, so only Spaces membership can
+    /// say which of them are on the Space the user is looking at; `onCurrentSpace` is asked
+    /// just for those, and an unknown answer keeps the window out, as before.
+    func includes(_ window: WindowInfo, appHidden: Bool = false, onCurrentSpace: () -> Bool? = { nil }) -> Bool {
         if window.isMinimized == true { return includeMinimizedWindows }
-        return includeOtherSpaces || window.isOnScreen
+        if includeOtherSpaces || window.isOnScreen { return true }
+        return appHidden && onCurrentSpace() == true
     }
 }
 
@@ -266,6 +270,8 @@ enum WindowEnumerator {
         var entries: [AppEntry] = []
         for app in regularApps {
             let pid = app.processIdentifier
+            // Collection keeps every Space; WindowDiscovery.filtered applies the user's
+            // Spaces choice, including the per-window lookup for hidden apps.
             let windows = (byPID[pid] ?? []).filter { options.includes($0) }
             guard !windows.isEmpty else { continue }
             entries.append(AppEntry(
