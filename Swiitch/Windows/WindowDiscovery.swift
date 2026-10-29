@@ -35,6 +35,8 @@ final class WindowDiscovery {
     /// snapshot. Explicitly forced requests always collect; event refreshes only collect
     /// if that event generation has not already been covered by another request.
     var eventMonitor: WindowEventMonitor?
+    /// Delivered only for completed, current collections, never cached/failed reads.
+    var onWindowInventory: ((WindowEnumerator.WindowInventory) -> Void)?
 
     /// A user-facing request (opening the picker, changing a list preference) accepts a
     /// snapshot up to this old.
@@ -190,6 +192,7 @@ final class WindowDiscovery {
                     self.recentDurations.removeFirst(self.recentDurations.count - Self.recentDurationCapacity)
                 }
                 self.eventMonitor?.reconcile(with: result, applicationPIDs: key.pids)
+                if let inventory = result.inventory { self.onWindowInventory?(inventory) }
             } else if result == nil {
                 self.timeoutCount += 1
             }

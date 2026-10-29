@@ -90,6 +90,7 @@ final class SwitcherModel: ObservableObject {
     private var hasPeeked = false
     private var pendingCloseWindowIDs: Set<CGWindowID> = []
     private var armGeneration: UInt64 = 0
+    private var armedAt: TimeInterval = .infinity
     private var windowOrder = FocusTracker.WindowOrder()
     private var preparationTask: Task<Void, Never>?
     private var preparationGeneration: UInt64 = 0
@@ -97,6 +98,7 @@ final class SwitcherModel: ObservableObject {
     private var capabilityTasks: [CGWindowID: Task<Void, Never>] = [:]
     private var capabilityCheckedAt: [CGWindowID: TimeInterval] = [:]
     private var capabilityOwners: [CGWindowID: pid_t] = [:]
+    private var controlDemand: Set<CGWindowID> = []
     private var feedbackTask: Task<Void, Never>?
     private let focusConfirmation = FocusConfirmation()
 
@@ -186,6 +188,7 @@ final class SwitcherModel: ObservableObject {
 
     func arm(reverse: Bool) {
         guard !isArmed else { return }
+        armedAt = ProcessInfo.processInfo.systemUptime
         focusConfirmation.cancel()
         dependencies.cancelPendingFocus()
         armGeneration &+= 1
@@ -237,6 +240,7 @@ final class SwitcherModel: ObservableObject {
     /// the window strip for the frontmost app. Triggered by the second configurable hotkey.
     func armForCurrentApp(reverse: Bool) {
         guard !isArmed else { return }
+        armedAt = ProcessInfo.processInfo.systemUptime
         focusConfirmation.cancel()
         dependencies.cancelPendingFocus()
         armGeneration &+= 1
@@ -691,7 +695,7 @@ final class SwitcherModel: ObservableObject {
         )
     }
 
-    func cancel() {
+    func cancel(restoreFocus: Bool = true) {
         focusConfirmation.cancel()
         dependencies.cancelPendingFocus()
         preparationGeneration &+= 1
@@ -699,7 +703,7 @@ final class SwitcherModel: ObservableObject {
         preparationTask = nil
         hasPreparedFocus = false
         guard isArmed else { return }
-        let originalPID = hasPeeked ? preArmFrontmostPID : nil
+        let originalPID = restoreFocus && hasPeeked ? preArmFrontmostPID : nil
         let originalWindowID = preArmFocusedWindowID
         let originalBundleID = preArmFrontmostBundleID
         teardown()
@@ -772,6 +776,62 @@ final class SwitcherModel: ObservableObject {
     /// Selection follows the previously-selected app if still present.
     func refreshAfterPinChange() {
         refreshAfterAppListPreferenceChange()
+    }
+
+    /// Live discovery may prune confirmed closed/reused identities, not add/reorder
+    /// tiles beneath the pointer. AX omissions, filtered snapshots and pre-open reads
+    /// are not evidence of closure. Preserve the selected identity or its visible slot.
+    func reconcileClosedWindows(in inventory: WindowEnumerator.WindowInventory) {
+        guard isArmed, inventory.collectedAt >= armedAt else { return }
+        let removed = Set(apps.flatMap(\.windows).filter { inventory.owners[$0.id] != $0.pid }.map(\.id))
+        guard !removed.isEmpty else { return }
+        let appID = currentApp?.id
+        let windowID = currentApp?.windows[safe: selectedWindowIndex]?.id
+        let flatID = flatWindows[safe: selectedFlatIndex]?.id
+        let appSlot = filteredApps.firstIndex { $0.id == appID } ?? 0
+        let windowSlot = filteredAppWindows.firstIndex { $0.id == windowID } ?? 0
+        let flatSlot = filteredFlatWindows.firstIndex { $0.id == flatID } ?? 0
+        cancelPendingPeek()
+
+        apps = apps.compactMap { entry in
+            var entry = entry
+            entry.windows.removeAll { removed.contains($0.id) }
+            return entry.windows.isEmpty ? nil : entry
+        }
+        flatWindows.removeAll { removed.contains($0.id) }
+        previews.remove(windowIDs: removed)
+        pendingCloseWindowIDs.subtract(removed)
+        for id in removed {
+            capabilityTasks.removeValue(forKey: id)?.cancel()
+            capabilityCheckedAt.removeValue(forKey: id)
+            capabilityOwners.removeValue(forKey: id)
+            windowCapabilities.removeValue(forKey: id)
+            controlDemand.remove(id)
+        }
+        guard !apps.isEmpty, !((mode == .flatWindows || mode == .currentAppWindows) && flatWindows.isEmpty) else {
+            teardown()
+            return
+        }
+        let lostDrilledApp = mode == .windowsForApp && !apps.contains { $0.id == appID }
+        selectedAppIndex = apps.firstIndex { $0.id == appID } ?? 0
+        if lostDrilledApp { exitWindowMode() }
+        selectedAppIndex = retainedSelection(id: appID, slot: appSlot, all: apps, visible: filteredApps, key: \.id)
+        if mode == .windowsForApp, let app = currentApp {
+            selectedWindowIndex = retainedSelection(id: windowID, slot: windowSlot,
+                all: app.windows, visible: filteredAppWindows, key: \.id)
+        }
+        selectedFlatIndex = retainedSelection(id: flatID, slot: flatSlot,
+            all: flatWindows, visible: filteredFlatWindows, key: \.id)
+        // Like typing, membership changes stay inside the existing panel frame. Only
+        // leaving the drill-in mode above needs a structural reflow.
+    }
+
+    private func retainedSelection<Item, ID: Equatable>(id: ID?, slot: Int, all: [Item],
+                                                       visible: [Item], key: KeyPath<Item, ID>) -> Int {
+        guard !visible.isEmpty else { return 0 }
+        let target = visible.first { $0[keyPath: key] == id }
+            ?? visible[min(slot, visible.count - 1)]
+        return all.firstIndex { $0[keyPath: key] == target[keyPath: key] } ?? 0
     }
 
     /// Re-enumerates after pinning or exclusion changes while keeping the previous
@@ -961,8 +1021,21 @@ final class SwitcherModel: ObservableObject {
             value[action] = result == .unsupported ? .unsupported : .disabled
             windowCapabilities[target.id] = value
         }
-        prepareWindowControls(id: target.id)
+        if controlDemand.contains(target.id) { prepareWindowControls(id: target.id) }
         return result == .accepted
+    }
+
+    /// Stop obsolete queued reads as the pointer/VoiceOver leaves a tile. Cached hints
+    /// can stay for this invocation; actual actions always revalidate native capability.
+    func setWindowControlsNeeded(_ needed: Bool, id: CGWindowID) {
+        guard isArmed else { return }
+        if needed {
+            controlDemand.insert(id)
+            prepareWindowControls(id: id)
+        } else {
+            controlDemand.remove(id)
+            capabilityTasks.removeValue(forKey: id)?.cancel()
+        }
     }
 
     /// Selected/hovered cells request metadata; no new idle timer or all-window AX pass.
@@ -980,6 +1053,7 @@ final class SwitcherModel: ObservableObject {
         let generation = armGeneration
         capabilityOwners[id] = target.pid
         capabilityTasks[id] = Task { @MainActor [weak self] in
+            guard !Task.isCancelled else { return }
             let capabilities = await read(target)
             guard let self, !Task.isCancelled, self.isArmed, self.armGeneration == generation else { return }
             self.capabilityTasks[id] = nil
@@ -1062,6 +1136,7 @@ final class SwitcherModel: ObservableObject {
         capabilityTasks.removeAll()
         capabilityCheckedAt.removeAll()
         capabilityOwners.removeAll()
+        controlDemand.removeAll()
         windowCapabilities.removeAll()
         showActionFeedback(nil)
         focusTracker.isTrackingSuspended = false

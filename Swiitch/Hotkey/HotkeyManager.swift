@@ -59,6 +59,7 @@ final class HotkeyManager {
     private var dispatchGeneration: UInt64 = 0
     private var preparingSnapshot = false
     private var queuedOperations: [() -> Void] = []
+    private var sessionSuspended = false
 
     init(model: SwitcherModel, defaults: UserDefaults = .standard,
          recording: ShortcutRecordingSession = .shared) {
@@ -132,16 +133,24 @@ final class HotkeyManager {
         removeTap()
     }
 
-    private func cancelInputSession() {
+    private func cancelInputSession(restoreFocus: Bool = true) {
         dispatchGeneration &+= 1
         preparingSnapshot = false
         queuedOperations.removeAll()
         inputSession = nil
         presentedSession = nil
-        model.cancel()
+        model.cancel(restoreFocus: restoreFocus)
         // Cancellation during discovery happens before the model is armed, so its
         // teardown has not run and the pending measurement needs to end here.
         OpenLatency.shared.end()
+    }
+
+    /// Lock/sleep invalidates even a queued opening or commit. Do not restore a peek
+    /// across a session boundary: another app or the login screen may now own focus.
+    func setSessionSuspended(_ suspended: Bool) {
+        guard sessionSuspended != suspended else { return }
+        sessionSuspended = suspended
+        if suspended { cancelInputSession(restoreFocus: false) }
     }
 
     private func removeTap() {
@@ -168,6 +177,7 @@ final class HotkeyManager {
     }
 
     private func reinstallIfNeeded() {
+        cancelInputSession(restoreFocus: false)
         recovery.refresh(force: true)
     }
 
@@ -198,8 +208,19 @@ final class HotkeyManager {
     private func consume(type: CGEventType, keyCode: Int, flags: CGEventFlags) -> Bool {
         // Re-enable if macOS disabled us for timeout / user input.
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+            cancelInputSession(restoreFocus: false)
             if let tap { CGEvent.tapEnable(tap: tap.value.port, enable: true) }
             return false
+        }
+
+        guard !sessionSuspended else { return false }
+
+        // The modifier-up event may have been lost while macOS interrupted the tap.
+        // Trust the flags on the next key too; never swallow ordinary typing or commit
+        // an old selection merely because its release event was missing.
+        if type == .keyDown, let session = inputSession,
+           flags.intersection(session.modifiers) != session.modifiers {
+            cancelInputSession(restoreFocus: false)
         }
 
         if recording.isRecording {

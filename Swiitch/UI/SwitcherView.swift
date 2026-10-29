@@ -407,6 +407,7 @@ struct AppCell: View {
                 .frame(maxWidth: 100)
                 .foregroundStyle(isSelected ? Color.primary : Color.secondary)
         }
+        .help(app.name)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(app.name)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
@@ -474,7 +475,7 @@ private struct WindowGridView: View {
                         zoom: { _ = model.zoomWindow(id: window.id) },
                         capabilities: model.windowCapabilities[window.id] ?? .init()
                     ),
-                    prepareControls: { model.prepareWindowControls(id: window.id) },
+                    controlDemandChanged: { model.setWindowControlsNeeded($0, id: window.id) },
                     hoverChanged: { hovering in
                         if hovering {
                             model.selectWindow(at: index)
@@ -552,7 +553,7 @@ private struct FlatWindowGridView: View {
                         zoom: { _ = model.zoomWindow(id: entry.id) },
                         capabilities: model.windowCapabilities[entry.id] ?? .init()
                     ),
-                    prepareControls: { model.prepareWindowControls(id: entry.id) },
+                    controlDemandChanged: { model.setWindowControlsNeeded($0, id: entry.id) },
                     hoverChanged: { hovering in
                         if hovering {
                             model.selectFlatWindow(at: absoluteIndex)
@@ -584,6 +585,15 @@ struct WindowControlActions {
     var capabilities = WindowActionCapabilities()
 }
 
+/// Keyboard selection alone needs no AX button reads when the pointer controls are
+/// hidden. VoiceOver still gets capability-aware actions for its focused/selected tile.
+struct WindowControlDemand {
+    static func needsMetadata(pointerControlsVisible: Bool, voiceOverEnabled: Bool,
+                              selected: Bool, accessibilityFocused: Bool) -> Bool {
+        pointerControlsVisible || (voiceOverEnabled && (selected || accessibilityFocused))
+    }
+}
+
 struct WindowCell: View {
     let title: String
     let thumbnail: NSImage?
@@ -601,12 +611,14 @@ struct WindowCell: View {
     let thumbHeight: CGFloat
     var showControlsOnHover: Bool = false
     var controls: WindowControlActions? = nil
-    var prepareControls: (() -> Void)? = nil
+    var controlDemandChanged: ((Bool) -> Void)? = nil
     var hoverChanged: ((Bool) -> Void)? = nil
     var commit: (() -> Void)? = nil
 
     @Environment(\.swiitchAccent) private var accent: Color
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
+    @AccessibilityFocusState private var accessibilityFocused: Bool
     @State private var isHovering = false
     @State private var isHoveringControls = false
 
@@ -693,6 +705,7 @@ struct WindowCell: View {
                             .lineLimit(1)
                             .truncationMode(.tail)
                             .foregroundStyle(.tertiary)
+                            .help(secondaryLabel)
                     }
                 }
             }
@@ -701,18 +714,19 @@ struct WindowCell: View {
         }
         .onHover { hovering in
             isHovering = hovering
-            if hovering { prepareControls?() }
             if !hovering { isHoveringControls = false }
             hoverChanged?(hovering)
         }
-        .onAppear { if isSelected { prepareControls?() } }
-        .onChange(of: isSelected) { _, selected in if selected { prepareControls?() } }
+        .onChange(of: needsControlMetadata, initial: true) { _, needed in controlDemandChanged?(needed) }
+        .onDisappear { controlDemandChanged?(false) }
         .onTapGesture {
             guard !isHoveringControls else { return }
             commit?()
         }
         .animation(.easeOut(duration: 0.12), value: showsControls)
         .accessibilityElement(children: .ignore)
+        .accessibilityFocused($accessibilityFocused)
+        .help(fullTitleHelp)
         .accessibilityLabel([title, accessibilityAppName ?? secondaryLabel].compactMap { $0 }.joined(separator: ", "))
         .accessibilityValue([
             presence.label,
@@ -733,6 +747,20 @@ struct WindowCell: View {
 
     private var showsControls: Bool {
         showControlsOnHover && isHovering && controls != nil
+    }
+
+    private var needsControlMetadata: Bool {
+        controls != nil && WindowControlDemand.needsMetadata(
+            pointerControlsVisible: showsControls, voiceOverEnabled: voiceOverEnabled,
+            selected: isSelected, accessibilityFocused: accessibilityFocused
+        )
+    }
+
+    /// The tile may truncate visually, but hover help retains the complete title and
+    /// app identity. Controls keep their own more specific action tooltips.
+    var fullTitleHelp: String {
+        let app = accessibilityAppName ?? secondaryLabel
+        return [title, app == title ? nil : app].compactMap { $0 }.joined(separator: "\n")
     }
 
     private var accessibilityHint: String {

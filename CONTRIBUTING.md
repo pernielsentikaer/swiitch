@@ -167,6 +167,26 @@ Independent pause reasons compose with Low Power Mode. No new polling or permiss
 introduced. Tests use isolated notification centers, synthetic images, and controlled async
 gates; a real lock/sleep/wake cycle remains a manual integration check.
 
+Input sessions are cancelled without restoring a peek when the event tap is interrupted,
+the session locks/sleeps, or a key arrives without the session's required modifiers. Queued
+opens/commits are discarded too. Normal modifier release still commits the selection.
+Each native focus request shares one 250 ms cooperative budget and a memoized AX window
+lookup across candidates and reassertion. Native calls can overrun their timeout; this
+bounds subsequent attempts, not the OS itself. Exact identity checks remain mandatory.
+
+While the picker is open, completed discovery collections can remove closed/reused window
+identities using the unfiltered WindowServer inventory. Failed or pre-invocation reads,
+AX omissions and missing thumbnails are never closure evidence. Surviving tiles retain
+their order and selection (or the nearest surviving visible slot); new windows wait for
+the next invocation. Empty searches remain open; an empty invocation closes safely.
+
+Traffic-light capability hints load only for visible hover controls or the selected/focused
+VoiceOver tile. Leaving a tile cancels obsolete reads; actions still revalidate natively.
+Tile hover help exposes full window/app names without widening the grid. Regression tests
+cover these policies, queued interruptions, lookup budgets and live list reconciliation;
+light/dark render tests use synthetic windows. Real VoiceOver, lock/wake and slow third-party
+app behavior remain manual integration checks, not implied by a passing unit suite.
+
 ## Where to start
 
 Good first PR candidates:
