@@ -592,6 +592,7 @@ final class SwitcherModelTests: XCTestCase {
         XCTAssertTrue(beforeDrillIn.isEmpty)
 
         model.enterWindowMode()
+        model.updateThumbnailViewport([2, 3], context: model.thumbnailViewportContext)
         await waitUntil("the drilled-in app's windows to be captured") { await recorder.snapshot().count >= 2 }
 
         let afterDrillIn = await recorder.snapshot()
@@ -669,6 +670,7 @@ final class SwitcherModelTests: XCTestCase {
         )
 
         model.arm(reverse: false)
+        model.updateThumbnailViewport([1, 2, 3], context: model.thumbnailViewportContext)
         await waitUntil("the cancel and load events") { await recorder.events().count >= 2 }
 
         let events = await recorder.events()
@@ -687,6 +689,7 @@ final class SwitcherModelTests: XCTestCase {
         )
 
         model.arm(reverse: false)
+        model.updateThumbnailViewport([1, 2, 3], context: model.thumbnailViewportContext)
         await capture.waitUntilFirstDelivery()
         await waitUntil("the first image to land") { model.thumbnails[2] != nil }
 

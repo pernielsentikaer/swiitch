@@ -5,6 +5,51 @@ import XCTest
 
 @MainActor
 final class PreferencesSidebarTests: XCTestCase {
+    func testPreferencesFrameRestoresUserSizeAndPositionAcrossWindows() {
+        let name = "Swiitch.Preferences.Tests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: name)!
+        Preferences.registerDefaults(in: defaults, persistentDomainName: name)
+        defer {
+            NSWindow.removeFrame(usingName: name)
+            defaults.removePersistentDomain(forName: name)
+        }
+        func makeWindow() -> NSWindow {
+            let host = NSHostingController(rootView: PreferencesView(initialSelection: .about)
+                .defaultAppStorage(defaults))
+            let window = NSWindow(contentViewController: host)
+            window.styleMask = [.titled, .closable, .resizable, .fullSizeContentView]
+            window.isReleasedWhenClosed = false
+            PreferencesWindowController.restoreFrame(of: window, autosaveName: name)
+            host.view.layoutSubtreeIfNeeded()
+            return window
+        }
+        let first = makeWindow()
+        XCTAssertEqual(first.contentLayoutRect.width, 780, accuracy: 1)
+        XCTAssertEqual(first.minSize, NSSize(width: 720, height: 520))
+        var requested = first.frame
+        requested.size = NSSize(width: 900, height: 620)
+        requested.origin.x += 20
+        if let screen = first.screen ?? NSScreen.main {
+            requested.size.width = min(requested.width, screen.visibleFrame.width)
+            requested.size.height = min(requested.height, screen.visibleFrame.height)
+            requested.origin.x = max(screen.visibleFrame.minX, min(requested.minX, screen.visibleFrame.maxX - requested.width))
+            requested.origin.y = max(screen.visibleFrame.minY, min(requested.minY, screen.visibleFrame.maxY - requested.height))
+        }
+        first.setFrame(requested, display: false)
+        let saved = first.frame
+        first.saveFrame(usingName: name)
+        first.setFrameAutosaveName("")
+        first.close()
+
+        let reopened = makeWindow()
+        defer { reopened.setFrameAutosaveName(""); reopened.close() }
+        XCTAssertEqual(reopened.frame.origin.x, saved.origin.x, accuracy: 1)
+        XCTAssertEqual(reopened.frame.origin.y, saved.origin.y, accuracy: 1)
+        XCTAssertEqual(reopened.frame.width, saved.width, accuracy: 1)
+        XCTAssertEqual(reopened.frame.height, saved.height, accuracy: 1)
+        XCTAssertEqual(reopened.minSize, NSSize(width: 720, height: 520))
+    }
+
     func testSectionChangesPreserveResizedSidebarAndWindowWidths() throws {
         continueAfterFailure = false
         let suite = "com.swiitch.sidebar-selection-tests.\(UUID().uuidString)"

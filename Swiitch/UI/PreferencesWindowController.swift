@@ -11,6 +11,7 @@ import SwiftUI
 @MainActor
 final class PreferencesWindowController: NSObject, NSWindowDelegate {
     static let shared = PreferencesWindowController()
+    nonisolated static let frameAutosaveName = "Swiitch.Preferences"
 
     private var window: NSWindow?
     var onVisibilityChange: ((Bool) -> Void)?
@@ -30,11 +31,9 @@ final class PreferencesWindowController: NSObject, NSWindowDelegate {
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
         window.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
-        window.setContentSize(NSSize(width: 780, height: 600))
-        window.minSize = NSSize(width: 720, height: 520)
+        Self.restoreFrame(of: window, autosaveName: Self.frameAutosaveName)
         window.tabbingMode = .disallowed
         window.isReleasedWhenClosed = false
-        window.center()
         window.delegate = self
         self.window = window
         onVisibilityChange?(true)
@@ -55,7 +54,19 @@ final class PreferencesWindowController: NSObject, NSWindowDelegate {
     // MARK: NSWindowDelegate
 
     func windowWillClose(_ notification: Notification) {
+        window?.saveFrame(usingName: Self.frameAutosaveName)
+        // A new window will own this autosave name on the next open.
+        window?.setFrameAutosaveName("")
         window = nil
         onVisibilityChange?(false)
+    }
+
+    /// AppKit restores screen-relative geometry (including display changes). First use
+    /// retains the normal centered size; subsequent opens honor the user's last frame.
+    static func restoreFrame(of window: NSWindow, autosaveName: String) {
+        window.setContentSize(NSSize(width: 780, height: 600))
+        window.minSize = NSSize(width: 720, height: 520)
+        if !window.setFrameUsingName(autosaveName) { window.center() }
+        window.setFrameAutosaveName(autosaveName)
     }
 }

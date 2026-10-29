@@ -146,6 +146,13 @@ opening the picker bypasses that delay. A delayed background refresh reuses or j
 collection already covering its event generation; explicit forced refreshes still bypass
 the cache. Timing tests use a manual clock rather than wall-clock sleeps.
 
+Initial preview capture loads the selected target until the grid reports its viewport,
+then loads visible tiles; scrolling reuses cached images. A delayed post-action refresh
+belongs to its original invocation and must not invalidate a newer invocation's cache.
+Low Power Mode removes the optional idle-prewarm timer and stops a pending metadata
+preparation from starting new prewarm captures. Foreground previews remain available.
+Preferences uses AppKit frame autosave to retain window size and position across opens.
+
 ## Where to start
 
 Good first PR candidates:
