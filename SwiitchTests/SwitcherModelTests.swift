@@ -319,11 +319,16 @@ final class SwitcherModelTests: XCTestCase {
     func testCommitRemembersWindowWhenNextAXReadIsUnavailable() {
         defaults.set(Preferences.DisplayMode.windows.rawValue, forKey: Preferences.Key.displayMode)
         let tracker = FocusTracker()
-        let model = makeModel(apps: diaAndChatApps(), focusTracker: tracker)
+        var focused: CGWindowID? = 10
+        let model = makeModel(
+            apps: diaAndChatApps(), focusWindow: { focused = $0.id },
+            frontmostPID: { 101 }, focusedWindowID: { _ in focused }, focusTracker: tracker
+        )
         model.arm(reverse: false)
         model.mouseHasMoved = true
         model.selectFlatWindow(at: 1)
         model.commit()
+        focused = nil
         model.arm(reverse: false)
         XCTAssertEqual(model.flatWindows.map(\.id), [11, 10, 12])
         model.cancel()
@@ -367,7 +372,11 @@ final class SwitcherModelTests: XCTestCase {
         defaults.set(Preferences.DisplayMode.apps.rawValue, forKey: Preferences.Key.displayMode)
         let tracker = FocusTracker()
         tracker.bumpWindow(id: 11, pid: 101)
-        let model = makeModel(apps: diaAndChatApps(), focusTracker: tracker)
+        var focused: CGWindowID? = 11
+        let model = makeModel(
+            apps: diaAndChatApps(), focusWindow: { focused = $0.id },
+            frontmostPID: { 101 }, focusedWindowID: { _ in focused }, focusTracker: tracker
+        )
         model.arm(reverse: false)
         model.mouseHasMoved = true
         model.selectApp(at: 0)
@@ -960,12 +969,56 @@ final class SwitcherModelTests: XCTestCase {
     func testCommitRepairsMRUForTheFocusedApp() {
         defaults.set(Preferences.DisplayMode.apps.rawValue, forKey: Preferences.Key.displayMode)
         let tracker = FocusTracker()
-        let model = makeModel(apps: sampleApps(), focusTracker: tracker)
+        var pid: pid_t? = 101
+        let model = makeModel(
+            apps: sampleApps(), focusApp: { pid = $0.pid }, frontmostPID: { pid },
+            focusedWindowID: { _ in 9 }, focusTracker: tracker
+        )
 
         model.arm(reverse: false)
         model.commit()
 
         XCTAssertEqual(tracker.rank(for: "com.example.beta"), 0)
+        XCTAssertEqual(tracker.mruWindows.first?.id, 9, "Record the actual window, not cached window 2")
+    }
+
+    func testRejectedWindowSwitchDoesNotFabricateMRU() {
+        defaults.set(Preferences.DisplayMode.windows.rawValue, forKey: Preferences.Key.displayMode)
+        let tracker = FocusTracker()
+        let model = makeModel(
+            apps: diaAndChatApps(), frontmostPID: { 101 }, focusedWindowID: { _ in 11 },
+            focusTracker: tracker
+        )
+        model.arm(reverse: false)
+        XCTAssertEqual(model.flatWindows[model.selectedFlatIndex].id, 10)
+        model.commit()
+        XCTAssertEqual(tracker.mruWindows.map(\.id), [11])
+    }
+
+    func testDelayedCommitConfirmsFocusButNewInvocationCancelsOldConfirmation() {
+        defaults.set(Preferences.DisplayMode.windows.rawValue, forKey: Preferences.Key.displayMode)
+        let tracker = FocusTracker()
+        var focused: CGWindowID? = 11
+        var callbacks: [@MainActor @Sendable () -> Void] = []
+        let model = makeModel(
+            apps: diaAndChatApps(), frontmostPID: { 101 }, focusedWindowID: { _ in focused },
+            scheduleFocusConfirmation: { callbacks.append($0) }, focusTracker: tracker
+        )
+        model.arm(reverse: false)
+        model.commit()
+        XCTAssertEqual(tracker.mruWindows.map(\.id), [11])
+        focused = 10
+        callbacks.removeFirst()()
+        XCTAssertEqual(tracker.mruWindows.map(\.id), [10, 11])
+
+        model.arm(reverse: false)
+        model.commit()
+        let oldCheck = callbacks.removeFirst()
+        model.arm(reverse: false)
+        model.cancel()
+        focused = 11
+        oldCheck()
+        XCTAssertEqual(tracker.mruWindows.map(\.id), [10, 11])
     }
 
     func testFitGridShrinksTilesAndUsesAdditionalColumns() {
@@ -1319,6 +1372,7 @@ final class SwitcherModelTests: XCTestCase {
         ) async -> [CGWindowID: NSImage])? = nil,
         cancelThumbnailCaptures: (() async -> Void)? = nil,
         scheduleCloseReconciliation: @escaping (@escaping @MainActor @Sendable () -> Void) -> Void = { $0() },
+        scheduleFocusConfirmation: @escaping (@escaping @MainActor @Sendable () -> Void) -> Void = { $0() },
         focusTracker: FocusTracker = FocusTracker()
     ) -> SwitcherModel {
         let dependencies = SwitcherModel.Dependencies(
@@ -1339,7 +1393,8 @@ final class SwitcherModelTests: XCTestCase {
             focusedWindowID: focusedWindowID,
             thumbnails: thumbnails,
             cancelThumbnailCaptures: cancelThumbnailCaptures,
-            scheduleCloseReconciliation: scheduleCloseReconciliation
+            scheduleCloseReconciliation: scheduleCloseReconciliation,
+            scheduleFocusConfirmation: scheduleFocusConfirmation
         )
         return SwitcherModel(
             focusTracker: focusTracker,

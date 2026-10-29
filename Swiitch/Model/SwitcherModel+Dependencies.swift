@@ -32,6 +32,8 @@ extension SwitcherModel {
         var readWindowCapabilities: ((WindowInfo) async -> WindowActionCapabilities)?
         var performWindowAction: ((WindowAction, WindowInfo) -> WindowActionResult)?
         var cancelPendingFocus: @MainActor () -> Void
+        var confirmedWindowID: (pid_t) -> CGWindowID?
+        var scheduleFocusConfirmation: (@escaping @MainActor @Sendable () -> Void) -> Void
 
         init(
             enumerate: @escaping @MainActor (FocusTracker, EnumerateOptions) -> [AppEntry],
@@ -62,7 +64,11 @@ extension SwitcherModel {
             prepareSnapshot: ((EnumerateOptions) async -> Void)? = nil,
             readWindowCapabilities: ((WindowInfo) async -> WindowActionCapabilities)? = nil,
             performWindowAction: ((WindowAction, WindowInfo) -> WindowActionResult)? = nil,
-            cancelPendingFocus: @escaping @MainActor () -> Void = {}
+            cancelPendingFocus: @escaping @MainActor () -> Void = {},
+            confirmedWindowID: ((pid_t) -> CGWindowID?)? = nil,
+            scheduleFocusConfirmation: @escaping (@escaping @MainActor @Sendable () -> Void) -> Void = { action in
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1, execute: action)
+            }
         ) {
             self.enumerate = enumerate
             self.prepareSnapshot = prepareSnapshot
@@ -87,6 +93,8 @@ extension SwitcherModel {
             self.readWindowCapabilities = readWindowCapabilities
             self.performWindowAction = performWindowAction
             self.cancelPendingFocus = cancelPendingFocus
+            self.confirmedWindowID = confirmedWindowID ?? focusedWindowID
+            self.scheduleFocusConfirmation = scheduleFocusConfirmation
         }
 
         /// Construct inside the actor; default arguments must not instantiate UI dependencies
@@ -135,7 +143,10 @@ extension SwitcherModel {
                 prepareSnapshot: { await WindowDiscovery.shared.prepare(options: $0) },
                 readWindowCapabilities: { await WindowActionCapabilityReader.shared.read($0) },
                 performWindowAction: { WindowFocuser.perform($0, window: $1) },
-                cancelPendingFocus: { WindowFocuser.cancelPendingActivation() }
+                cancelPendingFocus: { WindowFocuser.cancelPendingActivation() },
+                confirmedWindowID: {
+                    AXPrivate.focusedWindowID(forPID: $0, allowMainWindowFallback: false, timeout: 0.015)
+                }
             )
         }
     }

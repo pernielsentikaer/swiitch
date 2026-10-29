@@ -126,10 +126,18 @@ enum AXPrivate {
     /// Returns the window the application itself reports as focused. Unlike the order from
     /// `CGWindowListCopyWindowInfo(.optionAll)`, this is authoritative even when an app keeps
     /// multiple overlapping browser windows or hidden host surfaces alive.
-    static func focusedWindowID(forPID pid: pid_t) -> CGWindowID? {
-        for attribute in [kAXFocusedWindowAttribute, kAXMainWindowAttribute] {
-            if let element = applicationWindow(forPID: pid, attribute: attribute),
-               let id = windowID(for: element) { return id }
+    static func focusedWindowID(
+        forPID pid: pid_t,
+        allowMainWindowFallback: Bool = true,
+        timeout: Float = 0.05
+    ) -> CGWindowID? {
+        let attributes = allowMainWindowFallback
+            ? [kAXFocusedWindowAttribute, kAXMainWindowAttribute] : [kAXFocusedWindowAttribute]
+        for attribute in attributes {
+            if let element = applicationWindow(forPID: pid, attribute: attribute, timeout: timeout) {
+                AXUIElementSetMessagingTimeout(element, timeout)
+                if let id = windowID(for: element) { return id }
+            }
         }
         return nil
     }
@@ -139,9 +147,9 @@ enum AXPrivate {
             ?? applicationWindow(forPID: pid, attribute: kAXMainWindowAttribute)
     }
 
-    private static func applicationWindow(forPID pid: pid_t, attribute: String) -> AXUIElement? {
+    private static func applicationWindow(forPID pid: pid_t, attribute: String, timeout: Float = 0.05) -> AXUIElement? {
         let application = AXUIElementCreateApplication(pid)
-        AXUIElementSetMessagingTimeout(application, 0.05)
+        AXUIElementSetMessagingTimeout(application, timeout)
         var value: AnyObject?
         guard AXUIElementCopyAttributeValue(application, attribute as CFString, &value) == .success,
               let value, CFGetTypeID(value) == AXUIElementGetTypeID() else { return nil }

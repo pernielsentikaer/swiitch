@@ -98,6 +98,7 @@ final class SwitcherModel: ObservableObject {
     private var capabilityCheckedAt: [CGWindowID: TimeInterval] = [:]
     private var capabilityOwners: [CGWindowID: pid_t] = [:]
     private var feedbackTask: Task<Void, Never>?
+    private let focusConfirmation = FocusConfirmation()
 
     init(
         focusTracker: FocusTracker,
@@ -157,6 +158,7 @@ final class SwitcherModel: ObservableObject {
     /// Warm snapshots return immediately; the input manager queues release/navigation.
     func prepareForArm(completion: @escaping () -> Void) {
         guard !isArmed else { completion(); return }
+        focusConfirmation.cancel()
         dependencies.cancelPendingFocus()
         guard let prepare = dependencies.prepareSnapshot else {
             OpenLatency.shared.mark(.snapshotReady)
@@ -184,6 +186,7 @@ final class SwitcherModel: ObservableObject {
 
     func arm(reverse: Bool) {
         guard !isArmed else { return }
+        focusConfirmation.cancel()
         dependencies.cancelPendingFocus()
         armGeneration &+= 1
         pendingCloseWindowIDs.removeAll()
@@ -234,6 +237,7 @@ final class SwitcherModel: ObservableObject {
     /// the window strip for the frontmost app. Triggered by the second configurable hotkey.
     func armForCurrentApp(reverse: Bool) {
         guard !isArmed else { return }
+        focusConfirmation.cancel()
         dependencies.cancelPendingFocus()
         armGeneration &+= 1
         pendingCloseWindowIDs.removeAll()
@@ -644,38 +648,51 @@ final class SwitcherModel: ObservableObject {
         // Releasing an empty search selects nothing. Undo any preview before teardown
         // clears the original focus, just as Escape does; without a preview this is inert.
         guard hasVisibleTarget else { cancel(); return }
+        let sourcePID = dependencies.frontmostPID()
         teardown()
 
         var focusedBundleID: String?
-        var focusedWindow: WindowInfo?
+        let targetPID: pid_t
+        let targetWindowID: CGWindowID?
 
         switch mode {
         case .apps:
             guard let app else { return }
             dependencies.focusApp(app)
             focusedBundleID = app.bundleIdentifier
-            focusedWindow = app.windows.first
+            targetPID = app.pid
+            // App activation may fall back past a closed cached window. Record the
+            // window actually focused, not an assumption about the snapshot's first row.
+            targetWindowID = nil
         case .windowsForApp:
             guard let app, let appWindow else { return }
             dependencies.focusWindow(appWindow)
-            focusedWindow = appWindow
+            targetPID = appWindow.pid
+            targetWindowID = appWindow.id
             focusedBundleID = app.bundleIdentifier
         case .flatWindows, .currentAppWindows:
             guard let flatWindow else { return }
             dependencies.focusWindow(flatWindow.window)
             focusedBundleID = flatWindow.bundleIdentifier
-            focusedWindow = flatWindow.window
+            targetPID = flatWindow.window.pid
+            targetWindowID = flatWindow.window.id
         }
 
-        if let focusedBundleID {
-            focusTracker.bump(focusedBundleID)
-        }
-        if let focusedWindow {
-            focusTracker.bumpWindow(id: focusedWindow.id, pid: focusedWindow.pid)
-        }
+        focusConfirmation.start(
+            pid: targetPID, windowID: targetWindowID, sourcePID: sourcePID,
+            frontmostPID: { [weak self] in self?.dependencies.frontmostPID() },
+            focusedWindowID: { [weak self] pid in self?.dependencies.confirmedWindowID(pid) },
+            record: { [weak self] actualWindowID in
+                guard let self else { return }
+                if let focusedBundleID { self.focusTracker.bump(focusedBundleID) }
+                if let actualWindowID { self.focusTracker.bumpWindow(id: actualWindowID, pid: targetPID) }
+            },
+            enqueue: dependencies.scheduleFocusConfirmation
+        )
     }
 
     func cancel() {
+        focusConfirmation.cancel()
         dependencies.cancelPendingFocus()
         preparationGeneration &+= 1
         preparationTask?.cancel()
@@ -1039,6 +1056,7 @@ final class SwitcherModel: ObservableObject {
 
     private func teardown() {
         OpenLatency.shared.end()
+        focusConfirmation.cancel()
         dependencies.cancelPendingFocus()
         capabilityTasks.values.forEach { $0.cancel() }
         capabilityTasks.removeAll()
