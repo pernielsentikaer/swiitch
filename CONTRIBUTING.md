@@ -153,6 +153,20 @@ Low Power Mode removes the optional idle-prewarm timer and stops a pending metad
 preparation from starting new prewarm captures. Foreground previews remain available.
 Preferences uses AppKit frame autosave to retain window size and position across opens.
 
+The presentation keeps visible/selected preview images plus two already-loaded neighboring
+tiles on either side, not every tile ever scrolled past. Pruning those references does not
+invalidate the shared capture cache. Memory pressure drops the neighbor buffer too, while
+keeping visible images; delayed deliveries cannot repopulate offscreen presentation entries.
+
+Display sleep, system sleep, inactive sessions, and lock hints pause scheduled preview work
+and background discovery. Change events still invalidate metadata but do not schedule AX
+collections until resume, when one fresh snapshot is requested. Public Workspace and
+CoreGraphics signals handle sleep/session state; loginwindow's undocumented lock notifications
+and optional session key are best-effort hints, never permission or security boundaries.
+Independent pause reasons compose with Low Power Mode. No new polling or permissions are
+introduced. Tests use isolated notification centers, synthetic images, and controlled async
+gates; a real lock/sleep/wake cycle remains a manual integration check.
+
 ## Where to start
 
 Good first PR candidates:

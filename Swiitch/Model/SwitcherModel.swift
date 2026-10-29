@@ -1192,6 +1192,14 @@ final class SwitcherModel: ObservableObject {
         previews.setLowPowerMode(enabled)
     }
 
+    func setBackgroundWorkPaused(_ paused: Bool) {
+        previews.setBackgroundWorkPaused(paused)
+    }
+
+    func setMemoryConstrained(_ constrained: Bool) {
+        previews.setMemoryConstrained(constrained)
+    }
+
     private var highlightedWindowID: CGWindowID? {
         switch mode {
         case .apps: return nil

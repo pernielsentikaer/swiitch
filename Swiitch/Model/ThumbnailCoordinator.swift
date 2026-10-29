@@ -62,9 +62,14 @@ final class ThumbnailCoordinator: ObservableObject {
     private var initialRequestPending = false
     private var prewarmingRequested = false
     private var lowPowerMode = false
+    private var backgroundWorkPaused = false
+    private var prewarmRevision: UInt64 = 0
+    private var memoryConstrained = false
+    private var refreshRequested = false
 
     /// Whether optional idle work has a timer, for verifying the power policy.
     var isPrewarmingScheduled: Bool { prewarmTimer != nil }
+    var isRefreshingScheduled: Bool { refreshTimer != nil }
 
     init(dependencies: SwitcherModel.Dependencies,
          scheduleActionRefresh: @escaping (@escaping @MainActor @Sendable () async -> Void) -> Void = { action in
@@ -99,6 +104,38 @@ final class ThumbnailCoordinator: ObservableObject {
             return candidates
         }
         return candidates.filter { viewport.ids.contains($0.id) || $0.id == scope.highlightedWindowID }
+    }
+
+    /// Presentation references must not turn the bounded capture cache into an unbounded
+    /// second cache. Keep visible/selected images and at most two already-loaded neighbors
+    /// on either side of each visible run. Memory pressure removes that small buffer.
+    private var retainedPresentationIDs: Set<CGWindowID> {
+        let scope = self.scope()
+        let candidates = scope.refreshCandidates.map(\.id)
+        guard let viewport, viewport.context == viewportContext(for: scope),
+              !viewport.ids.isEmpty || candidates.isEmpty else { return Set(candidates) }
+        var retained: Set<CGWindowID> = []
+        for (index, id) in candidates.enumerated() where viewport.ids.contains(id) {
+            let buffer = memoryConstrained ? 0 : 2
+            retained.formUnion(candidates[max(0, index - buffer)...min(candidates.count - 1, index + buffer)])
+        }
+        if let selected = scope.highlightedWindowID, candidates.contains(selected) { retained.insert(selected) }
+        return retained
+    }
+
+    private func prunePresentation() {
+        let retained = retainedPresentationIDs
+        if thumbnails.keys.contains(where: { !retained.contains($0) }) {
+            thumbnails = thumbnails.filter { retained.contains($0.key) }
+        }
+        if thumbnailStates.keys.contains(where: { !retained.contains($0) }) {
+            thumbnailStates = thumbnailStates.filter { retained.contains($0.key) }
+        }
+    }
+
+    func setMemoryConstrained(_ constrained: Bool) {
+        memoryConstrained = constrained
+        prunePresentation()
     }
 
     // MARK: - Lifecycle driven by the model
@@ -159,7 +196,14 @@ final class ThumbnailCoordinator: ObservableObject {
     }
 
     func startRefreshTimer() {
+        refreshRequested = true
+        rescheduleRefresh()
+    }
+
+    private func rescheduleRefresh() {
         refreshTimer?.invalidate()
+        refreshTimer = nil
+        guard refreshRequested, !backgroundWorkPaused else { return }
         refreshTimer = Self.scheduleTimer(interval: 2.0, repeats: true) { [weak self] in
             Task { [weak self] in
                 await self?.refreshVisible()
@@ -168,6 +212,7 @@ final class ThumbnailCoordinator: ObservableObject {
     }
 
     func stopRefreshTimer() {
+        refreshRequested = false
         refreshTimer?.invalidate()
         refreshTimer = nil
     }
@@ -182,13 +227,23 @@ final class ThumbnailCoordinator: ObservableObject {
     func setLowPowerMode(_ enabled: Bool) {
         guard lowPowerMode != enabled else { return }
         lowPowerMode = enabled
+        prewarmRevision &+= 1
         reschedulePrewarming()
+    }
+
+    /// Lock/display sleep pauses scheduled work without discarding useful cached images.
+    func setBackgroundWorkPaused(_ paused: Bool) {
+        guard backgroundWorkPaused != paused else { return }
+        backgroundWorkPaused = paused
+        prewarmRevision &+= 1
+        reschedulePrewarming()
+        rescheduleRefresh()
     }
 
     private func reschedulePrewarming() {
         prewarmTimer?.invalidate()
         prewarmTimer = nil
-        guard prewarmingRequested, !lowPowerMode else { return }
+        guard prewarmingRequested, !lowPowerMode, !backgroundWorkPaused else { return }
         // Idle work: let the system fold this wake-up into others it is already doing.
         prewarmTimer = Self.scheduleTimer(interval: 4.0, repeats: true, tolerance: 1.0) { [weak self] in
             guard let self, !self.scope().isArmed else { return }
@@ -204,15 +259,19 @@ final class ThumbnailCoordinator: ObservableObject {
         let scope = self.scope()
         guard scope.isArmed, context == viewportContext(for: scope) else { return }
         let scopedIDs = ids.intersection(scope.windows.map(\.id))
+        let changed = viewport?.context != context || viewport?.ids != scopedIDs
         let previous = viewport.flatMap { $0.context == context ? $0.ids : nil } ?? []
         viewport = (context, scopedIDs)
         let added = scopedIDs.subtracting(previous)
-        guard !added.isEmpty, !initialRequestPending else { return }
+        guard changed, !initialRequestPending else { return }
         Task { @MainActor [weak self] in
             guard let self else { return }
             let scope = self.scope()
             guard scope.isArmed, !self.initialRequestPending,
                   self.viewportContext(for: scope) == context else { return }
+            // Geometry callbacks run during SwiftUI layout. Publish pruning only on the
+            // queued turn, including when the viewport shrank without adding any tiles.
+            self.prunePresentation()
             let windows = self.refreshWindows.filter { added.contains($0.id) }
             // Reuse cached images immediately; only missing/stale entries need capture.
             await self.fetch(for: windows, fresh: false)
@@ -221,7 +280,7 @@ final class ThumbnailCoordinator: ObservableObject {
 
     func refreshVisible() async {
         let scope = self.scope()
-        guard scope.isArmed, scope.panelShown, scope.loadsThumbnails else { return }
+        guard !backgroundWorkPaused, scope.isArmed, scope.panelShown, scope.loadsThumbnails else { return }
         await fetch(for: refreshWindows, fresh: true)
     }
 
@@ -258,26 +317,29 @@ final class ThumbnailCoordinator: ObservableObject {
     /// current display/Spaces/minimized scope. Both lists are cached discovery reads.
     func prewarmCache() async {
         guard let source = prewarmSource else { return }
-        guard !lowPowerMode, screenCaptureGranted, !updatingCapturePermission, !scope().isArmed, !prewarmInFlight else { return }
+        guard !backgroundWorkPaused, !lowPowerMode, screenCaptureGranted, !updatingCapturePermission,
+              !scope().isArmed, !prewarmInFlight else { return }
         guard let retainThumbnails = dependencies.retainThumbnails,
               let thumbnails = dependencies.thumbnails else { return }
         guard source.loadsThumbnails() else { return }
         prewarmInFlight = true
         defer { prewarmInFlight = false }
         let startEpoch = epoch
+        let revision = prewarmRevision
         let excluded = source.excludedBundleIDs()
         await source.prepareAllLive(excluded)
-        guard canContinuePrewarming(source, epoch: startEpoch, excluded: excluded) else { return }
+        guard canContinuePrewarming(source, epoch: startEpoch, revision: revision, excluded: excluded) else { return }
         // Discovery already caches all Spaces/displays; this is an unscoped read of that
         // snapshot, not a second AX scan. Scope changes must not masquerade as closed IDs.
         await retainThumbnails(source.allLiveWindowIDs(excluded))
-        guard canContinuePrewarming(source, epoch: startEpoch, excluded: excluded) else { return }
+        guard canContinuePrewarming(source, epoch: startEpoch, revision: revision, excluded: excluded) else { return }
         // Re-read after the actor hop so a changed screen/scope never warms the old set.
         _ = await thumbnails(source.scopedWindowIDs(), false, nil)
     }
 
-    private func canContinuePrewarming(_ source: PrewarmSource, epoch: UInt64, excluded: Set<String>) -> Bool {
-        !Task.isCancelled && !lowPowerMode && screenCaptureGranted && !updatingCapturePermission && !scope().isArmed
+    private func canContinuePrewarming(_ source: PrewarmSource, epoch: UInt64, revision: UInt64, excluded: Set<String>) -> Bool {
+        !Task.isCancelled && !backgroundWorkPaused && prewarmRevision == revision && !lowPowerMode
+            && screenCaptureGranted && !updatingCapturePermission && !scope().isArmed
             && self.epoch == epoch && source.loadsThumbnails()
             && source.excludedBundleIDs() == excluded
     }
@@ -313,7 +375,8 @@ final class ThumbnailCoordinator: ObservableObject {
 
     func fetch(for windows: [WindowInfo], fresh: Bool) async {
         let scope = self.scope()
-        guard scope.isArmed, screenCaptureGranted, !updatingCapturePermission else { return }
+        guard !backgroundWorkPaused, scope.isArmed, screenCaptureGranted, !updatingCapturePermission else { return }
+        prunePresentation()
         guard let loadThumbnails = dependencies.thumbnails else { return }
         let generation = scope.generation
         let startEpoch = epoch
@@ -330,7 +393,8 @@ final class ThumbnailCoordinator: ObservableObject {
             guard let self, self.epoch == startEpoch, self.screenCaptureGranted else { return }
             let scope = self.scope()
             guard scope.isArmed, scope.generation == generation,
-                  scope.windows.contains(where: { $0.id == id }) else { return }
+                  scope.windows.contains(where: { $0.id == id }),
+                  self.retainedPresentationIDs.contains(id) else { return }
             self.thumbnails[id] = image
             OpenLatency.shared.mark(.firstThumbnail)
             self.thumbnailStates[id] = .ready
@@ -338,7 +402,7 @@ final class ThumbnailCoordinator: ObservableObject {
         let current = self.scope()
         guard current.isArmed, current.generation == generation, epoch == startEpoch, screenCaptureGranted else { return }
         pendingIDs.subtract(ids)
-        let currentIDs = Set(current.windows.map(\.id))
+        let currentIDs = Set(current.windows.map(\.id)).intersection(retainedPresentationIDs)
         for id in ids where currentIDs.contains(id) {
             if let image = loaded[id] {
                 thumbnails[id] = image

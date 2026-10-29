@@ -3,6 +3,33 @@ import XCTest
 
 @MainActor
 final class WindowEventMonitorTests: XCTestCase {
+    func testPauseRetainsInvalidationsWithoutSchedulingAndCoalescesOnResume() async {
+        let clock = EventRefreshClock()
+        var refreshes = 0
+        let monitor = WindowEventMonitor(dependencies: .init(
+            trusted: { true }, refresh: { refreshes += 1 },
+            observeApplication: { _, _ in nil }, windowElements: { _ in [] },
+            now: { clock.now }, sleep: { await clock.sleep($0) }
+        ))
+        monitor.start()
+        defer { monitor.stop(); clock.releaseAll() }
+        monitor.handle("AXWindowMoved")
+        await waitUntil("pending refresh") { clock.pendingCount == 1 }
+        monitor.setBackgroundWorkPaused(true)
+        for _ in 0..<100 { monitor.handle("AXWindowMoved") }
+        XCTAssertEqual(monitor.eventCount, 101, "Events must still invalidate a discovery snapshot")
+        XCTAssertEqual(clock.pendingCount, 1, "No new scheduled work while paused")
+        monitor.setBackgroundWorkPaused(false)
+        await waitUntil("resumed refresh alongside the cancelled wait") { clock.pendingCount == 2 }
+        clock.releaseAll()
+        await waitUntil("only the resumed refresh") { refreshes == 1 }
+        XCTAssertEqual(monitor.refreshCount, 1)
+        monitor.setBackgroundWorkPaused(true)
+        monitor.setBackgroundWorkPaused(false)
+        await Task.yield()
+        XCTAssertEqual(clock.pendingCount, 0, "No fabricated refresh without a change")
+    }
+
     private final class Log {
         var refreshes = 0
         var observed: [pid_t] = []

@@ -5,6 +5,117 @@ import XCTest
 
 @MainActor
 final class ThumbnailStateTests: XCTestCase {
+    func testPresentationRetentionFollowsScrollingAndMemoryPressureWithoutClearingCache() async throws {
+        let windows = (1...100).map { WindowInfo(id: CGWindowID($0), pid: 101, title: "W\($0)", bounds: .zero, isOnScreen: true) }
+        var scope = ThumbnailCoordinator.Scope(isArmed: true, generation: 1, panelShown: true,
+            loadsThumbnails: true, windows: windows, refreshCandidates: windows, highlightedWindowID: 1)
+        let cache = WindowThumbnails(captureProvider: { ids, deliver in
+            for id in ids { await deliver(id, thumbnailFixture(size: CGSize(width: 20, height: 20))) }
+        })
+        let coordinator = ThumbnailCoordinator(dependencies: .init(
+            enumerate: { _, _ in [] }, focusApp: { _ in }, focusWindow: { _ in },
+            closeWindow: { _ in false }, hideApp: { _ in false },
+            thumbnails: { ids, fresh, progress in
+                await cache.images(for: ids, fresh: fresh, maximumAge: .infinity, onUpdate: progress).mapValues(\.image)
+            }
+        ))
+        coordinator.scope = { scope }
+        let context = coordinator.viewportContext(for: scope)
+        coordinator.updateViewport([1, 2, 3, 4, 5, 6], context: context)
+        try await eventually { coordinator.thumbnails.count == 6 }
+        weak var first = coordinator.thumbnails[1]
+        coordinator.updateViewport([50, 51], context: context)
+        try await eventually { coordinator.thumbnails[50] != nil && coordinator.thumbnails[51] != nil }
+        XCTAssertEqual(Set(coordinator.thumbnails.keys), [1, 50, 51], "Keep selection but drop far-away presentation references")
+        coordinator.updateViewport([1, 2], context: context)
+        try await eventually { coordinator.thumbnails[2] != nil && coordinator.thumbnails[50] == nil }
+        XCTAssertTrue(coordinator.thumbnails[1] === first, "Returning to a tile uses the shared cache")
+        let stats = await cache.statistics
+        XCTAssertEqual(stats.cacheMisses, 8, "Scrolling back must not recapture the earlier images")
+        XCTAssertEqual(stats.cachedImages, 8, "Presentation pruning must not invalidate the shared cache")
+
+        // Load a neighboring strip, then shrink the viewport without adding anything.
+        coordinator.updateViewport([1, 2, 3, 4], context: context)
+        try await eventually { coordinator.thumbnails.count == 4 }
+        scope.highlightedWindowID = 2
+        coordinator.updateViewport([2], context: context)
+        await Task.yield()
+        coordinator.setMemoryConstrained(true)
+        await cache.setMemoryConstrained(true)
+        XCTAssertEqual(Set(coordinator.thumbnails.keys), [2], "Memory pressure drops the buffer, not the visible tile")
+        XCTAssertNil(first, "The presentation must not keep pixels alive after the cache releases them")
+        coordinator.reset()
+    }
+
+    func testLateThumbnailDeliveryCannotRepopulateScrolledAwayPresentation() async throws {
+        let fixture = CaptureModelFixture(blocked: true, windowCount: 50, reportsFullViewport: false)
+        defer { fixture.close() }
+        fixture.model.arm(reverse: false)
+        try await waitForCalls(1, fixture.capture)
+        fixture.model.updateThumbnailViewport([1, 2], context: fixture.model.thumbnailViewportContext)
+        try await waitForCalls(2, fixture.capture)
+        fixture.model.updateThumbnailViewport([49, 50], context: fixture.model.thumbnailViewportContext)
+        try await waitForCalls(3, fixture.capture)
+        await fixture.capture.progress(batch: 2, id: 1)
+        fixture.capture.finish(batch: 2, imageID: 1)
+        fixture.capture.finish(batch: 1, imageID: 2)
+        fixture.capture.finish(batch: 3, imageID: 50)
+        try await eventually { fixture.model.thumbnails[50] != nil }
+        XCTAssertNil(fixture.model.thumbnails[1])
+        XCTAssertNil(fixture.model.thumbnailStates[1])
+        XCTAssertNotNil(fixture.model.thumbnails[2], "The selected target is retained during scrolling")
+    }
+
+    func testBackgroundPauseComposesWithLowPowerModeAndStopsOldPrewarmPreparation() async {
+        let coordinator = ThumbnailCoordinator(dependencies: .init(
+            enumerate: { _, _ in [] }, focusApp: { _ in }, focusWindow: { _ in },
+            closeWindow: { _ in false }, hideApp: { _ in false }
+        ))
+        coordinator.startPrewarmTimer()
+        coordinator.startRefreshTimer()
+        coordinator.setBackgroundWorkPaused(true)
+        XCTAssertFalse(coordinator.isPrewarmingScheduled)
+        XCTAssertFalse(coordinator.isRefreshingScheduled)
+        coordinator.setLowPowerMode(true)
+        coordinator.setBackgroundWorkPaused(false)
+        XCTAssertFalse(coordinator.isPrewarmingScheduled, "Unlock cannot override Low Power Mode")
+        XCTAssertTrue(coordinator.isRefreshingScheduled, "Visible refresh resumes even in Low Power Mode")
+        coordinator.setLowPowerMode(false)
+        XCTAssertTrue(coordinator.isPrewarmingScheduled)
+
+        let fixture = PrewarmFixture()
+        defer { fixture.close() }
+        fixture.model.setBackgroundWorkPaused(true)
+        await fixture.model.prewarmCache()
+        XCTAssertTrue(fixture.state.loads.isEmpty)
+        fixture.model.setBackgroundWorkPaused(false)
+        fixture.state.prepare = {
+            fixture.model.setBackgroundWorkPaused(true)
+            fixture.model.setBackgroundWorkPaused(false)
+        }
+        await fixture.model.prewarmCache()
+        XCTAssertTrue(fixture.state.loads.isEmpty, "A quick sleep/wake must still invalidate old preparation")
+        XCTAssertTrue(fixture.state.retained.isEmpty)
+        fixture.state.prepare = nil
+        await fixture.model.prewarmCache()
+        XCTAssertFalse(fixture.state.loads.isEmpty)
+    }
+
+    func testBackgroundPauseStopsVisibleRefreshWithoutClearingUsefulImages() async throws {
+        let fixture = CaptureModelFixture(returnImages: true)
+        defer { fixture.close() }
+        fixture.model.arm(reverse: false)
+        try await eventually { fixture.model.thumbnails.count == 2 }
+        let count = fixture.capture.calls.count
+        fixture.model.setBackgroundWorkPaused(true)
+        await fixture.model.refreshVisibleThumbnails()
+        XCTAssertEqual(fixture.capture.calls.count, count)
+        XCTAssertEqual(fixture.model.thumbnails.count, 2)
+        fixture.model.setBackgroundWorkPaused(false)
+        await fixture.model.refreshVisibleThumbnails()
+        XCTAssertEqual(fixture.capture.calls.count, count + 1)
+    }
+
     func testLowPowerModeRemovesTheIdleTimerAndRestoresOnlyARequestedSchedule() {
         let coordinator = ThumbnailCoordinator(dependencies: .init(
             enumerate: { _, _ in [] }, focusApp: { _ in }, focusWindow: { _ in },
@@ -263,7 +374,7 @@ final class ThumbnailStateTests: XCTestCase {
             await fixture.model.refreshVisibleThumbnails()
             let filtered = fixture.capture.calls.last
             XCTAssertEqual(filtered, [3], "A filter must exclude hidden windows even before new geometry arrives")
-            XCTAssertEqual(fixture.model.thumbnails.count, 4, "Hidden previews remain cached in the presentation")
+            XCTAssertEqual(Set(fixture.model.thumbnails.keys), [3], "Only search results remain in the presentation")
         }
     }
 
@@ -278,7 +389,7 @@ final class ThumbnailStateTests: XCTestCase {
         let after = fixture.capture.calls.count
         XCTAssertEqual(after, count)
         XCTAssertTrue(fixture.model.thumbnailRefreshWindows.isEmpty)
-        XCTAssertEqual(fixture.model.thumbnails.count, 4)
+        XCTAssertTrue(fixture.model.thumbnails.isEmpty, "An empty result list retains no presentation images")
     }
 
     func testScrollingLoadsNewlyVisibleTilesWithoutRepeatingUnchangedViewport() async throws {
