@@ -378,7 +378,14 @@ final class ThumbnailStateTests: XCTestCase {
         window.orderBack(nil)
         defer { window.close() }
         host.layoutSubtreeIfNeeded()
-        try await eventually { fixture.model.thumbnailRefreshWindows.count < 40 }
+        // The selected target is included even before any cell geometry arrives.
+        // Wait for its unselected neighbor to prove the real first/last row has
+        // laid out before issuing another scroll (not merely a count below 40).
+        let initialNeighbor: CGWindowID = reverse ? 39 : 1
+        try await eventually {
+            fixture.model.thumbnailRefreshWindows.count < 40
+                && fixture.model.thumbnailRefreshWindows.contains { $0.id == initialNeighbor }
+        }
         XCTAssertGreaterThan(fixture.model.thumbnailRefreshWindows.count, 0)
         XCTAssertLessThan(fixture.model.thumbnailRefreshWindows.count, 40)
         if reverse {
@@ -394,7 +401,7 @@ final class ThumbnailStateTests: XCTestCase {
         fixture.model.onUpdate = { reflows += 1 }
         fixture.model.selectEdge(last: true)
         try await eventually {
-            !fixture.model.thumbnailRefreshWindows.isEmpty &&
+            fixture.model.thumbnailRefreshWindows.contains { $0.id == 39 } &&
                 fixture.model.thumbnailRefreshWindows.allSatisfy { $0.id > 20 }
         }
         XCTAssertEqual(fixture.model.selectedFlatIndex, 39)
