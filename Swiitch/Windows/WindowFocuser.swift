@@ -94,10 +94,13 @@ enum WindowFocuser {
         // The snapshot can be stale: a window may have closed since the last enumeration.
         // Try each cached window in recency order and fall back to plain app activation so
         // selecting an app row never silently does nothing.
+        let lookup = focusLookup(pid: entry.pid)
         for window in entry.windows {
-            if focus(window: window) { return }
+            guard lookup.budget.hasTime else { break }
+            guard window.pid == entry.pid else { continue }
+            if focus(window: window, app: runningApp, lookup: lookup) { return }
         }
-        activate(app: runningApp)
+        activate(app: runningApp, budget: lookup.budget)
     }
 
     /// Activates a specific window. Raise FIRST (AX), then activate the app — reversing
@@ -111,22 +114,28 @@ enum WindowFocuser {
     @discardableResult
     static func focus(window: WindowInfo) -> Bool {
         cancelPendingActivation()
-        guard isWindowPresent(window),
-              let runningApp = NSRunningApplication(processIdentifier: window.pid) else { return false }
-        let wasAlreadyActive = runningApp.isActive
-        let didRaise = raise(window: window)
+        guard let app = NSRunningApplication(processIdentifier: window.pid) else { return false }
+        return focus(window: window, app: app, lookup: focusLookup(pid: window.pid))
+    }
+
+    @MainActor
+    private static func focus(window: WindowInfo, app: NSRunningApplication,
+                              lookup: FocusLookup<AXUIElement>) -> Bool {
+        guard lookup.budget.hasTime, isWindowPresent(window) else { return false }
+        let wasAlreadyActive = app.isActive
+        let didRaise = raise(window: window, lookup: lookup)
 
         // Swiitch's panel is non-activating, so the source app remains active while the
         // picker is open. Calling activate() again after raising another window can make
         // Chromium-family apps restore the window that was main before the picker opened.
         guard !wasAlreadyActive else { return didRaise }
-        activate(app: runningApp, window: window)
+        activate(app: app, window: window, budget: lookup.budget)
 
         // For an inactive app, activation is still needed to move the whole process to the
         // front. Reassert the exact window afterward so activation cannot replace the user's
         // selection with that app's previously-main window.
         if didRaise {
-            _ = raise(window: window)
+            _ = raise(window: window, lookup: lookup)
         }
         return true
     }
@@ -139,11 +148,12 @@ enum WindowFocuser {
         guard pid > 0, windowID != kCGNullWindowID,
               let runningApp = NSRunningApplication(processIdentifier: pid) else { return false }
         let target = WindowInfo(id: windowID, pid: pid, title: "", bounds: .zero, isOnScreen: false)
+        let lookup = focusLookup(pid: pid)
         let wasAlreadyActive = runningApp.isActive
-        guard raise(window: target, purpose: .restore) else { return false }
+        guard raise(window: target, purpose: .restore, lookup: lookup) else { return false }
         guard !wasAlreadyActive else { return true }
-        activate(app: runningApp, window: target)
-        return raise(window: target, purpose: .restore)
+        activate(app: runningApp, window: target, budget: lookup.budget)
+        return raise(window: target, purpose: .restore, lookup: lookup)
     }
 
     /// Activates an app by pid, used as a fallback when the original window is unavailable.
@@ -275,20 +285,25 @@ enum WindowFocuser {
 
     private static func windowElement(for window: WindowInfo, purpose: MatchingPurpose) -> AXUIElement? {
         if purpose == .windowAction { return actionWindowElement(for: window) }
-        let deadline = ProcessInfo.processInfo.systemUptime + 0.15
-        guard let windows = AXPrivate.availableWindows(forPID: window.pid, timeout: 0.03) else { return nil }
-        let index = matchingFocusCandidateIndex(
-            for: window, count: windows.count, purpose: purpose,
-            windowID: { index in
-                AXUIElementSetMessagingTimeout(windows[index], 0.015)
-                return AXPrivate.windowID(for: windows[index])
+        return focusLookup(pid: window.pid).resolve(window, purpose: purpose)
+    }
+
+    private static func focusLookup(pid: pid_t) -> FocusLookup<AXUIElement> {
+        let budget = FocusBudget()
+        return FocusLookup(budget: budget,
+            load: { AXPrivate.availableWindows(forPID: pid, timeout: $0) },
+            windowID: { element in
+                guard let timeout = budget.timeout(maximum: 0.015) else { return nil }
+                AXUIElementSetMessagingTimeout(element, timeout)
+                return AXPrivate.windowID(for: element)
             },
-            title: { axTitle(for: windows[$0]) },
-            bounds: { axBounds(for: windows[$0]) },
-            hasTime: { !Task.isCancelled && ProcessInfo.processInfo.systemUptime < deadline }
+            title: { element in
+                guard let timeout = budget.timeout(maximum: 0.015) else { return "" }
+                AXUIElementSetMessagingTimeout(element, timeout)
+                return axTitle(for: element)
+            },
+            bounds: { axBounds(for: $0, budget: budget) }
         )
-        guard let index else { return nil }
-        return windows[index]
     }
 
     /// Exact IDs short-circuit before any title/geometry reads. Only ambiguous title
@@ -387,21 +402,33 @@ enum WindowFocuser {
     }
 
     @discardableResult
-    private static func raise(window: WindowInfo, purpose: MatchingPurpose = .focus) -> Bool {
+    private static func raise(window: WindowInfo, purpose: MatchingPurpose = .focus,
+                              lookup: FocusLookup<AXUIElement>) -> Bool {
         // A one-window fallback is unambiguous. Never raise the first of several AX
         // windows merely because Chromium supplied mismatched IDs; that can focus the
         // wrong tab/window after a deliberate selection.
-        guard let match = windowElement(for: window, purpose: purpose) else { return false }
+        guard let match = lookup.resolve(window, purpose: purpose),
+              lookup.budget.hasTime, isWindowPresent(window) else { return false }
+        let budget = lookup.budget
+        func canMessage() -> Bool {
+            guard let timeout = budget.timeout(maximum: 0.015) else { return false }
+            AXUIElementSetMessagingTimeout(match, timeout)
+            return true
+        }
 
         // Unminiaturize if needed.
         var minimized: AnyObject?
-        if AXUIElementCopyAttributeValue(match, kAXMinimizedAttribute as CFString, &minimized) == .success,
+        if canMessage(), AXUIElementCopyAttributeValue(match, kAXMinimizedAttribute as CFString, &minimized) == .success,
            let isMin = minimized as? Bool, isMin {
+            guard canMessage() else { return false }
             AXUIElementSetAttributeValue(match, kAXMinimizedAttribute as CFString, false as CFTypeRef)
         }
 
+        guard canMessage() else { return false }
         let main = AXUIElementSetAttributeValue(match, kAXMainAttribute as CFString, true as CFTypeRef)
+        guard canMessage() else { return main == .success }
         let focused = AXUIElementSetAttributeValue(match, kAXFocusedAttribute as CFString, true as CFTypeRef)
+        guard canMessage() else { return main == .success || focused == .success }
         let raised = AXUIElementPerformAction(match, kAXRaiseAction as CFString)
         return main == .success || focused == .success || raised == .success
     }
@@ -414,11 +441,19 @@ enum WindowFocuser {
         return value as? String ?? ""
     }
 
-    private static func axBounds(for element: AXUIElement) -> CGRect? {
+    private static func axBounds(for element: AXUIElement, budget: FocusBudget? = nil) -> CGRect? {
+        func canMessage() -> Bool {
+            guard let budget else { return true }
+            guard let timeout = budget.timeout(maximum: 0.015) else { return false }
+            AXUIElementSetMessagingTimeout(element, timeout)
+            return true
+        }
         var positionValue: AnyObject?
         var sizeValue: AnyObject?
         guard
+            canMessage(),
             AXUIElementCopyAttributeValue(element, kAXPositionAttribute as CFString, &positionValue) == .success,
+            canMessage(),
             AXUIElementCopyAttributeValue(element, kAXSizeAttribute as CFString, &sizeValue) == .success,
             let positionValue,
             let sizeValue,
@@ -452,7 +487,8 @@ enum WindowFocuser {
     }
 
     @MainActor
-    private static func activate(app: NSRunningApplication, window: WindowInfo? = nil) {
+    private static func activate(app: NSRunningApplication, window: WindowInfo? = nil,
+                                 budget: FocusBudget = FocusBudget()) {
         // On macOS 14+, `NSRunningApplication.activate()` from an `.accessory` (LSUIElement)
         // app is frequently denied for cross-process activation. Avoiding the workaround
         // of toggling our own activation policy (which leaks phantom Dock icons under
@@ -462,9 +498,14 @@ enum WindowFocuser {
         let pid = app.processIdentifier
         let originalFrontmostPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
         let axApp = AXUIElementCreateApplication(pid)
-        AXUIElementSetMessagingTimeout(axApp, 0.1)
-        AXUIElementSetAttributeValue(axApp, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
-        AXUIElementPerformAction(axApp, kAXRaiseAction as CFString)
+        if let timeout = budget.timeout(maximum: 0.1) {
+            AXUIElementSetMessagingTimeout(axApp, timeout)
+            AXUIElementSetAttributeValue(axApp, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
+        }
+        if let timeout = budget.timeout(maximum: 0.1) {
+            AXUIElementSetMessagingTimeout(axApp, timeout)
+            AXUIElementPerformAction(axApp, kAXRaiseAction as CFString)
+        }
 
         // Belt-and-suspenders: also call `activate()`; it's a no-op when AX already
         // brought the app forward.

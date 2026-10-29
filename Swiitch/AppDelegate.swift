@@ -75,6 +75,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.onShow = { [weak self] in self?.showPanel() }
         model.onHide = { [weak self] in self?.hidePanel() }
         model.onUpdate = { [weak self] in self?.panel?.refresh() }
+        WindowDiscovery.shared.onWindowInventory = { [weak self] inventory in
+            self?.model.reconcileClosedWindows(in: inventory)
+        }
 
         hotkey = HotkeyManager(model: model)
 
@@ -86,6 +89,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         memoryPressure?.start()
 
         backgroundActivity = BackgroundActivityMonitor { [weak self] paused in
+            self?.hotkey?.setSessionSuspended(paused)
             self?.model.setBackgroundWorkPaused(paused)
             WindowDiscovery.shared.setBackgroundWorkPaused(paused)
             self?.windowEvents?.setBackgroundWorkPaused(paused)
@@ -129,6 +133,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hotkey?.uninstall()
         windowEvents?.stop()
         WindowDiscovery.shared.stop()
+        WindowDiscovery.shared.onWindowInventory = nil
         if let defaultsObserver {
             NotificationCenter.default.removeObserver(defaultsObserver)
         }

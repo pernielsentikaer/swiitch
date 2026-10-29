@@ -5,6 +5,35 @@ import XCTest
 
 @MainActor
 final class SwitcherPreviewTests: XCTestCase {
+    func testFullTitleHelpPreservesUnicodeAndAppIdentity() {
+        let title = "Årsrapport — København 🗺️ — et meget langt dokumentnavn med flere næsten ens faner"
+        let cell = WindowCell(title: title, thumbnail: nil, appIcon: nil, overlayPosition: .hidden,
+                              secondaryLabel: "Example Browser", isSelected: true, thumbHeight: 120)
+        XCTAssertEqual(cell.fullTitleHelp, title + "\nExample Browser")
+        let drilled = WindowCell(title: title, thumbnail: nil, appIcon: nil, accessibilityAppName: "Example Browser",
+                                 overlayPosition: .hidden, isSelected: true, thumbHeight: 120)
+        XCTAssertEqual(drilled.fullTitleHelp, cell.fullTitleHelp)
+        let duplicate = WindowCell(title: "Example", thumbnail: nil, appIcon: nil, overlayPosition: .hidden,
+                                   secondaryLabel: "Example", isSelected: false, thumbHeight: 120)
+        XCTAssertEqual(duplicate.fullTitleHelp, "Example")
+    }
+
+    func testRenderLongTitlesWithoutExpandingTilesInBothAppearances() throws {
+        for dark in [false, true] {
+            let view = HStack(spacing: 20) {
+                ForEach(0..<2) { index in
+                    WindowCell(title: "Årsrapport — København — sammenligning af dokumenter \(index + 1)",
+                        thumbnail: Theme.previewThumbnail(index: index), appIcon: nil,
+                        overlayPosition: .hidden, secondaryLabel: "Example Browser", isSelected: index == 0, thumbHeight: 120)
+                        .frame(width: 200)
+                }
+            }
+            .frame(width: 560, height: 230)
+            .background(Color(nsColor: .windowBackgroundColor))
+            try attachSnapshot(view, name: "Long-title-tiles-\(dark ? "dark" : "light")", dark: dark, height: 230)
+        }
+    }
+
     func testRenderSearchHighlightsInLightAndDark() throws {
         for dark in [false, true] {
             let app = AppEntry(pid: 101, bundleIdentifier: nil, name: "Visual Studio Code", icon: nil, windows: [])
