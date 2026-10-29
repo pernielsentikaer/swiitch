@@ -132,6 +132,7 @@ final class WindowEventMonitor {
     private var screenObserver: NSObjectProtocol?
     private var pendingRefresh: Task<Void, Never>?
     private var needsRefresh = false
+    private var backgroundWorkPaused = false
     private var lastRefreshStartedAt: TimeInterval = -.infinity
     private(set) var isActive = false
     private(set) var eventCount = 0
@@ -244,7 +245,24 @@ final class WindowEventMonitor {
         guard isActive else { return }
         eventCount += 1
         needsRefresh = true
-        guard pendingRefresh == nil else { return }
+        scheduleRefreshIfNeeded()
+    }
+
+    /// Keep counting events so cached metadata is invalidated, but avoid background
+    /// tasks/AX collection until the user returns. Resume coalesces into one refresh.
+    func setBackgroundWorkPaused(_ paused: Bool) {
+        guard backgroundWorkPaused != paused else { return }
+        backgroundWorkPaused = paused
+        if paused {
+            pendingRefresh?.cancel()
+            pendingRefresh = nil
+        } else {
+            scheduleRefreshIfNeeded()
+        }
+    }
+
+    private func scheduleRefreshIfNeeded() {
+        guard isActive, needsRefresh, !backgroundWorkPaused, pendingRefresh == nil else { return }
         pendingRefresh = Task { @MainActor [weak self] in
             guard let self else { return }
             while self.needsRefresh {

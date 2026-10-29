@@ -11,13 +11,17 @@ final class WindowDiscovery {
     private let contextProvider: @MainActor (EnumerateOptions) -> WindowEnumerator.Context
     private let timeout: TimeInterval
     private let runner = CaptureDeadlineRunner(limit: 1)
-    private var inFlight: (id: UInt64, key: Key, eventCount: Int?, task: Task<Void, Never>)?
+    private var inFlight: (id: UInt64, key: Key, eventCount: Int?, activityRevision: UInt64, task: Task<Void, Never>)?
     private var nextRequestID: UInt64 = 0
     private var cacheKey: Key?
     private var cachedEventCount: Int?
     private var collectedAt: TimeInterval = -.infinity
     private var lastUserRequest: TimeInterval = -.infinity
     private var timer: Timer?
+    private var started = false
+    private var backgroundWorkPaused = false
+    private var activityRevision: UInt64 = 0
+    var isPollingScheduled: Bool { timer != nil }
     private(set) var lastCollection: WindowEnumerator.Collection?
     private(set) var timeoutCount = 0
     private(set) var cacheHits = 0
@@ -67,7 +71,13 @@ final class WindowDiscovery {
     }
 
     func start() {
-        guard timer == nil else { return }
+        guard !started else { return }
+        started = true
+        schedulePolling()
+    }
+
+    private func schedulePolling() {
+        guard started, !backgroundWorkPaused, timer == nil else { return }
         timer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in await self?.prepare(options: Self.backgroundOptions()) }
         }
@@ -76,8 +86,24 @@ final class WindowDiscovery {
     }
 
     func stop() {
+        started = false
         timer?.invalidate()
         timer = nil
+    }
+
+    /// Keep the last snapshot for display, but do not query other apps while asleep or
+    /// locked. Resume with a fresh snapshot; reject completions begun before the pause.
+    func setBackgroundWorkPaused(_ paused: Bool) {
+        guard backgroundWorkPaused != paused else { return }
+        backgroundWorkPaused = paused
+        activityRevision &+= 1
+        cacheKey = nil
+        if paused {
+            timer?.invalidate()
+            timer = nil
+        } else {
+            schedulePolling()
+        }
     }
 
     private static func backgroundOptions() -> EnumerateOptions {
@@ -103,6 +129,7 @@ final class WindowDiscovery {
     }
 
     func prepare(options: EnumerateOptions) async {
+        guard !options.isBackgroundRefresh || !backgroundWorkPaused else { return }
         if !options.isBackgroundRefresh { lastUserRequest = now() }
         // Cache all Spaces/displays together so pointer movement doesn't trigger a full
         // AX pass. Exclusions still take effect before querying any excluded application.
@@ -111,11 +138,13 @@ final class WindowDiscovery {
     }
 
     func prepare(context: WindowEnumerator.Context, force: Bool = false, background: Bool = false) async {
+        let requestRevision = activityRevision
         let key = Key(pids: Set(context.applications.map(\.processIdentifier)), excluded: context.options.excludedBundleIDs)
         // Several callers can wake from the same in-flight request with different keys.
         // Re-check the cache and whatever is in flight after every wait, so a caller never
         // starts a collection that another waiter has already started for the same key.
         while true {
+            guard !background || (!backgroundWorkPaused && requestRevision == activityRevision) else { return }
             if !force, cacheKey == key, lastCollection != nil,
                cachedEventCount == eventMonitor?.eventCount,
                now() - collectedAt < snapshotLifetime(background: background) {
@@ -129,7 +158,8 @@ final class WindowDiscovery {
             if Task.isCancelled { return }
             // A failed collection is bounded too. Only an event newer than the request
             // requires another collection before this waiter can reuse its result.
-            if sameRequest && !force && inFlight.eventCount == eventMonitor?.eventCount { return }
+            if sameRequest && !force && inFlight.eventCount == eventMonitor?.eventCount
+                && inFlight.activityRevision == activityRevision { return }
         }
         guard !Task.isCancelled else { return }
         let collector = self.collector
@@ -137,14 +167,20 @@ final class WindowDiscovery {
         nextRequestID &+= 1
         let id = nextRequestID
         let eventCountAtStart = eventMonitor?.eventCount
+        let revision = activityRevision
         // Hand the previous collection's Accessibility reads to the next one so an app
         // whose bridge is momentarily slow keeps its ghost-window filtering.
         var context = context
         context.accessibilityMemory = lastCollection?.accessibilityMemory ?? [:]
         let task = Task { [weak self, runner, context] in
-            let result = await runner.run(timeout: timeout) { await collector(context) }
             guard let self else { return }
-            if let result {
+            // A pause can arrive after prepare queued this task but before it ran.
+            guard !background || (!self.backgroundWorkPaused && revision == self.activityRevision) else {
+                if self.inFlight?.id == id { self.inFlight = nil }
+                return
+            }
+            let result = await runner.run(timeout: timeout) { await collector(context) }
+            if let result, revision == self.activityRevision {
                 self.lastCollection = result
                 self.cacheKey = key
                 self.collectedAt = self.now()
@@ -154,14 +190,14 @@ final class WindowDiscovery {
                     self.recentDurations.removeFirst(self.recentDurations.count - Self.recentDurationCapacity)
                 }
                 self.eventMonitor?.reconcile(with: result, applicationPIDs: key.pids)
-            } else {
+            } else if result == nil {
                 self.timeoutCount += 1
             }
             // Only clear our own handle: a later request with a different key may already
             // be in flight, and a third caller must still be able to coalesce onto it.
             if self.inFlight?.id == id { self.inFlight = nil }
         }
-        inFlight = (id, key, eventCountAtStart, task)
+        inFlight = (id, key, eventCountAtStart, revision, task)
         await task.value
     }
 

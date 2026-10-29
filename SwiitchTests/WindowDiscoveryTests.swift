@@ -21,6 +21,90 @@ actor DiscoveryGate {
 
 @MainActor
 final class WindowDiscoveryTests: XCTestCase {
+    func testResumePollAndPendingEventsShareOneFreshCollection() async {
+        let count = DiscoveryCount()
+        let clock = EventRefreshClock()
+        let service = WindowDiscovery(contextProvider: { options in
+            .init(applications: [], options: options, screenFrame: nil)
+        }, collector: { _ in await count.add(); return Self.collection() })
+        let events = WindowEventMonitor(dependencies: .init(
+            trusted: { true }, refresh: { await service.refreshAfterChange() },
+            observeApplication: { _, _ in nil }, windowElements: { _ in [] },
+            now: { clock.now }, sleep: { await clock.sleep($0) }
+        ))
+        service.eventMonitor = events
+        service.setBackgroundWorkPaused(true)
+        events.setBackgroundWorkPaused(true)
+        events.start()
+        service.start()
+        defer { service.stop(); events.stop(); clock.releaseAll() }
+        for _ in 0..<100 { events.handle("AXWindowMoved") }
+        service.setBackgroundWorkPaused(false)
+        await waitUntil("resumed poll to finish") { service.lastCollection != nil }
+        events.setBackgroundWorkPaused(false)
+        await waitUntil("pending events to schedule once") { clock.pendingCount == 1 }
+        clock.releaseNext()
+        await waitUntil("event request to reuse the resumed collection") { service.cacheHits == 1 }
+        let total = await count.value
+        XCTAssertEqual(total, 1)
+        XCTAssertEqual(events.refreshCount, 1)
+    }
+
+    func testBackgroundPauseRemovesPollingAndSkipsEvenForcedMetadataPreparation() async {
+        let count = DiscoveryCount()
+        var contexts = 0
+        let service = WindowDiscovery(contextProvider: { options in
+            contexts += 1
+            return .init(applications: [], options: options, screenFrame: nil)
+        }, collector: { _ in await count.add(); return Self.collection() })
+        service.setBackgroundWorkPaused(true)
+        service.start()
+        XCTAssertFalse(service.isPollingScheduled)
+        await service.prepare(options: .init(forceRefresh: true, isBackgroundRefresh: true))
+        XCTAssertEqual(contexts, 0, "Do not even enumerate running apps while paused")
+        await service.prepare(context: context(), force: true, background: true)
+        let idleCount = await count.value
+        XCTAssertEqual(idleCount, 0)
+
+        // Foreground callers remain usable; only background requests are gated.
+        await service.prepare(options: .init())
+        XCTAssertEqual(contexts, 1)
+        service.setBackgroundWorkPaused(false)
+        XCTAssertTrue(service.isPollingScheduled)
+        await waitUntil("one fresh snapshot on resume") { await count.value == 2 }
+        service.stop()
+        service.setBackgroundWorkPaused(true)
+        service.setBackgroundWorkPaused(false)
+        XCTAssertFalse(service.isPollingScheduled, "Resume must not restart a stopped service")
+    }
+
+    func testPauseRejectsOldCollectionAndWaitingBackgroundRequestEvenAfterResume() async {
+        let gate = DiscoveryGate()
+        let count = DiscoveryCount()
+        let service = WindowDiscovery(collector: { _ in
+            await count.add()
+            await gate.wait()
+            return Self.collection()
+        })
+        let first = Task { await service.prepare(context: context(), background: true) }
+        await waitUntil("background collection to start") { await gate.waiterCount == 1 }
+        let waiter = Task { await service.prepare(context: context(excluded: ["other"]), background: true) }
+        await waitUntil("second background request to join") { service.coalescedRequestCount == 1 }
+        service.setBackgroundWorkPaused(true)
+        service.setBackgroundWorkPaused(false)
+        await gate.release()
+        await first.value
+        await waiter.value
+        XCTAssertNil(service.lastCollection, "No pre-sleep snapshot may replace fresh post-wake state")
+        let oldCalls = await count.value
+        XCTAssertEqual(oldCalls, 1, "An old waiting background request must not start another pass")
+        await service.prepare(context: context())
+        XCTAssertNotNil(service.lastCollection)
+        let newCalls = await count.value
+        XCTAssertEqual(newCalls, 2)
+        XCTAssertEqual(service.timeoutCount, 0, "Policy cancellation is not a timeout")
+    }
+
     private func context(excluded: Set<String> = []) -> WindowEnumerator.Context {
         .init(applications: [], options: .init(excludedBundleIDs: excluded), screenFrame: nil)
     }
