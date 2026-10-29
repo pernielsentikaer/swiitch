@@ -22,6 +22,10 @@ final class WindowEventMonitor {
                 AXPrivate.windowID(for: element).map { ($0, element) }
             }
         }
+        var now: () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
+        var sleep: @MainActor (TimeInterval) async -> Void = { interval in
+            try? await Task.sleep(for: .seconds(interval))
+        }
     }
 
     /// One app's observer plus the windows it is subscribed to.
@@ -117,6 +121,10 @@ final class WindowEventMonitor {
 
     /// Events inside this window collapse into one refresh.
     static let coalescingInterval: TimeInterval = 0.05
+    /// Moving/resizing a window can emit an event every frame. A full collection queries
+    /// every app's AX bridge, so cap event-driven collection starts at four per second.
+    /// This does not delay picker requests: eventCount invalidates their cache immediately.
+    static let minimumRefreshInterval: TimeInterval = 0.25
 
     private let dependencies: Dependencies
     private var observations: [pid_t: AppObservation] = [:]
@@ -124,6 +132,7 @@ final class WindowEventMonitor {
     private var screenObserver: NSObjectProtocol?
     private var pendingRefresh: Task<Void, Never>?
     private var needsRefresh = false
+    private var lastRefreshStartedAt: TimeInterval = -.infinity
     private(set) var isActive = false
     private(set) var eventCount = 0
     private(set) var refreshCount = 0
@@ -196,6 +205,7 @@ final class WindowEventMonitor {
         pendingRefresh?.cancel()
         pendingRefresh = nil
         needsRefresh = false
+        lastRefreshStartedAt = -.infinity
     }
 
     /// After each collection: observe apps that are new, drop apps that are gone, and
@@ -228,7 +238,8 @@ final class WindowEventMonitor {
     }
 
     /// Batch bursts into one refresh. Events during collection request a single trailing
-    /// refresh, never a concurrent one. eventCount invalidates discovery immediately.
+    /// refresh, never a concurrent one. Sustained bursts are rate-limited without
+    /// indefinitely debouncing the final update. eventCount invalidates discovery immediately.
     func handle(_ notification: String) {
         guard isActive else { return }
         eventCount += 1
@@ -237,9 +248,12 @@ final class WindowEventMonitor {
         pendingRefresh = Task { @MainActor [weak self] in
             guard let self else { return }
             while self.needsRefresh {
-                try? await Task.sleep(for: .seconds(Self.coalescingInterval))
+                let delay = max(Self.coalescingInterval,
+                                Self.minimumRefreshInterval - (self.dependencies.now() - self.lastRefreshStartedAt))
+                await self.dependencies.sleep(delay)
                 guard !Task.isCancelled, self.isActive else { return }
                 self.needsRefresh = false
+                self.lastRefreshStartedAt = self.dependencies.now()
                 self.refreshCount += 1
                 await self.dependencies.refresh()
                 // stop() may have installed a new task since this await began.
