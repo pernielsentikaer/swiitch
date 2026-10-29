@@ -104,8 +104,9 @@ enum WindowFocuser {
     /// this order is racy on macOS 14+ because accessory apps' cross-app activation can
     /// be denied intermittently.
     ///
-    /// Returns `false` when the window identity can no longer be verified (closed or
-    /// reused ID, or the owning process is gone); nothing is activated in that case.
+    /// Returns whether a focus request was issued, not whether focus was observed.
+    /// Invalid identity fails closed; an already-active app also reports rejected AX
+    /// requests. The model separately confirms the actual window before repairing MRU.
     @MainActor
     @discardableResult
     static func focus(window: WindowInfo) -> Bool {
@@ -118,7 +119,7 @@ enum WindowFocuser {
         // Swiitch's panel is non-activating, so the source app remains active while the
         // picker is open. Calling activate() again after raising another window can make
         // Chromium-family apps restore the window that was main before the picker opened.
-        guard !wasAlreadyActive else { return true }
+        guard !wasAlreadyActive else { return didRaise }
         activate(app: runningApp, window: window)
 
         // For an inactive app, activation is still needed to move the whole process to the
@@ -274,24 +275,63 @@ enum WindowFocuser {
 
     private static func windowElement(for window: WindowInfo, purpose: MatchingPurpose) -> AXUIElement? {
         if purpose == .windowAction { return actionWindowElement(for: window) }
-        let windows = AXPrivate.windows(forPID: window.pid)
-        guard !windows.isEmpty else { return nil }
-
-        // This runs on the main actor while the user is switching. Three attribute reads
-        // per window at the default AX timeout against a beach-balling app would stall the
-        // picker; bound each element the way the enumerator and action paths already do.
-        for element in windows { AXUIElementSetMessagingTimeout(element, 0.05) }
-        let candidates = windows.map {
-            CandidateMetadata(
-                windowID: AXPrivate.windowID(for: $0),
-                title: purpose == .restore ? "" : axTitle(for: $0),
-                bounds: purpose == .restore ? nil : axBounds(for: $0)
-            )
-        }
-        guard let index = matchingCandidateIndex(for: window, candidates: candidates, purpose: purpose) else {
-            return nil
-        }
+        let deadline = ProcessInfo.processInfo.systemUptime + 0.15
+        guard let windows = AXPrivate.availableWindows(forPID: window.pid, timeout: 0.03) else { return nil }
+        let index = matchingFocusCandidateIndex(
+            for: window, count: windows.count, purpose: purpose,
+            windowID: { index in
+                AXUIElementSetMessagingTimeout(windows[index], 0.015)
+                return AXPrivate.windowID(for: windows[index])
+            },
+            title: { axTitle(for: windows[$0]) },
+            bounds: { axBounds(for: windows[$0]) },
+            hasTime: { !Task.isCancelled && ProcessInfo.processInfo.systemUptime < deadline }
+        )
+        guard let index else { return nil }
         return windows[index]
+    }
+
+    /// Exact IDs short-circuit before any title/geometry reads. Only ambiguous title
+    /// matches need geometry. If a bridge consumes the budget, do not mistake a partial
+    /// scan for a unique match. Injectable reads keep the hot-path cost regression-tested.
+    static func matchingFocusCandidateIndex(
+        for target: WindowInfo,
+        count: Int,
+        purpose: MatchingPurpose = .focus,
+        windowID: (Int) -> CGWindowID?,
+        title: (Int) -> String,
+        bounds: (Int) -> CGRect?,
+        hasTime: () -> Bool
+    ) -> Int? {
+        guard count > 0, purpose != .windowAction else { return nil }
+        for index in 0..<count {
+            guard hasTime() else { return nil }
+            let id = windowID(index)
+            guard hasTime() else { return nil }
+            if id == target.id { return index }
+        }
+        guard purpose != .restore else { return nil }
+        if count == 1 { return 0 }
+        let targetTitle = normalizedTitle(target.title)
+        guard !targetTitle.isEmpty else { return nil }
+        var titleMatches: [Int] = []
+        for index in 0..<count {
+            guard hasTime() else { return nil }
+            let candidateTitle = title(index)
+            guard hasTime() else { return nil }
+            if normalizedTitle(candidateTitle) == targetTitle { titleMatches.append(index) }
+        }
+        if titleMatches.count == 1 { return titleMatches[0] }
+        var boundsMatches: [Int] = []
+        for index in titleMatches {
+            guard hasTime() else { return nil }
+            let candidateBounds = bounds(index)
+            guard hasTime() else { return nil }
+            if let candidateBounds, approximatelyEqual(candidateBounds, target.bounds) {
+                boundsMatches.append(index)
+            }
+        }
+        return boundsMatches.count == 1 ? boundsMatches[0] : nil
     }
 
     /// Exact IDs are checked before optional metadata, within a small messaging budget.
@@ -324,39 +364,26 @@ enum WindowFocuser {
         candidates: [CandidateMetadata],
         purpose: MatchingPurpose = .focus
     ) -> Int? {
+        if purpose != .windowAction {
+            return matchingFocusCandidateIndex(
+                for: target, count: candidates.count, purpose: purpose,
+                windowID: { candidates[$0].windowID }, title: { candidates[$0].title },
+                bounds: { candidates[$0].bounds }, hasTime: { true }
+            )
+        }
         if let exact = candidates.firstIndex(where: { $0.windowID == target.id }) {
             return exact
         }
-        if purpose == .restore { return nil }
         let targetTitle = normalizedTitle(target.title)
-        if purpose == .windowAction {
-            guard !targetTitle.isEmpty else { return nil }
-            let matches = candidates.indices.filter { index in
-                let candidate = candidates[index]
-                guard candidate.windowID == nil,
-                      normalizedTitle(candidate.title) == targetTitle,
-                      let bounds = candidate.bounds else { return false }
-                return approximatelyEqual(bounds, target.bounds)
-            }
-            return matches.count == 1 ? matches[0] : nil
-        }
-        if candidates.count == 1 {
-            return 0
-        }
-
         guard !targetTitle.isEmpty else { return nil }
-        let titleMatches = candidates.indices.filter {
-            normalizedTitle(candidates[$0].title) == targetTitle
-        }
-        if titleMatches.count == 1 {
-            return titleMatches[0]
-        }
-
-        let boundsMatches = titleMatches.filter { index in
-            guard let bounds = candidates[index].bounds else { return false }
+        let matches = candidates.indices.filter { index in
+            let candidate = candidates[index]
+            guard candidate.windowID == nil,
+                  normalizedTitle(candidate.title) == targetTitle,
+                  let bounds = candidate.bounds else { return false }
             return approximatelyEqual(bounds, target.bounds)
         }
-        return boundsMatches.count == 1 ? boundsMatches[0] : nil
+        return matches.count == 1 ? matches[0] : nil
     }
 
     @discardableResult
@@ -376,8 +403,7 @@ enum WindowFocuser {
         let main = AXUIElementSetAttributeValue(match, kAXMainAttribute as CFString, true as CFTypeRef)
         let focused = AXUIElementSetAttributeValue(match, kAXFocusedAttribute as CFString, true as CFTypeRef)
         let raised = AXUIElementPerformAction(match, kAXRaiseAction as CFString)
-        if purpose == .restore { return main == .success || focused == .success || raised == .success }
-        return true
+        return main == .success || focused == .success || raised == .success
     }
 
     private static func axTitle(for element: AXUIElement) -> String {

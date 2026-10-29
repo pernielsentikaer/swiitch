@@ -102,6 +102,7 @@ Swiitch/
   AppDelegate.swift               app shell, permission gating, defaults observation
   Model/SwitcherModel.swift       @MainActor picker state machine: apps / windowsForApp / flatWindows / currentAppWindows
   Model/SwitcherModel+Dependencies.swift  injectable seams (.live wires WindowDiscovery/WindowFocuser/WindowThumbnails)
+  Model/FocusConfirmation.swift  bounded, read-only focus confirmation before commit MRU repair
   Model/SwitcherLayout.swift      pure grid sizing shared by the picker, row navigation, and the preview
   Model/ThumbnailCoordinator.swift preview images, states, viewport refresh, prewarm, epochs
   Hotkey/HotkeyManager.swift      CGEventTap, two configurable shortcuts
