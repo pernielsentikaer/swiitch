@@ -221,10 +221,11 @@ final class WindowDiscoveryTests: XCTestCase {
         let count = DiscoveryCount()
         let clock = DiscoveryClock()
         let fixtureContext = context()
-        let service = WindowDiscovery(now: { clock.now }, collector: { _ in await count.add(); return Self.collection() })
+        let service = WindowDiscovery(now: { clock.now }, contextProvider: { _ in fixtureContext },
+                                      collector: { _ in await count.add(); return Self.collection() })
         let monitor = WindowEventMonitor(dependencies: .init(
             trusted: { true }, refresh: {
-                await service.prepare(context: fixtureContext, force: true, background: true)
+                await service.refreshAfterChange()
             },
             observeApplication: { pid, _ in .init(pid: pid) }, windowElements: { _ in [] }))
         service.eventMonitor = monitor

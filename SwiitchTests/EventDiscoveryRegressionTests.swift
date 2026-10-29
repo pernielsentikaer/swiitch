@@ -101,6 +101,129 @@ final class EventDiscoveryRegressionTests: XCTestCase {
         XCTAssertFalse(Observation.subscriptionsAreComplete([.success, .notificationUnsupported]))
         XCTAssertTrue(Observation.subscriptionsAreComplete([.success, .notificationAlreadyRegistered]))
     }
+
+    func testPickerRefreshDuringBackgroundDelayIsNotRepeatedButNextEventStillCollects() async {
+        let count = EventCollectionCount()
+        let clock = EventRefreshClock()
+        let discovery = WindowDiscovery(now: { clock.now }, contextProvider: { _ in
+            .init(applications: [], options: .init(), screenFrame: nil)
+        }, collector: { _ in await count.increment(); return Self.emptyCollection() })
+        var completed = 0
+        let monitor = WindowEventMonitor(dependencies: .init(
+            trusted: { true }, refresh: { await discovery.refreshAfterChange(); completed += 1 },
+            observeApplication: { _, _ in nil }, windowElements: { _ in [] },
+            now: { clock.now }, sleep: { await clock.sleep($0) }
+        ))
+        discovery.eventMonitor = monitor
+        monitor.start()
+        defer { monitor.stop(); clock.releaseAll() }
+        await discovery.prepare(options: .init())
+        monitor.handle("AXWindowCreated")
+        await waitUntil("the pending background refresh") { clock.pendingCount == 1 }
+
+        // No release of the background delay: a user request must be immediately fresh.
+        await discovery.prepare(options: .init())
+        var total = await count.value
+        XCTAssertEqual(total, 2)
+        XCTAssertEqual(completed, 0)
+        clock.releaseNext()
+        await waitUntil("background refresh reusing the user's result") { completed == 1 }
+        total = await count.value
+        XCTAssertEqual(total, 2, "The event generation was already collected by the picker")
+
+        monitor.handle("AXWindowMoved")
+        await waitUntil("a throttled background refresh") { clock.pendingCount == 1 }
+        clock.releaseNext()
+        await waitUntil("the next event to collect") { completed == 2 }
+        total = await count.value
+        XCTAssertEqual(total, 3, "A newer event cannot be mistaken for the already covered one")
+
+        await discovery.prepare(options: .init(forceRefresh: true))
+        total = await count.value
+        XCTAssertEqual(total, 4, "Explicit forced refreshes still bypass the cache")
+    }
+
+    func testBackgroundRefreshJoinsUserCollectionAlreadyCoveringTheEvent() async {
+        let count = EventCollectionCount()
+        let gate = DiscoveryGate()
+        let clock = EventRefreshClock()
+        let discovery = WindowDiscovery(now: { clock.now }, contextProvider: { _ in
+            .init(applications: [], options: .init(), screenFrame: nil)
+        }, collector: { _ in
+            await count.increment()
+            await gate.wait()
+            return Self.emptyCollection()
+        })
+        var completed = false
+        let monitor = WindowEventMonitor(dependencies: .init(
+            trusted: { true }, refresh: { await discovery.refreshAfterChange(); completed = true },
+            observeApplication: { _, _ in nil }, windowElements: { _ in [] },
+            now: { clock.now }, sleep: { await clock.sleep($0) }
+        ))
+        discovery.eventMonitor = monitor
+        monitor.start()
+        defer { monitor.stop(); clock.releaseAll() }
+        monitor.handle("AXWindowCreated")
+        await waitUntil("background delay") { clock.pendingCount == 1 }
+        let user = Task { await discovery.prepare(options: .init()) }
+        await waitUntil("the user's collection to start") { await gate.waiterCount == 1 }
+        clock.releaseNext()
+        await waitUntil("background request to join the user's collection") { discovery.coalescedRequestCount == 1 }
+        await gate.release()
+        await user.value
+        await waitUntil("background request to finish") { completed }
+        let total = await count.value
+        XCTAssertEqual(total, 1, "Joining a fresh collection must not force a second one afterwards")
+    }
+
+    func testBackgroundRefreshCannotReuseCollectionBegunBeforeTheEvent() async {
+        let count = EventCollectionCount()
+        let gate = DiscoveryGate()
+        let clock = EventRefreshClock()
+        let discovery = WindowDiscovery(now: { clock.now }, contextProvider: { _ in
+            .init(applications: [], options: .init(), screenFrame: nil)
+        }, collector: { _ in
+            await count.increment()
+            await gate.wait()
+            return Self.emptyCollection()
+        })
+        var completed = false
+        let monitor = WindowEventMonitor(dependencies: .init(
+            trusted: { true }, refresh: { await discovery.refreshAfterChange(); completed = true },
+            observeApplication: { _, _ in nil }, windowElements: { _ in [] },
+            now: { clock.now }, sleep: { await clock.sleep($0) }
+        ))
+        discovery.eventMonitor = monitor
+        monitor.start()
+        defer { monitor.stop(); clock.releaseAll() }
+        let old = Task { await discovery.prepare(options: .init()) }
+        await waitUntil("a collection begun before the change") { await gate.waiterCount == 1 }
+        monitor.handle("AXWindowCreated")
+        await waitUntil("background delay") { clock.pendingCount == 1 }
+        clock.releaseNext()
+        await waitUntil("the background request to wait for the older collection") { discovery.coalescedRequestCount == 1 }
+        await gate.release()
+        await old.value
+        await waitUntil("a fresh follow-up collection") { completed }
+        let total = await count.value
+        XCTAssertEqual(total, 2, "The newer event still needs a collection that actually covers it")
+    }
+
+    func testChangeRefreshWithoutAnActiveMonitorStillForcesCollection() async {
+        let count = EventCollectionCount()
+        let discovery = WindowDiscovery(contextProvider: { _ in
+            .init(applications: [], options: .init(), screenFrame: nil)
+        }, collector: { _ in await count.increment(); return Self.emptyCollection() })
+        await discovery.prepare(options: .init())
+        await discovery.refreshAfterChange()
+        let monitor = WindowEventMonitor(dependencies: .init(
+            trusted: { false }, refresh: {}, observeApplication: { _, _ in nil }, windowElements: { _ in [] }
+        ))
+        discovery.eventMonitor = monitor
+        await discovery.refreshAfterChange()
+        let total = await count.value
+        XCTAssertEqual(total, 3, "Without active event generations, an announced change must force fresh data")
+    }
 }
 
 private actor EventCollectionCount {

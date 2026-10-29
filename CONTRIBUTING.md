@@ -111,7 +111,7 @@ Swiitch/
   Hotkey/Shortcut.swift           keycode + flags <-> human label helpers
   Hotkey/ShortcutRecordingSession.swift  suspends switching while a recorder is active
   Windows/WindowDiscovery.swift   background enumeration cache shared by picker + prewarm
-  Windows/WindowEventMonitor.swift  AX/NSWorkspace change notifications → coalesced fresh collections
+  Windows/WindowEventMonitor.swift  AX/NSWorkspace notifications → coalesced, rate-limited background refreshes
   Windows/WindowEnumerator.swift  CGWindowList + AX ghost-filter, AX title fallback, screen scope
   Windows/WindowFocuser.swift     AX raise + frontmost + activate, close/minimize/zoom, hide
   Windows/WindowThumbnails.swift  ScreenCaptureKit + CGWindowList fallback (actor)
@@ -139,6 +139,12 @@ SwiitchTests/                     one file per subsystem; SwitcherModelTests and
                                   LocalizationTests the Danish catalog, and
                                   NativeWindowScopeTests drive disposable real windows
 ```
+
+Event-driven discovery invalidates cached metadata immediately, but spaces background
+refresh starts at least 250 ms apart during sustained move/resize/title events. A user
+opening the picker bypasses that delay. A delayed background refresh reuses or joins a
+collection already covering its event generation; explicit forced refreshes still bypass
+the cache. Timing tests use a manual clock rather than wall-clock sleeps.
 
 ## Where to start
 

@@ -8,6 +8,7 @@ final class WindowDiscovery {
     static let shared = WindowDiscovery()
     private let collector: Collector
     private let now: () -> TimeInterval
+    private let contextProvider: @MainActor (EnumerateOptions) -> WindowEnumerator.Context
     private let timeout: TimeInterval
     private let runner = CaptureDeadlineRunner(limit: 1)
     private var inFlight: (id: UInt64, key: Key, eventCount: Int?, task: Task<Void, Never>)?
@@ -27,7 +28,8 @@ final class WindowDiscovery {
     static let recentDurationCapacity = 50
     /// When set and active, change notifications drive fresh collections and the periodic
     /// poll only guards against missed events, so background requests accept an older
-    /// snapshot. Forced requests (the monitor's own) always collect.
+    /// snapshot. Explicitly forced requests always collect; event refreshes only collect
+    /// if that event generation has not already been covered by another request.
     var eventMonitor: WindowEventMonitor?
 
     /// A user-facing request (opening the picker, changing a list preference) accepts a
@@ -56,9 +58,11 @@ final class WindowDiscovery {
     }
 
     init(timeout: TimeInterval = 1, now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
+         contextProvider: @escaping @MainActor (EnumerateOptions) -> WindowEnumerator.Context = { WindowEnumerator.context(options: $0) },
          collector: @escaping Collector = { WindowEnumerator.collect(context: $0) }) {
         self.timeout = timeout
         self.now = now
+        self.contextProvider = contextProvider
         self.collector = collector
     }
 
@@ -90,9 +94,11 @@ final class WindowDiscovery {
         return eventDriven ? Self.eventDrivenSnapshotLifetime : Self.activeSnapshotLifetime
     }
 
-    /// The monitor's request after a change notification: always a fresh collection.
+    /// eventCount already invalidates stale snapshots. Reuse a collection begun after
+    /// that event (or join one in flight), e.g. when the picker beat the background delay.
+    /// Without an active monitor there is no event generation, so retain a forced refresh.
     func refreshAfterChange() async {
-        await prepare(options: EnumerateOptions(forceRefresh: true, isBackgroundRefresh: true,
+        await prepare(options: EnumerateOptions(forceRefresh: eventMonitor?.isActive != true, isBackgroundRefresh: true,
                                                 excludedBundleIDs: Set(Preferences.excludedBundleIDs)))
     }
 
@@ -100,7 +106,7 @@ final class WindowDiscovery {
         if !options.isBackgroundRefresh { lastUserRequest = now() }
         // Cache all Spaces/displays together so pointer movement doesn't trigger a full
         // AX pass. Exclusions still take effect before querying any excluded application.
-        let context = WindowEnumerator.context(options: .init(excludedBundleIDs: options.excludedBundleIDs))
+        let context = contextProvider(.init(excludedBundleIDs: options.excludedBundleIDs))
         await prepare(context: context, force: options.forceRefresh, background: options.isBackgroundRefresh)
     }
 
