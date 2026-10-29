@@ -161,10 +161,11 @@ struct SwitcherView: View {
                     guard let context = layout.context, layout.bounds != nil else { return }
                     model.updateThumbnailViewport(layout.visibleWindowIDs, context: context)
                 }
-                .onChange(of: selectedScrollTarget) { _, target in
+                .onChange(of: selectedScrollTarget, initial: true) { old, target in
                     guard let target else { return }
-                    // Reduce Motion: jump to the selection instead of gliding to it.
-                    withAnimation(reduceMotion ? nil : .easeOut(duration: 0.12)) {
+                    // Reverse opening can start on the last row. Reveal the initial
+                    // selection without animating through every row from the top.
+                    withAnimation(reduceMotion || old == target ? nil : .easeOut(duration: 0.12)) {
                         proxy.scrollTo(target, anchor: .center)
                     }
                 }

@@ -1188,6 +1188,10 @@ final class SwitcherModel: ObservableObject {
         await previews.prewarmCache()
     }
 
+    func setLowPowerMode(_ enabled: Bool) {
+        previews.setLowPowerMode(enabled)
+    }
+
     private var highlightedWindowID: CGWindowID? {
         switch mode {
         case .apps: return nil

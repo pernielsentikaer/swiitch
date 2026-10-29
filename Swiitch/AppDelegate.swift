@@ -18,6 +18,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var windowEvents: WindowEventMonitor?
     private var lastAXTrusted: Bool = false
     private var defaultsObserver: NSObjectProtocol?
+    private var powerStateObserver: NSObjectProtocol?
     private var permissionObservations: [AnyCancellable] = []
     private var lastDock = false
     private var lastAppearance = "system"
@@ -55,6 +56,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         focusTracker.start()
 
         model = SwitcherModel(focusTracker: focusTracker)
+        model.setLowPowerMode(ProcessInfo.processInfo.isLowPowerModeEnabled)
+        powerStateObserver = NotificationCenter.default.addObserver(
+            forName: .NSProcessInfoPowerStateDidChange, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.model.setLowPowerMode(ProcessInfo.processInfo.isLowPowerModeEnabled)
+            }
+        }
         WindowDiscovery.shared.start()
         // Change notifications keep the window list current between polls. Observers need
         // Accessibility, so the monitor follows the permission transitions below.
@@ -113,6 +122,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         WindowDiscovery.shared.stop()
         if let defaultsObserver {
             NotificationCenter.default.removeObserver(defaultsObserver)
+        }
+        if let powerStateObserver {
+            NotificationCenter.default.removeObserver(powerStateObserver)
         }
         memoryPressure?.stop()
     }

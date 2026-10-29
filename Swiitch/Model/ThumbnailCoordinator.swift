@@ -50,6 +50,7 @@ final class ThumbnailCoordinator: ObservableObject {
     var prewarmSource: PrewarmSource?
 
     private let dependencies: SwitcherModel.Dependencies
+    private let scheduleActionRefresh: (@escaping @MainActor @Sendable () async -> Void) -> Void
     private var viewport: (context: SwitcherModel.ThumbnailViewportContext, ids: Set<CGWindowID>)?
     private var pendingIDs: Set<CGWindowID> = []
     private var permissionRevision: UInt64 = 0
@@ -58,9 +59,21 @@ final class ThumbnailCoordinator: ObservableObject {
     private var prewarmInFlight = false
     private var prewarmTimer: MainActorResource<Timer>?
     private var refreshTimer: MainActorResource<Timer>?
+    private var initialRequestPending = false
+    private var prewarmingRequested = false
+    private var lowPowerMode = false
 
-    init(dependencies: SwitcherModel.Dependencies) {
+    /// Whether optional idle work has a timer, for verifying the power policy.
+    var isPrewarmingScheduled: Bool { prewarmTimer != nil }
+
+    init(dependencies: SwitcherModel.Dependencies,
+         scheduleActionRefresh: @escaping (@escaping @MainActor @Sendable () async -> Void) -> Void = { action in
+             DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                 Task { @MainActor in await action() }
+             }
+         }) {
         self.dependencies = dependencies
+        self.scheduleActionRefresh = scheduleActionRefresh
         screenCaptureGranted = dependencies.screenCaptureGranted()
     }
 
@@ -94,6 +107,7 @@ final class ThumbnailCoordinator: ObservableObject {
     /// receive this invocation's images.
     func requestInitial(for windows: [WindowInfo]) {
         let arm = scope().generation
+        initialRequestPending = true
         Task { @MainActor [weak self] in
             guard let self else { return }
             let scope = self.scope()
@@ -104,13 +118,21 @@ final class ThumbnailCoordinator: ObservableObject {
 
     /// A window action changed its content; refresh that tile after the app has redrawn.
     func refreshAfterAction(_ window: WindowInfo) {
-        if let invalidateThumbnail = dependencies.invalidateThumbnail {
-            Task { await invalidateThumbnail(window.id) }
+        let generation = scope().generation
+        let startEpoch = epoch
+        scheduleActionRefresh { [weak self] in
+            guard let self, self.canRefreshAction(window, generation: generation, epoch: startEpoch) else { return }
+            await self.dependencies.invalidateThumbnail?(window.id)
+            guard self.canRefreshAction(window, generation: generation, epoch: startEpoch) else { return }
+            await self.fetch(for: [window], fresh: true)
         }
-        Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 150_000_000)
-            await self?.fetch(for: [window], fresh: true)
-        }
+    }
+
+    private func canRefreshAction(_ window: WindowInfo, generation: UInt64, epoch: UInt64) -> Bool {
+        let scope = self.scope()
+        return scope.isArmed && scope.generation == generation && self.epoch == epoch
+            && screenCaptureGranted && !updatingCapturePermission
+            && scope.windows.contains { $0.id == window.id && $0.pid == window.pid }
     }
 
     /// Windows that left the picker (closed app, exclusion) drop their previews.
@@ -131,6 +153,7 @@ final class ThumbnailCoordinator: ObservableObject {
         thumbnails = [:]
         thumbnailStates = [:]
         viewport = nil
+        initialRequestPending = false
         epoch &+= 1
         pendingIDs.removeAll()
     }
@@ -150,7 +173,22 @@ final class ThumbnailCoordinator: ObservableObject {
     }
 
     func startPrewarmTimer() {
+        prewarmingRequested = true
+        reschedulePrewarming()
+    }
+
+    /// Low Power Mode suspends optional background work, never foreground previews.
+    /// Keep the intent so leaving Low Power Mode resumes the normal idle schedule.
+    func setLowPowerMode(_ enabled: Bool) {
+        guard lowPowerMode != enabled else { return }
+        lowPowerMode = enabled
+        reschedulePrewarming()
+    }
+
+    private func reschedulePrewarming() {
         prewarmTimer?.invalidate()
+        prewarmTimer = nil
+        guard prewarmingRequested, !lowPowerMode else { return }
         // Idle work: let the system fold this wake-up into others it is already doing.
         prewarmTimer = Self.scheduleTimer(interval: 4.0, repeats: true, tolerance: 1.0) { [weak self] in
             guard let self, !self.scope().isArmed else { return }
@@ -169,11 +207,12 @@ final class ThumbnailCoordinator: ObservableObject {
         let previous = viewport.flatMap { $0.context == context ? $0.ids : nil } ?? []
         viewport = (context, scopedIDs)
         let added = scopedIDs.subtracting(previous)
-        guard !added.isEmpty else { return }
+        guard !added.isEmpty, !initialRequestPending else { return }
         Task { @MainActor [weak self] in
             guard let self else { return }
             let scope = self.scope()
-            guard scope.isArmed, self.viewportContext(for: scope) == context else { return }
+            guard scope.isArmed, !self.initialRequestPending,
+                  self.viewportContext(for: scope) == context else { return }
             let windows = self.refreshWindows.filter { added.contains($0.id) }
             // Reuse cached images immediately; only missing/stale entries need capture.
             await self.fetch(for: windows, fresh: false)
@@ -219,7 +258,7 @@ final class ThumbnailCoordinator: ObservableObject {
     /// current display/Spaces/minimized scope. Both lists are cached discovery reads.
     func prewarmCache() async {
         guard let source = prewarmSource else { return }
-        guard screenCaptureGranted, !updatingCapturePermission, !scope().isArmed, !prewarmInFlight else { return }
+        guard !lowPowerMode, screenCaptureGranted, !updatingCapturePermission, !scope().isArmed, !prewarmInFlight else { return }
         guard let retainThumbnails = dependencies.retainThumbnails,
               let thumbnails = dependencies.thumbnails else { return }
         guard source.loadsThumbnails() else { return }
@@ -238,7 +277,7 @@ final class ThumbnailCoordinator: ObservableObject {
     }
 
     private func canContinuePrewarming(_ source: PrewarmSource, epoch: UInt64, excluded: Set<String>) -> Bool {
-        !Task.isCancelled && screenCaptureGranted && !updatingCapturePermission && !scope().isArmed
+        !Task.isCancelled && !lowPowerMode && screenCaptureGranted && !updatingCapturePermission && !scope().isArmed
             && self.epoch == epoch && source.loadsThumbnails()
             && source.excludedBundleIDs() == excluded
     }
@@ -255,7 +294,21 @@ final class ThumbnailCoordinator: ObservableObject {
         }
         let current = self.scope()
         guard current.isArmed, current.generation == arm, epoch == startEpoch else { return }
-        await fetch(for: windows, fresh: false)
+        initialRequestPending = false
+        let requestedIDs = Set(windows.map(\.id))
+        let initial: [WindowInfo]
+        if let viewport, viewport.context == viewportContext(for: current) {
+            initial = refreshWindows.filter { requestedIDs.contains($0.id) }
+        } else {
+            // Layout has not reported the visible tiles yet. Warm the selected target
+            // only; updateViewport loads the rest as soon as their geometry is known.
+            // Starting every window here defeats viewport-limited refresh and can evict
+            // useful previews before the first visible row has finished loading.
+            initial = current.refreshCandidates.filter {
+                $0.id == current.highlightedWindowID && requestedIDs.contains($0.id)
+            }
+        }
+        await fetch(for: initial, fresh: false)
     }
 
     func fetch(for windows: [WindowInfo], fresh: Bool) async {

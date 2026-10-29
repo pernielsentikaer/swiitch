@@ -5,6 +5,126 @@ import XCTest
 
 @MainActor
 final class ThumbnailStateTests: XCTestCase {
+    func testLowPowerModeRemovesTheIdleTimerAndRestoresOnlyARequestedSchedule() {
+        let coordinator = ThumbnailCoordinator(dependencies: .init(
+            enumerate: { _, _ in [] }, focusApp: { _ in }, focusWindow: { _ in },
+            closeWindow: { _ in false }, hideApp: { _ in false }
+        ))
+        coordinator.setLowPowerMode(true)
+        coordinator.setLowPowerMode(false)
+        XCTAssertFalse(coordinator.isPrewarmingScheduled, "Do not start warming before the first picker invocation")
+        coordinator.startPrewarmTimer()
+        XCTAssertTrue(coordinator.isPrewarmingScheduled)
+        coordinator.setLowPowerMode(true)
+        XCTAssertFalse(coordinator.isPrewarmingScheduled)
+        coordinator.startPrewarmTimer()
+        XCTAssertFalse(coordinator.isPrewarmingScheduled, "Opening the picker cannot restart idle work in Low Power Mode")
+        coordinator.setLowPowerMode(false)
+        XCTAssertTrue(coordinator.isPrewarmingScheduled)
+    }
+
+    func testDelayedWindowActionRefreshCannotInvalidateANewInvocationOrRemovedWindow() async {
+        let window = WindowInfo(id: 1, pid: 101, title: "Example", bounds: .zero, isOnScreen: true)
+        var scope = ThumbnailCoordinator.Scope(isArmed: true, generation: 1, panelShown: true,
+            loadsThumbnails: true, windows: [window], refreshCandidates: [window], highlightedWindowID: 1)
+        var scheduled: [@MainActor @Sendable () async -> Void] = []
+        var invalidations: [CGWindowID] = []
+        var captures: [[CGWindowID]] = []
+        let coordinator = ThumbnailCoordinator(dependencies: .init(
+            enumerate: { _, _ in [] }, focusApp: { _ in }, focusWindow: { _ in },
+            closeWindow: { _ in false }, hideApp: { _ in false },
+            thumbnails: { ids, fresh, _ in
+                XCTAssertTrue(fresh)
+                captures.append(ids)
+                return [:]
+            },
+            invalidateThumbnail: { invalidations.append($0) }
+        ), scheduleActionRefresh: { scheduled.append($0) })
+        coordinator.scope = { scope }
+
+        coordinator.refreshAfterAction(window)
+        coordinator.reset()
+        scope.generation = 2
+        await scheduled.removeFirst()()
+        XCTAssertTrue(invalidations.isEmpty, "An old action must not evict the new invocation's cached preview")
+        XCTAssertTrue(captures.isEmpty)
+
+        coordinator.refreshAfterAction(window)
+        scope.windows = []
+        await scheduled.removeFirst()()
+        XCTAssertTrue(invalidations.isEmpty, "Removed/excluded windows must not be refreshed")
+
+        scope.windows = [window]
+        coordinator.refreshAfterAction(window)
+        await scheduled.removeFirst()()
+        XCTAssertEqual(invalidations, [1])
+        XCTAssertEqual(captures, [[1]], "A current action still refreshes its target")
+    }
+
+    func testDelayedActionRechecksInvocationAfterAwaitingInvalidation() async {
+        let window = WindowInfo(id: 1, pid: 101, title: "Example", bounds: .zero, isOnScreen: true)
+        var scope = ThumbnailCoordinator.Scope(isArmed: true, generation: 1, windows: [window])
+        var scheduled: (@MainActor @Sendable () async -> Void)?
+        var captures = 0
+        let coordinator = ThumbnailCoordinator(dependencies: .init(
+            enumerate: { _, _ in [] }, focusApp: { _ in }, focusWindow: { _ in },
+            closeWindow: { _ in false }, hideApp: { _ in false },
+            thumbnails: { _, _, _ in captures += 1; return [:] },
+            invalidateThumbnail: { _ in scope.generation += 1 }
+        ), scheduleActionRefresh: { scheduled = $0 })
+        coordinator.scope = { scope }
+        coordinator.refreshAfterAction(window)
+        await scheduled?()
+        XCTAssertEqual(captures, 0)
+    }
+
+    func testLowPowerModePausesPrewarmingButKeepsForegroundPreviewsAndResumes() async throws {
+        let fixture = PrewarmFixture()
+        defer { fixture.close() }
+        var preparations = 0
+        fixture.state.prepare = { preparations += 1 }
+        fixture.model.setLowPowerMode(true)
+        await fixture.model.prewarmCache()
+        XCTAssertEqual(preparations, 0)
+        XCTAssertTrue(fixture.state.loads.isEmpty)
+        XCTAssertTrue(fixture.state.retained.isEmpty)
+
+        fixture.model.arm(reverse: false)
+        try await eventually { !fixture.model.thumbnails.isEmpty }
+        XCTAssertFalse(fixture.state.loads.isEmpty, "User-requested previews still work")
+        fixture.model.cancel()
+        fixture.state.loads = []
+        fixture.model.setLowPowerMode(false)
+        await fixture.model.prewarmCache()
+        XCTAssertEqual(preparations, 1)
+        XCTAssertFalse(fixture.state.loads.isEmpty, "Normal power resumes background warming")
+    }
+
+    func testLowPowerModeArrivingDuringPreparationStopsTheBackgroundCapture() async {
+        let fixture = PrewarmFixture()
+        defer { fixture.close() }
+        fixture.state.prepare = { fixture.model.setLowPowerMode(true) }
+        await fixture.model.prewarmCache()
+        XCTAssertTrue(fixture.state.loads.isEmpty)
+        XCTAssertTrue(fixture.state.retained.isEmpty)
+    }
+
+    func testInitialCaptureWaitsForViewportInsteadOfLoadingEveryWindow() async throws {
+        let fixture = CaptureModelFixture(returnImages: true, windowCount: 100, reportsFullViewport: false)
+        defer { fixture.close() }
+        fixture.model.arm(reverse: false)
+        try await eventually { fixture.model.thumbnails.count == 1 }
+        XCTAssertEqual(fixture.capture.calls, [[2]], "Before layout only the selected window loads")
+        fixture.model.updateThumbnailViewport([1, 2, 3], context: fixture.model.thumbnailViewportContext)
+        try await eventually { fixture.model.thumbnails.count == 3 }
+        XCTAssertEqual(Set(fixture.capture.calls.flatMap { $0 }), [1, 2, 3])
+        XCTAssertFalse(fixture.capture.freshRequests.contains(true), "Initial/scroll loads reuse the cache")
+        fixture.model.updateThumbnailViewport([50, 51], context: fixture.model.thumbnailViewportContext)
+        try await eventually { fixture.model.thumbnails[50] != nil && fixture.model.thumbnails[51] != nil }
+        XCTAssertEqual(Set(fixture.capture.calls.last ?? []), [50, 51])
+        XCTAssertNil(fixture.model.thumbnails[100], "Never capture a tile that was not requested or visible")
+    }
+
     func testPrewarmRetainsAcrossAllScopesButPrunesClosedAndExcludedWindows() async {
         let fixture = PrewarmFixture()
         defer { fixture.close() }
@@ -162,10 +282,10 @@ final class ThumbnailStateTests: XCTestCase {
     }
 
     func testScrollingLoadsNewlyVisibleTilesWithoutRepeatingUnchangedViewport() async throws {
-        let fixture = CaptureModelFixture(returnImages: true, windowCount: 4)
+        let fixture = CaptureModelFixture(returnImages: true, windowCount: 4, reportsFullViewport: false)
         defer { fixture.close() }
         fixture.model.arm(reverse: false)
-        try await eventually { fixture.model.thumbnails.count == 4 }
+        try await eventually { fixture.model.thumbnails.count == 1 }
         fixture.model.mouseHasMoved = true
         fixture.model.selectFlatWindow(at: 0)
         let context = fixture.model.thumbnailViewportContext
@@ -233,10 +353,14 @@ final class ThumbnailStateTests: XCTestCase {
         try await checkHostedViewport(reduceMotion: true)
     }
 
-    private func checkHostedViewport(reduceMotion: Bool) async throws {
-        let fixture = CaptureModelFixture(returnImages: true, windowCount: 40)
+    func testReverseOpeningImmediatelyRevealsTheLastRow() async throws {
+        try await checkHostedViewport(reduceMotion: true, reverse: true)
+    }
+
+    private func checkHostedViewport(reduceMotion: Bool, reverse: Bool = false) async throws {
+        let fixture = CaptureModelFixture(returnImages: true, windowCount: 40, reportsFullViewport: false)
         defer { fixture.close() }
-        fixture.model.arm(reverse: false)
+        fixture.model.arm(reverse: reverse)
         // Match the synthetic host instead of laying out a 1200-point grid in 640 points.
         // This checks viewport reporting, not animation timing or desktop pointer hover.
         fixture.model.effectiveMaxWidth = 600
@@ -257,6 +381,13 @@ final class ThumbnailStateTests: XCTestCase {
         try await eventually { fixture.model.thumbnailRefreshWindows.count < 40 }
         XCTAssertGreaterThan(fixture.model.thumbnailRefreshWindows.count, 0)
         XCTAssertLessThan(fixture.model.thumbnailRefreshWindows.count, 40)
+        if reverse {
+            try await eventually {
+                fixture.model.thumbnailRefreshWindows.contains { $0.id == 39 }
+                    && fixture.model.thumbnailRefreshWindows.allSatisfy { $0.id > 20 }
+            }
+            XCTAssertEqual(fixture.model.selectedFlatIndex, 39)
+        }
         let initialCount = fixture.model.thumbnailRefreshWindows.count
         let initialFrame = window.frame
         var reflows = 0
@@ -391,6 +522,7 @@ private final class CaptureModelFixture {
 
     init(granted: Bool = true, blocked: Bool = false, returnImages: Bool = false, windowCount: Int = 2,
          displayMode: Preferences.DisplayMode = .windows, frontmostPID: pid_t? = nil,
+         reportsFullViewport: Bool = true,
          focus: @escaping @MainActor @Sendable (WindowInfo) -> Void = { _ in }) {
         defaults = UserDefaults(suiteName: suite)!
         defaults.set(displayMode.rawValue, forKey: Preferences.Key.displayMode)
@@ -408,6 +540,16 @@ private final class CaptureModelFixture {
             screenCaptureGranted: { granted },
             setThumbnailCaptureAllowed: { allowed in await MainActor.run { probe.permission(allowed) } }
         ))
+        if reportsFullViewport {
+            // Small non-hosted fixtures represent an entirely visible grid. Hosted
+            // and initial-load tests report real/specific viewports instead.
+            let report = { [weak model] in
+                guard let model else { return }
+                model.updateThumbnailViewport(Set(windows.map(\.id)), context: model.thumbnailViewportContext)
+            }
+            model.onShow = report
+            model.onUpdate = report
+        }
     }
 
     func close() { model.cancel(); defaults.removePersistentDomain(forName: suite) }
