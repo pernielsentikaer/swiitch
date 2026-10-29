@@ -33,7 +33,12 @@ enum SearchMatcher {
     /// Case- and diacritic-folded characters, one entry per original character so offsets
     /// map straight back for highlighting.
     static func fold(_ text: String) -> [String] {
-        text.map { String($0).folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current) }
+        let locale = Locale.current
+        return text.map { fold($0, locale: locale) }
+    }
+
+    private static func fold(_ character: Character, locale: Locale) -> String {
+        String(character).folding(options: [.caseInsensitive, .diacriticInsensitive], locale: locale)
     }
 
     /// Case folding can expand a character (ß → ss). Match the expanded sequence but
@@ -43,7 +48,10 @@ enum SearchMatcher {
         let originalOffsets: [Int]
 
         init(_ text: String) {
-            let parts = fold(text)
+            self.init(parts: fold(text))
+        }
+
+        init(parts: [String]) {
             characters = parts.flatMap { $0.map(String.init) }
             originalOffsets = parts.enumerated().flatMap { offset, part in part.map { _ in offset } }
         }
@@ -61,12 +69,15 @@ enum SearchMatcher {
     /// Owned by one switcher model and cleared when its app snapshot changes. Field
     /// normalization is shared across keystrokes, and each query/candidate is scored
     /// only once even when selection, layout and highlighting read it repeatedly.
+    /// Folding is shared per original grapheme across fields too: hundreds of titles
+    /// typically reuse the same small alphabet. Both caches reset with the locale.
     final class Cache {
         private struct Candidate: Hashable {
             let appName: String
             let title: String?
         }
         private struct Result { let match: Match? }
+        private var foldedCharacters: [Character: String] = [:]
         private var fields: [String: FoldedField] = [:]
         private var results: [Candidate: Result] = [:]
         private var query: String?
@@ -74,6 +85,7 @@ enum SearchMatcher {
         private var locale = Locale.current
 
         func reset() {
+            foldedCharacters.removeAll()
             fields.removeAll()
             results.removeAll()
             query = nil
@@ -86,7 +98,7 @@ enum SearchMatcher {
             if self.query != query {
                 self.query = query
                 foldedTerms = query.split(whereSeparator: \.isWhitespace).map {
-                    fold(String($0)).flatMap { $0.map(String.init) }
+                    foldedParts(String($0)).flatMap { $0.map(String.init) }
                 }
                 results.removeAll(keepingCapacity: true)
             }
@@ -100,9 +112,18 @@ enum SearchMatcher {
 
         private func field(_ text: String) -> FoldedField {
             if let field = fields[text] { return field }
-            let field = FoldedField(text)
+            let field = FoldedField(parts: foldedParts(text))
             fields[text] = field
             return field
+        }
+
+        private func foldedParts(_ text: String) -> [String] {
+            text.map { character in
+                if let folded = foldedCharacters[character] { return folded }
+                let folded = fold(character, locale: locale)
+                foldedCharacters[character] = folded
+                return folded
+            }
         }
     }
 
@@ -160,6 +181,9 @@ enum SearchMatcher {
     private static func substringMatch(term: [String], in field: [String]) -> FieldMatch? {
         var firstAnywhere: Int?
         for start in 0...(field.count - term.count) {
+            // Most offsets cannot start this term. Reject them before constructing a
+            // slice and comparing the full sequence for every window on every key.
+            guard field[start] == term[0] else { continue }
             guard field[start..<(start + term.count)].elementsEqual(term) else { continue }
             if start == 0 { return FieldMatch(score: prefixScore, ranges: [0..<term.count]) }
             if isWordStart(field, at: start) { return FieldMatch(score: wordStartScore, ranges: [start..<(start + term.count)]) }

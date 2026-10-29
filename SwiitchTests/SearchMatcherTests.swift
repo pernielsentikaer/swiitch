@@ -29,6 +29,20 @@ final class SearchMatcherTests: XCTestCase {
         XCTAssertNil(SearchMatcher.match(terms: terms("dia"), appName: "Safari", title: nil))
     }
 
+    func testSubstringScanningPreservesBestClassAndEarliestEqualMatch() {
+        for (field, score, range) in [
+            ("zzz zzz", SearchMatcher.prefixScore, 0..<3),
+            ("azzz zzz zzz", SearchMatcher.wordStartScore, 5..<8),
+            ("azzzbzzz", SearchMatcher.substringScore, 1..<4),
+        ] {
+            let match = SearchMatcher.match(terms: terms("zzz"), appName: field, title: nil)
+            XCTAssertEqual(match?.score, score, field)
+            XCTAssertEqual(match?.appRanges, [range], field)
+        }
+        XCTAssertEqual(SearchMatcher.match(terms: terms("ab"), appName: "aaaaab", title: nil)?.appRanges,
+                       [4..<6], "A matching first character is not enough; the entire term must match")
+    }
+
     func testFoldingIgnoresCaseAndAccentsAndKeepsPunctuationLiteral() {
         let accent = SearchMatcher.match(terms: terms("RESUME [q1]"), appName: "Dia", title: "Résumé [Q1]")
         XCTAssertEqual(accent?.score, 100 + 80)
@@ -121,5 +135,46 @@ final class SearchMatcherTests: XCTestCase {
         cache.reset()
         XCTAssertNil(cache.match(query: "strasse", appName: "Dia", title: "Updated title"))
         XCTAssertNotNil(cache.match(query: "strasse", appName: "Dia", title: "Straße"))
+    }
+
+    func testSharedCharacterFoldingPreservesRankingAndHighlightsWhileEditing() {
+        let cache = SearchMatcher.Cache()
+        let candidates: [(appName: String, title: String?)] = [
+            ("Æble", "Smørrebrød — Århus"),
+            ("Maps", "🗺️ Straße"),
+            ("STRASSE", "Straße — Café"),
+            ("Dia", "Résumé [Q1]"),
+            ("Dia", "Re\u{301}sume\u{301} [Q1]"),
+            ("Visual Studio Code", "👩🏽‍💻 notes.swift"),
+            ("Calendar", nil),
+        ]
+        let queries = ["resume [q1]", "strasse", "smør", "år", "æ", "vsc", "👩🏽‍💻", "zzz"]
+        for fullQuery in queries {
+            var query = ""
+            var edits = [query]
+            for character in fullQuery {
+                query.append(character)
+                edits.append(query)
+            }
+            while !query.isEmpty {
+                query.removeLast()
+                edits.append(query)
+            }
+            for query in edits {
+                let expected = candidates.map {
+                    SearchMatcher.match(terms: terms(query), appName: $0.appName, title: $0.title)
+                }
+                for _ in 0..<2 {
+                    let actual = candidates.map {
+                        cache.match(query: query, appName: $0.appName, title: $0.title)
+                    }
+                    XCTAssertEqual(actual, expected, "Scores, misses and original-grapheme ranges: \(query)")
+                    let expectedOrder = SearchMatcher.ranked(Array(candidates.indices)) { expected[$0] }
+                    let actualOrder = SearchMatcher.ranked(Array(candidates.indices)) { actual[$0] }
+                    XCTAssertEqual(actualOrder, expectedOrder, query)
+                }
+            }
+            cache.reset()
+        }
     }
 }
