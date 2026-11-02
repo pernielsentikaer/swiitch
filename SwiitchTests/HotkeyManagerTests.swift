@@ -88,6 +88,80 @@ final class HotkeyManagerTests: XCTestCase {
         }
     }
 
+    func testMissingModifierReleasePassesOrdinaryTypingThroughWithoutCommitting() async {
+        for modifiers in [CGEventFlags.maskCommand, [.maskCommand, .maskAlternate]] {
+            let fixture = Fixture(primary: modifiers)
+            fixture.send(flags: modifiers)
+            await drain()
+            fixture.model.peekCurrent()
+            XCTAssertEqual(fixture.focus.windowIDs, [2])
+            XCTAssertFalse(fixture.send(kVK_ANSI_A, flags: []), "No modifier-up event arrived")
+            await drain()
+            XCTAssertFalse(fixture.model.isArmed)
+            XCTAssertEqual(fixture.focus.windowIDs, [2], "Do not commit stale selection")
+            XCTAssertTrue(fixture.focus.restoredWindowIDs.isEmpty, "Interruption cannot steal focus back")
+            fixture.send(flags: modifiers)
+            await drain()
+            XCTAssertTrue(fixture.model.isArmed)
+        }
+    }
+
+    func testTapInterruptionDiscardsQueuedOpeningAndRelease() async {
+        for interruption in [CGEventType.tapDisabledByTimeout, .tapDisabledByUserInput] {
+            let fixture = Fixture()
+            fixture.send()
+            fixture.release()
+            XCTAssertFalse(fixture.send(type: interruption))
+            await drain()
+            XCTAssertFalse(fixture.model.isArmed)
+            XCTAssertTrue(fixture.focus.windowIDs.isEmpty)
+            fixture.send()
+            await drain()
+            XCTAssertTrue(fixture.model.isArmed)
+        }
+    }
+
+    func testSuspensionCancelsColdOpenAndBlocksInputUntilResume() async {
+        let gate = DiscoveryGate()
+        let fixture = Fixture(prepareSnapshot: { _ in await gate.wait() })
+        fixture.send()
+        fixture.release()
+        await drain()
+        await waitUntil("cold discovery to start") { await gate.waiterCount == 1 }
+        fixture.manager.setSessionSuspended(true)
+        XCTAssertFalse(fixture.send())
+        XCTAssertFalse(fixture.send(kVK_ANSI_H))
+        await gate.release()
+        await drain()
+        XCTAssertFalse(fixture.model.isArmed)
+        XCTAssertTrue(fixture.focus.windowIDs.isEmpty)
+        fixture.manager.setSessionSuspended(false)
+        fixture.send()
+        await waitUntil("new session to arm after resume") { fixture.model.isArmed }
+        fixture.release()
+        await drain()
+        XCTAssertEqual(fixture.focus.windowIDs, [2])
+    }
+
+    func testSuspensionDismissesPeekWithoutRestorationOrHistoryTrackingLeak() async {
+        let fixture = Fixture()
+        fixture.send()
+        await drain()
+        fixture.model.peekCurrent()
+        fixture.manager.setSessionSuspended(true)
+        fixture.release()
+        await drain()
+        XCTAssertFalse(fixture.model.isArmed)
+        XCTAssertEqual(fixture.focus.windowIDs, [2])
+        XCTAssertTrue(fixture.focus.restoredWindowIDs.isEmpty)
+        fixture.manager.setSessionSuspended(false)
+        fixture.send()
+        await drain()
+        fixture.release()
+        await drain()
+        XCTAssertEqual(fixture.focus.windowIDs, [2, 2])
+    }
+
     func testRecordingPassesConfiguredShortcutThroughAndResumesAfterward() async {
         let fixture = Fixture()
         let token = UUID()

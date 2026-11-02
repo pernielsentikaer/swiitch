@@ -175,7 +175,7 @@ final class WindowActionFeedbackTests: XCTestCase {
             return .init(minimize: .disabled)
         })
         fixture.model.arm(reverse: false)
-        fixture.model.prepareWindowControls(id: 42)
+        fixture.model.setWindowControlsNeeded(true, id: 42)
         await eventually { calls == 1 }
         XCTAssertTrue(fixture.model.minimizeWindow(id: 42))
         await eventually { fixture.model.windowCapabilities[42]?.minimize == .disabled }
@@ -188,9 +188,10 @@ final class WindowActionFeedbackTests: XCTestCase {
         var calls = 0
         let fixture = Fixture(result: .unsupported, read: { _ in calls += 1; return .init() })
         fixture.model.arm(reverse: false)
+        fixture.model.setWindowControlsNeeded(true, id: 42)
         XCTAssertFalse(fixture.model.minimizeWindow(id: 42))
-        await eventually { calls == 1 }
-        try? await Task.sleep(for: .milliseconds(10))
+        await eventually { fixture.model.windowCapabilities[42]?.close == .unknown && calls > 0 }
+        XCTAssertEqual(calls, 1, "The superseded queued read must not start after cancellation")
         XCTAssertEqual(fixture.model.windowCapabilities[42]?.minimize, .unsupported)
     }
 
@@ -216,6 +217,54 @@ final class WindowActionFeedbackTests: XCTestCase {
 
     private func eventually(_ condition: () -> Bool, file: StaticString = #filePath, line: UInt = #line) async {
         await waitUntil("the test state", file: file, line: line) { condition() }
+    }
+
+    func testControlMetadataNeedsVisibleControlsOrVoiceOverDemand() {
+        for selected in [false, true] {
+            XCTAssertFalse(WindowControlDemand.needsMetadata(pointerControlsVisible: false,
+                voiceOverEnabled: false, selected: selected, accessibilityFocused: false))
+            XCTAssertTrue(WindowControlDemand.needsMetadata(pointerControlsVisible: true,
+                voiceOverEnabled: false, selected: selected, accessibilityFocused: false))
+        }
+        XCTAssertTrue(WindowControlDemand.needsMetadata(pointerControlsVisible: false,
+            voiceOverEnabled: true, selected: true, accessibilityFocused: false))
+        XCTAssertTrue(WindowControlDemand.needsMetadata(pointerControlsVisible: false,
+            voiceOverEnabled: true, selected: false, accessibilityFocused: true))
+        XCTAssertFalse(WindowControlDemand.needsMetadata(pointerControlsVisible: false,
+            voiceOverEnabled: true, selected: false, accessibilityFocused: false))
+    }
+
+    func testLeavingControlsCancelsObsoleteReadAndNewDemandCanRetry() async {
+        let gate = DiscoveryGate()
+        var calls = 0
+        var completions = 0
+        let fixture = Fixture(read: { _ in
+            calls += 1
+            if calls == 1 {
+                await gate.wait()
+                completions += 1
+                return .init(close: .unsupported)
+            }
+            return .init(close: .available)
+        })
+        fixture.model.arm(reverse: false)
+        fixture.model.setWindowControlsNeeded(true, id: 42)
+        await waitUntil("old capability read to start") { calls == 1 }
+        fixture.model.setWindowControlsNeeded(false, id: 42)
+        fixture.model.setWindowControlsNeeded(true, id: 42)
+        await waitUntil("new capability read to finish") { fixture.model.windowCapabilities[42]?.close == .available }
+        await gate.release()
+        await waitUntil("obsolete capability read to finish") { completions == 1 }
+        XCTAssertEqual(fixture.model.windowCapabilities[42]?.close, .available)
+    }
+
+    func testActionWithoutVisibleControlsDoesNotScheduleHintReads() async {
+        var calls = 0
+        let fixture = Fixture(read: { _ in calls += 1; return .init() })
+        fixture.model.arm(reverse: false)
+        XCTAssertTrue(fixture.model.zoomWindow(id: 42))
+        await Task.yield()
+        XCTAssertEqual(calls, 0, "The action revalidates natively; invisible hints need no extra read")
     }
 
     @MainActor

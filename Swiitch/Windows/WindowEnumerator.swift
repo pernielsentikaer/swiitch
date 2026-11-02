@@ -138,6 +138,26 @@ enum WindowEnumerator {
         var filterReasons: [FilterReason: Int] = [:]
         /// Successful reads (fresh or still-valid carried ones) for the next collection.
         var accessibilityMemory: [pid_t: AccessibilityMemory] = [:]
+        /// Unfiltered WindowServer evidence, independent of AX, Spaces and preferences.
+        /// nil means the read failed and must never be interpreted as closed windows.
+        var inventory: WindowInventory?
+    }
+
+    struct WindowInventory: Sendable {
+        let owners: [CGWindowID: pid_t]
+        let collectedAt: TimeInterval
+
+        static func from(rows: [[String: Any]]?, collectedAt: TimeInterval) -> Self? {
+            guard let rows else { return nil }
+            var owners: [CGWindowID: pid_t] = [:]
+            for row in rows {
+                guard let id = row[kCGWindowNumber as String] as? CGWindowID,
+                      let pid = row[kCGWindowOwnerPID as String] as? pid_t else { return nil }
+                if let previous = owners[id], previous != pid { return nil }
+                owners[id] = pid
+            }
+            return Self(owners: owners, collectedAt: collectedAt)
+        }
     }
 
     @MainActor static func context(options: EnumerateOptions) -> Context {
@@ -163,7 +183,9 @@ enum WindowEnumerator {
         // One WindowServer pass: the complete list carries `kCGWindowIsOnscreen`, so a
         // second `.optionOnScreenOnly` copy would only duplicate work every collection.
         // Discover everything first, filter afterward: minimized windows are off-screen.
-        let all = copyWindows(option: [.optionAll, .excludeDesktopElements])
+        let raw = CGWindowListCopyWindowInfo([.optionAll, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]]
+        let inventory = WindowInventory.from(rows: raw, collectedAt: started)
+        let all = raw ?? []
 
         let regularApps = context.applications
         let regularPIDs = Set(regularApps.map { $0.processIdentifier })
@@ -282,7 +304,7 @@ enum WindowEnumerator {
         return Collection(apps: entries, duration: ProcessInfo.processInfo.systemUptime - started,
                           candidateCount: candidateCount, filteredCount: candidateCount - remainingCount,
                           unavailableAXCount: unavailableAXCount, reusedAXCount: reusedAXCount,
-                          filterReasons: filterReasons, accessibilityMemory: memory)
+                          filterReasons: filterReasons, accessibilityMemory: memory, inventory: inventory)
     }
 
     @MainActor static func ordered(_ apps: [AppEntry], focusTracker: FocusTracker) -> [AppEntry] {
@@ -301,13 +323,6 @@ enum WindowEnumerator {
             return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
         }
         return entries
-    }
-
-    private static func copyWindows(option: CGWindowListOption) -> [[String: Any]] {
-        guard let raw = CGWindowListCopyWindowInfo(option, kCGNullWindowID) as? [[String: Any]] else {
-            return []
-        }
-        return raw
     }
 
     private struct AXMetadata {
