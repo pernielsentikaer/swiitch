@@ -70,7 +70,8 @@ struct EnumerateOptions: Sendable {
     /// the picker. While the user has not used Swiitch for a while, such requests reuse a
     /// snapshot for longer instead of polling every app's Accessibility bridge.
     var isBackgroundRefresh: Bool = false
-    /// If false, excludes offscreen windows, except confirmed minimized windows when enabled.
+    /// If false, keeps current-Space windows (including hidden apps) and, independently,
+    /// confirmed minimized windows when enabled.
     var includeOtherSpaces: Bool = true
     /// Independent of Spaces. Unknown AX state is never treated as confirmed minimized.
     var includeMinimizedWindows: Bool = true
@@ -80,9 +81,13 @@ struct EnumerateOptions: Sendable {
     /// Bundle identifiers omitted before any Accessibility or thumbnail work begins.
     var excludedBundleIDs: Set<String> = []
 
-    func includes(_ window: WindowInfo) -> Bool {
+    /// A hidden app's windows are off screen on every Space, so only Spaces membership can
+    /// say which of them are on the Space the user is looking at; `onCurrentSpace` is asked
+    /// just for those, and an unknown answer keeps the window out, as before.
+    func includes(_ window: WindowInfo, appHidden: Bool = false, onCurrentSpace: () -> Bool? = { nil }) -> Bool {
         if window.isMinimized == true { return includeMinimizedWindows }
-        return includeOtherSpaces || window.isOnScreen
+        if includeOtherSpaces || window.isOnScreen { return true }
+        return appHidden && onCurrentSpace() == true
     }
 }
 
@@ -288,7 +293,7 @@ enum WindowEnumerator {
         var entries: [AppEntry] = []
         for app in regularApps {
             let pid = app.processIdentifier
-            let windows = (byPID[pid] ?? []).filter { options.includes($0) }
+            let windows = byPID[pid] ?? []
             guard !windows.isEmpty else { continue }
             entries.append(AppEntry(
                 pid: pid,
@@ -300,6 +305,9 @@ enum WindowEnumerator {
             ))
         }
 
+        // Discovery collects all Spaces for its warm cache; direct callers such as the
+        // census can request a narrower scope. Both must apply the same hidden-app rule.
+        entries = WindowDiscovery.filtered(entries, options: options, screenFrame: context.screenFrame)
         let remainingCount = entries.reduce(0) { $0 + $1.windows.count }
         return Collection(apps: entries, duration: ProcessInfo.processInfo.systemUptime - started,
                           candidateCount: candidateCount, filteredCount: candidateCount - remainingCount,

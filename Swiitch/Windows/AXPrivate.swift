@@ -62,10 +62,16 @@ enum AXPrivate {
 
     private typealias MainConnectionID = @convention(c) () -> UInt32
     private typealias CopySpacesForWindows = @convention(c) (UInt32, UInt32, CFArray) -> Unmanaged<CFArray>?
+    private typealias CopyManagedDisplaySpaces = @convention(c) (UInt32) -> Unmanaged<CFArray>?
+    private typealias GetActiveSpace = @convention(c) (UInt32) -> UInt64
     private static let mainConnectionID: MainConnectionID? =
         skyLightSymbol("CGSMainConnectionID", as: MainConnectionID.self)
     private static let copySpacesForWindows: CopySpacesForWindows? =
         skyLightSymbol("CGSCopySpacesForWindows", as: CopySpacesForWindows.self)
+    private static let copyManagedDisplaySpaces: CopyManagedDisplaySpaces? =
+        skyLightSymbol("CGSCopyManagedDisplaySpaces", as: CopyManagedDisplaySpaces.self)
+    private static let getActiveSpace: GetActiveSpace? =
+        skyLightSymbol("CGSGetActiveSpace", as: GetActiveSpace.self)
     /// kCGSAllSpacesMask: current, other, and fullscreen Spaces alike.
     private static let allSpacesMask: UInt32 = 7
 
@@ -81,6 +87,32 @@ enum AXPrivate {
         guard let result = copySpacesForWindows(mainConnectionID(), allSpacesMask, windows) else { return nil }
         let spaces = result.takeRetainedValue() as? [NSNumber] ?? []
         return spaces.map(\.uint64Value)
+    }
+
+    /// The Space each display is showing right now, or nil when the SPI is unavailable.
+    /// Every display has a current Space, so a window on any of them is one the user can
+    /// see without switching. Falls back to the active display alone.
+    static func currentSpaceIDs() -> Set<UInt64>? {
+        guard let mainConnectionID else { return nil }
+        let connection = mainConnectionID()
+        if let copyManagedDisplaySpaces, let result = copyManagedDisplaySpaces(connection) {
+            if let ids = currentSpaceIDs(from: result.takeRetainedValue()) { return ids }
+        }
+        if let id = getActiveSpace?(connection), id != 0 { return [id] }
+        return nil
+    }
+
+    /// Private dictionary schemas can change. Ignore unknown/invalid entries rather than
+    /// inventing a Space, and never confuse all Spaces on a display with its current one.
+    static func currentSpaceIDs(from value: Any) -> Set<UInt64>? {
+        guard let displays = value as? [[String: Any]] else { return nil }
+        let ids = displays.compactMap { display -> UInt64? in
+            guard let current = display["Current Space"] as? [String: Any],
+                  let number = (current["ManagedSpaceID"] as? NSNumber) ?? (current["id64"] as? NSNumber),
+                  number.int64Value > 0 else { return nil }
+            return number.uint64Value
+        }
+        return ids.isEmpty ? nil : Set(ids)
     }
 
     static func windowID(for element: AXUIElement) -> CGWindowID? {

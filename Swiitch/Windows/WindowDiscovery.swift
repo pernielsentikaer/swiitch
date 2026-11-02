@@ -210,13 +210,36 @@ final class WindowDiscovery {
         return WindowEnumerator.ordered(apps, focusTracker: focusTracker)
     }
 
-    static func filtered(_ apps: [AppEntry], options: EnumerateOptions, screenFrame: CGRect?) -> [AppEntry] {
-        apps.compactMap { entry in
+    /// How `filtered` learns which Spaces the user is looking at and which a window is on.
+    /// Only hidden apps' off-screen windows ask, and only while other Spaces are excluded,
+    /// so the SkyLight round-trips stay rare; the current Spaces are read once per pass.
+    struct SpaceMembership: Sendable {
+        var currentSpaces: @Sendable () -> Set<UInt64>?
+        var windowSpaces: @Sendable (CGWindowID) -> [UInt64]?
+        nonisolated static let live = SpaceMembership(currentSpaces: { AXPrivate.currentSpaceIDs() },
+                                          windowSpaces: { AXPrivate.spaceIDs(forWindow: $0) })
+    }
+
+    // Shared with direct enumeration (including the census). Only immutable snapshots
+    // and thread-safe resolvers are read here, so background collectors use the same rule.
+    nonisolated static func filtered(_ apps: [AppEntry], options: EnumerateOptions, screenFrame: CGRect?,
+                                     spaces: SpaceMembership = .live) -> [AppEntry] {
+        var didReadCurrentSpaces = false
+        var current: Set<UInt64>?
+        return apps.compactMap { entry in
             guard !options.excludedBundleIDs.contains(entry.bundleIdentifier ?? "") else { return nil }
             var app = entry
             app.windows = app.windows.filter { window in
-                options.includes(window)
-                    && (screenFrame == nil || screenFrame!.intersects(window.bounds))
+                guard screenFrame.map({ $0.intersects(window.bounds) }) ?? true else { return false }
+                return options.includes(window, appHidden: entry.isHidden, onCurrentSpace: {
+                    if !didReadCurrentSpaces {
+                        current = spaces.currentSpaces()
+                        didReadCurrentSpaces = true
+                    }
+                    guard let current, !current.isEmpty,
+                          let windowSpaces = spaces.windowSpaces(window.id) else { return nil }
+                    return !current.isDisjoint(with: windowSpaces)
+                })
             }
             return app.windows.isEmpty ? nil : app
         }

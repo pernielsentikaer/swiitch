@@ -67,6 +67,13 @@ The accessibility-node test may require a live AX client during its inspection p
 (`TEST_RUNNER_SWIITCH_AX_INSPECTION_SECONDS=30`). These are not substitutes for full
 VoiceOver, multi-display, Spaces, sleep/wake, or physical-keyboard testing.
 
+When other Spaces are excluded, hidden apps keep only windows confirmed to belong to a
+currently displayed Space. The optional SkyLight lookup checks every display (falling
+back to the active display); unavailable membership remains excluded. Minimized windows
+still follow their own preference. Direct enumeration, the window census, and warm-cache
+filtering share this rule. Unit tests cover multiple display IDs and unavailable data;
+the native Spaces test checks a disposable ordered-out window against the live resolver.
+
 ## Regenerating the app icon
 
 ```bash

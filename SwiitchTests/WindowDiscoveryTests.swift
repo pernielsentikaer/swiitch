@@ -1,4 +1,5 @@
 import AppKit
+import os
 @testable import Swiitch
 import XCTest
 
@@ -225,6 +226,85 @@ final class WindowDiscoveryTests: XCTestCase {
         XCTAssertTrue(WindowDiscovery.filtered([app], options: .init(), screenFrame: elsewhere).isEmpty)
     }
 
+    func testHiddenAppKeepsOnlyItsWindowsOnACurrentSpaceWhenOtherSpacesAreExcluded() {
+        let frame = CGRect(x: 0, y: 0, width: 800, height: 600)
+        let here = WindowInfo(id: 1, pid: 10, title: "Here", bounds: frame, isOnScreen: false, isMinimized: false)
+        let secondDisplay = WindowInfo(id: 2, pid: 10, title: "Other display", bounds: frame, isOnScreen: false, isMinimized: false)
+        let elsewhere = WindowInfo(id: 3, pid: 10, title: "Elsewhere", bounds: frame, isOnScreen: false, isMinimized: false)
+        let minimized = WindowInfo(id: 4, pid: 10, title: "Minimized", bounds: frame, isOnScreen: false, isMinimized: true)
+        let hidden = AppEntry(pid: 10, bundleIdentifier: "example", name: "Example", icon: nil,
+                              windows: [here, secondDisplay, elsewhere, minimized], isHidden: true)
+        let currentSpaceOnly = EnumerateOptions(includeOtherSpaces: false, includeMinimizedWindows: false)
+        let lookups = SpaceLookupLog()
+        let spaces = WindowDiscovery.SpaceMembership(
+            currentSpaces: { lookups.recordCurrent(); return [7, 8] },
+            windowSpaces: { id in lookups.record(id); return [1: [7], 2: [8], 3: [9]][id] })
+
+        let listed = WindowDiscovery.filtered([hidden], options: currentSpaceOnly, screenFrame: nil, spaces: spaces)
+        XCTAssertEqual(listed.first?.windows.map(\.id), [1, 2],
+                       "Each display's current Space counts; another Space and the minimized toggle do not")
+        XCTAssertEqual(lookups.drain(), [1, 2, 3], "Only the hidden app's off-screen, non-minimized windows are looked up")
+        XCTAssertEqual(lookups.currentReads, 1, "Read the displays once, not once per window")
+
+        var visible = hidden
+        visible.isHidden = false
+        XCTAssertNil(WindowDiscovery.filtered([visible], options: currentSpaceOnly, screenFrame: nil, spaces: spaces).first,
+                     "The same off-screen windows in a visible app are on other Spaces by definition")
+        XCTAssertTrue(lookups.drain().isEmpty)
+
+        let everywhere = EnumerateOptions(includeOtherSpaces: true, includeMinimizedWindows: false)
+        XCTAssertEqual(WindowDiscovery.filtered([hidden], options: everywhere, screenFrame: nil, spaces: spaces).first?.windows.map(\.id),
+                       [1, 2, 3])
+        XCTAssertTrue(lookups.drain().isEmpty, "Including other Spaces asks nothing of SkyLight")
+        XCTAssertEqual(lookups.currentReads, 1)
+
+        let unavailable = WindowDiscovery.SpaceMembership(currentSpaces: { nil }, windowSpaces: { _ in nil })
+        XCTAssertNil(WindowDiscovery.filtered([hidden], options: currentSpaceOnly, screenFrame: nil, spaces: unavailable).first,
+                     "Without the SPI the old answer stands: not listed")
+    }
+
+    func testHiddenAppScopeKeepsMinimizedIndependentAndSkipsIneligibleLookups() {
+        let frame = CGRect(x: 0, y: 0, width: 800, height: 600)
+        let window = WindowInfo(id: 1, pid: 10, title: "Hidden", bounds: frame, isOnScreen: false)
+        var hidden = AppEntry(pid: 10, bundleIdentifier: "example", name: "Example", icon: nil,
+                              windows: [window], isHidden: true)
+        let spaces = WindowDiscovery.SpaceMembership(
+            currentSpaces: { XCTFail("No eligible hidden window: do not query Spaces"); return nil },
+            windowSpaces: { _ in XCTFail("Do not query filtered windows"); return nil })
+        let options = EnumerateOptions(includeOtherSpaces: false)
+        XCTAssertTrue(WindowDiscovery.filtered([hidden], options: options,
+            screenFrame: frame.offsetBy(dx: 2000, dy: 0), spaces: spaces).isEmpty)
+        var excluded = options
+        excluded.excludedBundleIDs = ["example"]
+        XCTAssertTrue(WindowDiscovery.filtered([hidden], options: excluded, screenFrame: nil, spaces: spaces).isEmpty)
+        hidden.windows[0].isMinimized = true
+        XCTAssertEqual(WindowDiscovery.filtered([hidden], options: options, screenFrame: nil,
+                                               spaces: spaces).first?.windows.map(\.id), [1])
+        var hideMinimized = options
+        hideMinimized.includeMinimizedWindows = false
+        XCTAssertTrue(WindowDiscovery.filtered([hidden], options: hideMinimized, screenFrame: nil, spaces: spaces).isEmpty)
+    }
+
+    func testHiddenAppMembershipIsFreshForEachFilterPassAndUnknownWindowsStayExcluded() {
+        let frame = CGRect(x: 0, y: 0, width: 800, height: 600)
+        let hidden = AppEntry(pid: 10, bundleIdentifier: "example", name: "Example", icon: nil,
+            windows: (1...4).map { WindowInfo(id: CGWindowID($0), pid: 10, title: "Hidden", bounds: frame, isOnScreen: false) },
+            isHidden: true)
+        let calls = SpaceLookupLog()
+        let spaces = WindowDiscovery.SpaceMembership(
+            currentSpaces: { calls.recordCurrent(); return calls.currentReads == 1 ? [7] : [8] },
+            windowSpaces: { [1: [7], 2: [8], 3: []][$0] })
+        let options = EnumerateOptions(includeOtherSpaces: false)
+        XCTAssertEqual(WindowDiscovery.filtered([hidden], options: options, screenFrame: nil,
+                                               spaces: spaces).first?.windows.map(\.id), [1])
+        XCTAssertEqual(WindowDiscovery.filtered([hidden], options: options, screenFrame: nil,
+                                               spaces: spaces).first?.windows.map(\.id), [2])
+        XCTAssertEqual(calls.currentReads, 2, "Changing Space must re-filter the same warm collection")
+        let unavailable = WindowDiscovery.SpaceMembership(currentSpaces: { [] },
+            windowSpaces: { _ in XCTFail("No current Spaces: do not query individual windows"); return nil })
+        XCTAssertTrue(WindowDiscovery.filtered([hidden], options: options, screenFrame: nil, spaces: unavailable).isEmpty)
+    }
+
     func testConfirmedMinimizedWindowsAreNotClassifiedAsDecorativeDuplicatesOrHosts() {
         let screen = CGRect(x: 0, y: 0, width: 1440, height: 900)
         let frame = CGRect(x: 0, y: 400, width: 500, height: 500)
@@ -425,6 +505,15 @@ final class WindowDiscoveryTests: XCTestCase {
         XCTAssertFalse(WindowFocuser.isWindowPresent(window, lookup: { _ in [] }))
         XCTAssertFalse(WindowFocuser.isWindowPresent(window, lookup: { _ in nil }))
     }
+}
+
+/// Resolvers can run on either the main actor or the census worker.
+private final class SpaceLookupLog: Sendable {
+    private let state = OSAllocatedUnfairLock(initialState: (ids: [CGWindowID](), currentReads: 0))
+    var currentReads: Int { state.withLock { $0.currentReads } }
+    func recordCurrent() { state.withLock { $0.currentReads += 1 } }
+    func record(_ id: CGWindowID) { state.withLock { $0.ids.append(id) } }
+    func drain() -> [CGWindowID] { state.withLock { value in defer { value.ids = [] }; return value.ids } }
 }
 
 private final class DiscoveryClock: @unchecked Sendable {
