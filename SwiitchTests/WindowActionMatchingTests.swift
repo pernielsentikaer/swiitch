@@ -50,6 +50,27 @@ final class WindowActionMatchingTests: XCTestCase {
         XCTAssertTrue(AXPrivate.spacesResolverAvailable)
     }
 
+    func testCurrentSpaceParserUsesEveryDisplaysCurrentSpaceOnly() {
+        let displays: [[String: Any]] = [
+            ["Current Space": ["ManagedSpaceID": 7], "Spaces": [["ManagedSpaceID": 99]]],
+            ["Current Space": ["id64": 8]],
+            ["Current Space": ["ManagedSpaceID": 7, "id64": 99]],
+            ["Spaces": [["ManagedSpaceID": 100]]],
+        ]
+        XCTAssertEqual(AXPrivate.currentSpaceIDs(from: displays), [7, 8])
+    }
+
+    func testCurrentSpaceParserFailsClosedOnUnavailableOrInvalidPayload() {
+        XCTAssertNil(AXPrivate.currentSpaceIDs(from: "unknown schema"))
+        XCTAssertNil(AXPrivate.currentSpaceIDs(from: [] as [[String: Any]]))
+        XCTAssertNil(AXPrivate.currentSpaceIDs(from: [
+            ["Current Space": ["ManagedSpaceID": 0]],
+            ["Current Space": ["id64": -1]],
+            ["Current Space": ["ManagedSpaceID": "7"]],
+            ["Spaces": [["ManagedSpaceID": 7]]],
+        ] as [[String: Any]]))
+    }
+
     func testPrivateWindowIDResolverBindsAtRuntime() {
         // Needs no permission: only checks that the SPI symbol resolved via dlsym. If this
         // fails, every app reads as "AX unavailable" and ghost-window filtering is off.

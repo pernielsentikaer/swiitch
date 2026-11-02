@@ -811,7 +811,7 @@ final class SwitcherInteractionTests: XCTestCase {
                     state.apps.filter { !options.excludedBundleIDs.contains($0.bundleIdentifier ?? "") }
                         .compactMap { app -> AppEntry? in
                             var entry = app
-                            entry.windows = app.windows.filter(options.includes)
+                            entry.windows = app.windows.filter { options.includes($0) }
                             return app.windows.isEmpty || !entry.windows.isEmpty ? entry : nil
                         }
                 },

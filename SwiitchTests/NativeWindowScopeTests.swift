@@ -25,9 +25,20 @@ final class NativeWindowScopeTests: XCTestCase {
         let visibleSpaces = try XCTUnwrap(queriedSpaces,
                                          "Resolving symbols must also produce a usable Spaces query")
         XCTAssertFalse(visibleSpaces.isEmpty, "The displayed test window must belong to a Space")
+        let currentSpaces = try XCTUnwrap(AXPrivate.currentSpaceIDs(), "The live current-Space query must resolve")
+        XCTAssertFalse(currentSpaces.isDisjoint(with: visibleSpaces), "The displayed window must be on a current Space")
         window.orderOut(nil)
         try await Task.sleep(for: .milliseconds(150))
         let orderedOutSpaces = await Task.detached { AXPrivate.spaceIDs(forWindow: id) }.value
+        XCTAssertFalse(currentSpaces.isDisjoint(with: try XCTUnwrap(orderedOutSpaces)),
+                       "Ordering out a window must not erase its current-Space membership")
+        let hiddenWindow = WindowInfo(id: id, pid: ProcessInfo.processInfo.processIdentifier,
+                                     title: window.title, bounds: window.frame, isOnScreen: false)
+        let hiddenApp = AppEntry(pid: hiddenWindow.pid, bundleIdentifier: nil, name: "Disposable test host",
+                                 icon: nil, windows: [hiddenWindow], isHidden: true)
+        XCTAssertEqual(WindowDiscovery.filtered([hiddenApp], options: .init(includeOtherSpaces: false),
+                                               screenFrame: nil).first?.windows.map(\.id), [id],
+                       "A hidden-app snapshot must retain the real ordered-out window using live Space queries")
         print("Native Spaces query: visibleCount=\(visibleSpaces.count), orderedOutCount=\(orderedOutSpaces?.count ?? -1)")
     }
 

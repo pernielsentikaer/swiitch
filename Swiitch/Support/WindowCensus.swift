@@ -29,7 +29,8 @@ enum WindowCensus {
             + "activeScreenOnly=\(options.restrictToActiveScreen) excluded=\(options.excludedBundleIDs.count)")
         lines.append("accessibility=\(AXIsProcessTrusted()) screenRecording=\(CGPreflightScreenCaptureAccess()) "
             + "windowIDSPI=\(AXPrivate.windowIDResolverAvailable) spacesSPI=\(AXPrivate.spacesResolverAvailable) "
-            + "displays=\(NSScreen.screens.count)")
+            + "displays=\(NSScreen.screens.count) "
+            + "currentSpaces=\(AXPrivate.currentSpaceIDs().map { $0.sorted().map(String.init).joined(separator: ",") } ?? "n/a")")
         // AppKit metadata is snapshotted above; all potentially slow native queries run
         // off the UI actor, including the detailed per-window Accessibility reads.
         return await Task.detached { [context, lines] in
