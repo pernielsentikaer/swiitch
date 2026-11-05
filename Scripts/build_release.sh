@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Builds a universal Release app, signs the zip with Sparkle's `sign_update`,
+# Builds an Apple Silicon Release app, signs the zip with Sparkle's `sign_update`,
 # and prints an <item> block for appcast.xml. By default the app is Developer ID
 # signed, notarized, and stapled. --unnotarized explicitly selects ad-hoc signing
 # without Apple's notarization service; Sparkle signing remains mandatory.
@@ -96,7 +96,7 @@ xcodebuild \
     SYMROOT="$BUILD_DIR" \
     CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
     MARKETING_VERSION="$VERSION" \
-    ARCHS="arm64 x86_64" \
+    ARCHS=arm64 \
     ONLY_ACTIVE_ARCH=NO \
     "${SIGNING_OVERRIDES[@]}" \
     clean build | tail -5
@@ -109,14 +109,12 @@ fi
 test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP_PATH/Contents/Info.plist")" = "$BUILD_NUMBER"
 test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP_PATH/Contents/Info.plist")" = "$VERSION"
 
-echo "==> Verifying universal architecture"
+echo "==> Verifying Apple Silicon architecture"
 BUILT_ARCHS="$(lipo -archs "$APP_PATH/Contents/MacOS/Swiitch")"
-for REQUIRED_ARCH in arm64 x86_64; do
-    if [[ " $BUILT_ARCHS " != *" $REQUIRED_ARCH "* ]]; then
-        echo "Release is missing $REQUIRED_ARCH (built: $BUILT_ARCHS)" >&2
-        exit 1
-    fi
-done
+if [ "$BUILT_ARCHS" != arm64 ]; then
+    echo "Release must contain only arm64 (built: $BUILT_ARCHS)" >&2
+    exit 1
+fi
 
 echo "==> Verifying app signature ($RELEASE_MODE)"
 codesign --verify --deep --strict --verbose=2 "$APP_PATH"
@@ -200,6 +198,7 @@ cat <<EOF
             <pubDate>$PUB_DATE</pubDate>
             <sparkle:version>$BUILD_NUMBER</sparkle:version>
             <sparkle:shortVersionString>$VERSION</sparkle:shortVersionString>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
             <description><![CDATA[Release $VERSION]]></description>
             <enclosure

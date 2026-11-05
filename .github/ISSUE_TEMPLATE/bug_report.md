@@ -19,7 +19,7 @@ labels: bug
 <!-- Preferences → About → Review Diagnostics → Report a Problem… fills this in for you. -->
 - macOS version:
 - Swiitch version (Preferences → About):
-- Hardware (Apple Silicon / Intel):
+- Mac model (Apple Silicon only):
 - Number of displays:
 
 ## Logs / screenshots

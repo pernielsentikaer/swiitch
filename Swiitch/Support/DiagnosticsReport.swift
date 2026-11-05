@@ -81,11 +81,7 @@ enum DiagnosticsReport {
         let discovery = WindowDiscovery.shared
         LoginItemController.shared.refresh()
         UpdateController.shared.refreshSettings()
-        #if arch(arm64)
         let architecture = "arm64"
-        #else
-        let architecture = "x86_64"
-        #endif
         return Snapshot(
             version: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown",
             build: Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown",

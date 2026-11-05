@@ -45,7 +45,7 @@ Keep the same bundle identifier, install path, and designated signing requiremen
 
 If you add, remove, or move source files, re-run `xcodegen generate`. Xcode may need to be quit-and-reopened to pick up the new project graph cleanly.
 
-The root `Package.resolved` is the reviewed dependency lock. XcodeGen's post-generation hook copies it into the generated workspace. Build with `-onlyUsePackageVersionsFromResolvedFile`; CI verifies the copy and compiles both Debug tests and universal Release. To update dependencies deliberately, resolve the intended version in Xcode, copy the resulting lock back to the root, review its revision/version changes, and rerun tests. Do not silently regenerate the root lock during normal builds.
+The root `Package.resolved` is the reviewed dependency lock. XcodeGen's post-generation hook copies it into the generated workspace. Build with `-onlyUsePackageVersionsFromResolvedFile`; CI verifies the copy and compiles the Debug tests and arm64-only Release. Swiitch supports Apple Silicon only. To update dependencies deliberately, resolve the intended version in Xcode, copy the resulting lock back to the root, review its revision/version changes, and rerun tests. Do not silently regenerate the root lock during normal builds.
 
 ## Localization and native validation
 
@@ -235,7 +235,8 @@ Swiitch ships binary updates via [Sparkle](https://sparkle-project.org). The flo
    This:
    - Refuses a dirty working tree or an existing release artifact.
    - Requires an explicit positive build number greater than all versions in both the local and published appcasts. Example numbers are illustrative; choose the next valid number when releasing. A failed feed download stops the release.
-   - Runs `xcodegen generate` + a dependency-locked universal (`arm64` + `x86_64`) Release build.
+   - Runs `xcodegen generate` + a dependency-locked arm64-only Release build.
+   - Marks the generated Sparkle appcast item as requiring arm64, so Intel installs are not offered an incompatible update.
    - Suppresses Xcode's development entitlement injection and rejects a public app that allows debugger attachment through `com.apple.security.get-task-allow`.
    - In the default mode, requires a Developer ID signature and hardened runtime, submits to Apple notarization, and staples the accepted ticket. It never silently falls back to another signing mode.
    - With `--unnotarized`, explicitly overrides the local signing identity for this build to ad-hoc signing, with no Team ID or hardened-runtime library validation (which cannot load Sparkle in an ad-hoc app). This does not change the Mac's security settings or `Config/Signing.local.xcconfig`. Notary credentials are neither required nor used. Development-signed test apps are never packaged as public releases.
@@ -258,7 +259,7 @@ Run `bash Scripts/test_release_gates.sh` for read-only feed validation, signatur
 
 ## Verification boundaries
 
-Regression tests use injected capture, shortcut, discovery, login-item, and updater backends, plus offscreen SwiftUI renders. They do not revoke permissions, close real documents, register login items, or publish updates. Before a public release, manually check real-window switching/capture across Spaces, two displays, VoiceOver interaction, and the oldest supported macOS. Universal compilation is not an Intel runtime test.
+Regression tests use injected capture, shortcut, discovery, login-item, and updater backends, plus offscreen SwiftUI renders. They do not revoke permissions, close real documents, register login items, or publish updates. Before a public release, manually check real-window switching/capture across Spaces, two displays, VoiceOver interaction, and the oldest supported macOS. Release builds target Apple Silicon (`arm64`) only; Intel Macs are unsupported.
 
 `AccessibilityTests` checks the rendered tile's label, selected state, preview status,
 and actions. Some hosted SwiftUI test processes expose no AX children until an external
